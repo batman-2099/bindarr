@@ -803,7 +803,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
         && (!containerFilters.condition || card.condition === containerFilters.condition)
         && (!containerFilters.printing || card.printing === containerFilters.printing)
         && (!containerFilters.language || card.language === containerFilters.language)
-        && (!containerFilters.deckStatus || (containerFilters.deckStatus === 'inPlay' ? !!card.deck_names : !card.deck_names))
+        && (!containerFilters.deckStatus || (containerFilters.deckStatus === 'inPlay' ? card.checked_out_qty > 0 : !(card.checked_out_qty > 0)))
       )
       .sort((a, b) =>
         (compartmentIndex.get(a.compartment_id) ?? Infinity) - (compartmentIndex.get(b.compartment_id) ?? Infinity)
@@ -1609,9 +1609,9 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                       <span style={{ width: '100%', marginTop: '0.3rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-strong)', fontSize: '0.65rem', fontWeight: 700 }}>
                         {displayName(card)}
                       </span>
-                      {card.deck_names && (
+                      {card.checked_out_qty > 0 && (
                         <span title={`${t('loc.inPlay')}: ${card.deck_names}`} style={{ position: 'absolute', right: '0.4rem', bottom: '1.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.15rem 0.3rem', borderRadius: '999px', background: 'rgba(0,0,0,0.8)', color: 'white', fontSize: '0.62rem', fontWeight: 700 }}>
-                          <Layers size={11} /> {t('loc.inPlay')}
+                          <Layers size={11} /> {card.checked_out_qty < card.quantity ? `${card.checked_out_qty}/${card.quantity} Out` : t('loc.inPlay')}
                         </span>
                       )}
                       {card.missing ? (

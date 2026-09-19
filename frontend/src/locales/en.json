@@ -381,6 +381,8 @@
   "loc.importContainer": "Import ManaBox container",
   "loc.inDeck": "In deck",
   "loc.inPlay": "In Play",
+  "loc.allDeckStatuses": "All deck statuses",
+  "loc.notInPlay": "Not In Play",
   "loc.selectPrompt": "Select a container to view its compartments.",
   "loc.containerSettings": "Container Settings",
   "loc.saveRules": "Save Rules",

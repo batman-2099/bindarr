@@ -120,7 +120,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   const [containerCardScale, setContainerCardScale] = useState(1);
   const [unsortedBulkLocation, setUnsortedBulkLocation] = useState('');
   const [showContainerFilters, setShowContainerFilters] = useState(false);
-  const [containerFilters, setContainerFilters] = useState({ search: '', set: '', type: '', rarity: '', condition: '', printing: '', language: '' });
+  const [containerFilters, setContainerFilters] = useState({ search: '', set: '', type: '', rarity: '', condition: '', printing: '', language: '', deckStatus: '' });
 
   const {
     selectMode: unsortedSelectMode,
@@ -803,6 +803,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
         && (!containerFilters.condition || card.condition === containerFilters.condition)
         && (!containerFilters.printing || card.printing === containerFilters.printing)
         && (!containerFilters.language || card.language === containerFilters.language)
+        && (!containerFilters.deckStatus || (containerFilters.deckStatus === 'inPlay' ? !!card.deck_names : !card.deck_names))
       )
       .sort((a, b) =>
         (compartmentIndex.get(a.compartment_id) ?? Infinity) - (compartmentIndex.get(b.compartment_id) ?? Infinity)
@@ -1583,7 +1584,12 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                         {options.map(option => <option key={option} value={option}>{option}</option>)}
                       </select>
                     ))}
-                    <button className="btn btn-secondary" onClick={() => setContainerFilters({ search: '', set: '', type: '', rarity: '', condition: '', printing: '', language: '' })} style={{ fontSize: '0.72rem', padding: '0.3rem' }}>{t('collection.clearFilters')}</button>
+                    <select className="select-control" value={containerFilters.deckStatus} onChange={(e) => setContainerFilters(filters => ({ ...filters, deckStatus: e.target.value }))} style={{ fontSize: '0.72rem', padding: '0.3rem' }}>
+                      <option value="">{t('loc.allDeckStatuses')}</option>
+                      <option value="inPlay">{t('loc.inPlay')}</option>
+                      <option value="notInPlay">{t('loc.notInPlay')}</option>
+                    </select>
+                    <button className="btn btn-secondary" onClick={() => setContainerFilters({ search: '', set: '', type: '', rarity: '', condition: '', printing: '', language: '', deckStatus: '' })} style={{ fontSize: '0.72rem', padding: '0.3rem' }}>{t('collection.clearFilters')}</button>
                   </div>
                 )}
               </div>

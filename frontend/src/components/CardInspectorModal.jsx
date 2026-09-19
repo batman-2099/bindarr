@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, MapPin, Trash2, Star, Maximize2, ExternalLink, Search } from 'lucide-react';
+import { X, MapPin, Trash2, Star, Maximize2, ExternalLink, Search, Copy } from 'lucide-react';
 import { getCardDisplayName } from '../utils/langHelper';
 import { translatedName, setCode, isEnglish } from '../utils/languages';
 import { formatPrice, priceText } from '../utils/formatPrice';
@@ -234,6 +234,34 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
       showToast && showToast(t('common.errBackend'));
     } finally {
       setFetchingValue(false);
+    }
+  };
+
+  const handleDuplicate = async () => {
+    try {
+      const response = await fetch('/api/collection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          card_id: activeCard.card_id || activeCard.id,
+          quantity: 1,
+          condition: activeCard.condition,
+          printing: activeCard.printing,
+          language: activeCard.language,
+          purchase_price: activeCard.purchase_price || 0,
+          location_id: activeCard.location_id || null,
+          list_type: activeCard.list_type,
+          is_trade: activeCard.is_trade,
+          game: activeCard.game
+        })
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error || t('inspector.errDuplicate'));
+      showToast?.(t('inspector.duplicated'));
+      onUpdate?.();
+    } catch (error) {
+      console.error(error);
+      showToast?.(error.message || t('inspector.errDuplicate'));
     }
   };
 
@@ -713,6 +741,12 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                   placeholder={t('inspector.addToDeck')}
                   style={{ fontSize: '0.8rem', padding: '0.45rem 0.5rem', maxWidth: '140px' }}
                 />
+
+                {activeCard.grader === 'Raw' && (
+                  <button type="button" className="btn btn-secondary btn-icon-only" style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem' }} onClick={handleDuplicate} title={t('inspector.duplicateCard')}>
+                    <Copy size={16} />
+                  </button>
+                )}
 
                 {activeCard.list_type === 'wishlist' && (
                   <button 

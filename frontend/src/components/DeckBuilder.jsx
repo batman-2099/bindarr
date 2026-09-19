@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, X, ChevronLeft, Play, BarChart2, Search, LogOut, PackageCheck, LayoutGrid, List, Download, Upload, Eye, Filter, CheckCircle, AlertTriangle, Layers, Zap, Swords, Gamepad2, SlidersHorizontal, ArrowRight, FolderPlus, FileText, MapPin } from 'lucide-react';
+import { Plus, Minus, Trash2, X, ChevronLeft, Play, BarChart2, Search, LogOut, PackageCheck, LayoutGrid, List, Download, Upload, Eye, Filter, CheckCircle, AlertTriangle, Layers, Zap, Swords, Gamepad2, SlidersHorizontal, ArrowRight, FolderPlus, FileText, MapPin } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { shuffleArray } from '../utils/shuffle';
 import { translateJapaneseName } from '../utils/langHelper';
@@ -51,6 +51,7 @@ function DeckBuilder({ showToast }) {
   // Deck View & Display Modes
   const [cardDisplayMode, setCardDisplayMode] = useState('list'); // 'list' | 'grid'
   const [deckCardSortBy, setDeckCardSortBy] = useState('type');
+  const [deckCardScale, setDeckCardScale] = useState(1);
   const [previewCard, setPreviewCard] = useState(null);
 
   // Deck Creation States & Constants
@@ -1677,6 +1678,32 @@ function DeckBuilder({ showToast }) {
                       <option value="type">{t('deck.sortByType')}</option>
                       <option value="location">{t('collection.fLocation')}</option>
                     </select>
+                    {cardDisplayMode === 'grid' && (
+                      <div style={{ display: 'flex', background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
+                        <button
+                          type="button"
+                          className="btn btn-icon-only btn-secondary"
+                          disabled={deckCardScale <= 0.6}
+                          onClick={() => setDeckCardScale(scale => Math.max(0.6, +(scale - 0.2).toFixed(1)))}
+                          aria-label={t('loc.decreaseCardScale')}
+                          title={t('loc.decreaseCardScale')}
+                          style={{ borderRadius: 'var(--radius-sm)', padding: '0.25rem 0.35rem', width: '28px', height: '24px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          <Minus size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-icon-only btn-secondary"
+                          disabled={deckCardScale >= 2.5}
+                          onClick={() => setDeckCardScale(scale => Math.min(2.5, +(scale + 0.2).toFixed(1)))}
+                          aria-label={t('loc.increaseCardScale')}
+                          title={t('loc.increaseCardScale')}
+                          style={{ borderRadius: 'var(--radius-sm)', padding: '0.25rem 0.35rem', width: '28px', height: '24px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          <Plus size={13} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                   
                   {activeDeck.cards.length === 0 ? (
@@ -1745,7 +1772,7 @@ function DeckBuilder({ showToast }) {
 
                           {/* 2. VISUAL CARD GRID VIEW */}
                           {cardDisplayMode === 'grid' && (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '0.75rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${110 * deckCardScale}px, 1fr))`, gap: '0.75rem' }}>
                               {list.map(card => (
                                 <div key={card.id} style={{ position: 'relative', borderRadius: '6px', overflow: 'hidden', border: card.quantity > (card.owned_qty || 0) - (card.locked_qty || 0) ? '2px solid var(--accent-red)' : '1px solid var(--border-glass)', background: card.quantity > (card.owned_qty || 0) - (card.locked_qty || 0) ? 'rgba(127,29,29,0.16)' : 'rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', transition: 'transform 0.15s' }}>
                                   <div style={{ position: 'relative', width: '100%', aspectRatio: 0.718, cursor: 'pointer' }} onClick={() => setPreviewCard(card)}>

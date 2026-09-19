@@ -2363,27 +2363,10 @@ button, input, select, textarea {
 /* Storage Coordinator Workspace Layout */
 .storage-workspace-grid {
   display: grid;
-  grid-template-columns: 1fr 420px;
+  grid-template-columns: 1fr;
   gap: 1.25rem;
-  min-height: 70vh;
+  min-height: 0;
   overflow-x: hidden;
-}
-
-@media (max-width: 1024px) {
-  .storage-workspace-grid {
-    grid-template-columns: 1fr !important;
-    height: auto !important;
-    /* Stacked = one column; the 70vh floor stretches short content (esp. during
-       filing when the unsorted col is hidden) leaving dead space above the fixed
-       filing bar. Let rows size to content instead. */
-    min-height: 0 !important;
-    align-content: start;
-  }
-  .location-unsorted-col {
-    max-height: 400px;
-    border: none !important;
-    padding: 0.5rem 0 !important;
-  }
 }
 
 .section-divider {
@@ -3177,64 +3160,6 @@ button, input, select, textarea {
   transition: var(--transition-smooth);
 }
 
-/* Storage pane switcher (mobile): strict fixed 42px height grid container so the bounding box and buttons never scale vertically */
-.storage-pane-tabs {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  align-items: center;
-  height: 42px;
-  min-height: 42px;
-  max-height: 42px;
-  padding: 3px;
-  width: 100%;
-  max-width: 340px;
-  margin-inline: auto;
-  box-sizing: border-box;
-  overflow: hidden;
-}
-.storage-pane-tabs .sub-nav-tab {
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  padding: 0 0.5rem;
-  font-size: 0.8rem;
-  font-weight: 700;
-  white-space: nowrap;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  border: 1px solid transparent;
-}
-
-.tab-count-badge {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--border-glass);
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  font-weight: 700;
-  padding: 0.12rem 0.45rem;
-  border-radius: 999px;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: var(--transition-smooth);
-}
-
-.tab-count-badge.has-unsorted {
-  background: var(--accent-red);
-  color: var(--text-on-accent);
-  border-color: rgba(255, 71, 71, 0.6);
-  box-shadow: 0 0 10px var(--accent-red-glow);
-}
-
-.sub-nav-tab.active .tab-count-badge:not(.has-unsorted) {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.25);
-  color: var(--text-primary);
-}
 
 .sub-nav-tab.active {
   color: var(--text-primary);

@@ -123,7 +123,8 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   useBackGuard(!!selectedLocationId, () => setSelectedLocationId && setSelectedLocationId(null));
   const [compRuleDraft, setCompRuleDraft] = useState([]);
 
-  const [unsortedSearch, setUnsortedSearch] = useState('');
+  const [unsortedFilters, setUnsortedFilters] = useState({ search: '', set: '', type: '', color: '', rarity: '', condition: '', printing: '', language: '', deckStatus: '' });
+  const [showUnsortedFilters, setShowUnsortedFilters] = useState(false);
   const [unsortedSort, setUnsortedSort] = useState('scanned-desc');
   const [unsortedViewMode, setUnsortedViewMode] = useState('grid'); // 'grid' | 'detail'
   const [containerViewMode, setContainerViewMode] = useState(() => localStorage.getItem('storage_default_view') || 'layout'); // 'layout' | 'list'
@@ -133,7 +134,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   });
   const [unsortedBulkLocation, setUnsortedBulkLocation] = useState('');
   const [showContainerFilters, setShowContainerFilters] = useState(false);
-  const [containerFilters, setContainerFilters] = useState({ search: '', set: '', type: '', rarity: '', condition: '', printing: '', language: '', deckStatus: '' });
+  const [containerFilters, setContainerFilters] = useState({ search: '', set: '', type: '', color: '', rarity: '', condition: '', printing: '', language: '', deckStatus: '' });
   const [containerSortBy, setContainerSortBy] = useState('storage');
 
   const {
@@ -179,11 +180,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   const [activePageIndex, setActivePageIndex] = useState(0);
   const [binderActiveEntryId, setBinderActiveEntryId] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-  // Stacked = single-column layout (matches the 1024px CSS breakpoint). Below it,
-  // the detail panel and Unsorted queue are shown one at a time via a segmented
-  // toggle instead of stacked, so you don't scroll between them.
   const [isStacked, setIsStacked] = useState(window.innerWidth <= 1024);
-  const [mobilePane, setMobilePane] = useState('container'); // 'container' | 'unsorted'
 
   const [filingMode, setFilingMode] = useState(false);
   const [filingQueue, setFilingQueue] = useState([]);
@@ -365,13 +362,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
 
   useEffect(() => {
     if (selectedLocationId) {
-      if (selectedLocationId === 'unsorted' || selectedLocationId === 'unassigned') {
-        setActiveLocationId(null);
-        setMobilePane('unsorted'); // deterministically show the Unsorted pane, not the focus effect's job
-      } else {
-        setActiveLocationId(selectedLocationId);
-        setMobilePane('container');
-      }
+      setActiveLocationId(selectedLocationId === 'unsorted' || selectedLocationId === 'unassigned' ? null : selectedLocationId);
       setSelectedLocationId(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -394,7 +385,6 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
         setActiveLocationId(targetCard.location_id);
       } else {
         setActiveLocationId(null);
-        setMobilePane('unsorted');
       }
     }
 
@@ -425,18 +415,38 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   useEffect(() => {
     // If the storage tab is opened without a specific container URL (selectedLocationId is falsy),
     // and there are locations available, auto-select the first one.
-    if (!selectedLocationId && !activeLocationId && !focusEntryId && mobilePane !== 'unsorted' && locations.length > 0) {
+    if (!selectedLocationId && !activeLocationId && !focusEntryId && locations.length > 0) {
       setActiveLocationId(locations[0].id);
     }
-  }, [locations, selectedLocationId, activeLocationId, focusEntryId, mobilePane]);
+  }, [locations, selectedLocationId, activeLocationId, focusEntryId]);
+
+  const unsortedCollection = useMemo(() => allCards.filter(card => !card.location_id), [allCards]);
+
+  const unsortedFilterOptions = useMemo(() => ({
+    sets: Array.from(new Set(unsortedCollection.map(card => card.set_name).filter(Boolean))).sort(),
+    types: Array.from(new Set(unsortedCollection.flatMap(card => [...(card.types || []), ...(card.subtypes || [])]).filter(Boolean))).sort(),
+    colors: Array.from(new Set(unsortedCollection.flatMap(card => card.color_identity || []).filter(Boolean))).sort(),
+    rarities: Array.from(new Set(unsortedCollection.map(card => card.rarity).filter(Boolean))).sort(),
+    conditions: Array.from(new Set(unsortedCollection.map(card => card.condition).filter(Boolean))).sort(),
+    printings: Array.from(new Set(unsortedCollection.map(card => card.printing).filter(Boolean))).sort(),
+    languages: Array.from(new Set(unsortedCollection.map(card => card.language).filter(Boolean))).sort()
+  }), [unsortedCollection]);
 
   const unsortedCards = useMemo(() => {
-    let cards = allCards.filter(c => !c.location_id && (
-      c.name.toLowerCase().includes(unsortedSearch.toLowerCase()) ||
-      (c.set_name || '').toLowerCase().includes(unsortedSearch.toLowerCase())
-    ));
-    return sortCardsByOrder([...cards], unsortedSort, selectedLoc?.foil_sorting, setsList);
-  }, [allCards, unsortedSearch, unsortedSort, selectedLoc, setsList]);
+    const search = unsortedFilters.search.toLowerCase();
+    const cards = unsortedCollection.filter(card =>
+      (!search || [card.name, card.printed_name, card.set_name, card.number].some(value => String(value || '').toLowerCase().includes(search)))
+      && (!unsortedFilters.set || card.set_name === unsortedFilters.set)
+      && (!unsortedFilters.type || [...(card.types || []), ...(card.subtypes || [])].includes(unsortedFilters.type))
+      && (!unsortedFilters.color || (card.color_identity || []).includes(unsortedFilters.color))
+      && (!unsortedFilters.rarity || card.rarity === unsortedFilters.rarity)
+      && (!unsortedFilters.condition || card.condition === unsortedFilters.condition)
+      && (!unsortedFilters.printing || card.printing === unsortedFilters.printing)
+      && (!unsortedFilters.language || card.language === unsortedFilters.language)
+      && (!unsortedFilters.deckStatus || (unsortedFilters.deckStatus === 'inPlay' ? card.checked_out_qty > 0 : !(card.checked_out_qty > 0)))
+    );
+    return sortCardsByOrder(cards, unsortedSort, selectedLoc?.foil_sorting, setsList);
+  }, [unsortedCollection, unsortedFilters, unsortedSort, selectedLoc, setsList]);
 
   // Distinct values per filterable field from the cards actually owned, so the
   // FilterBuilder value box suggests real options (e.g. subtypes like "Basic")
@@ -799,6 +809,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   const containerFilterOptions = useMemo(() => ({
     sets: Array.from(new Set(cardsInActiveLocation.map(card => card.set_name).filter(Boolean))).sort(),
     types: Array.from(new Set(cardsInActiveLocation.flatMap(card => [...(card.types || []), ...(card.subtypes || [])]).filter(Boolean))).sort(),
+    colors: Array.from(new Set(cardsInActiveLocation.flatMap(card => card.color_identity || []).filter(Boolean))).sort(),
     rarities: Array.from(new Set(cardsInActiveLocation.map(card => card.rarity).filter(Boolean))).sort(),
     conditions: Array.from(new Set(cardsInActiveLocation.map(card => card.condition).filter(Boolean))).sort(),
     printings: Array.from(new Set(cardsInActiveLocation.map(card => card.printing).filter(Boolean))).sort(),
@@ -813,6 +824,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
         (!search || [card.name, card.printed_name, card.set_name, card.number].some(value => String(value || '').toLowerCase().includes(search)))
         && (!containerFilters.set || card.set_name === containerFilters.set)
         && (!containerFilters.type || [...(card.types || []), ...(card.subtypes || [])].includes(containerFilters.type))
+        && (!containerFilters.color || (card.color_identity || []).includes(containerFilters.color))
         && (!containerFilters.rarity || card.rarity === containerFilters.rarity)
         && (!containerFilters.condition || card.condition === containerFilters.condition)
         && (!containerFilters.printing || card.printing === containerFilters.printing)
@@ -935,7 +947,6 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
       setFilingQueue(placeable);
       setFilingIndex(0);
       setFilingMode(true);
-      setMobilePane('container'); // keep the binder visible on mobile; guide is the pinned bar
       setMoveMode(false);
       setPickedEntryId(null);
       if (noRoom.length > 0) {
@@ -1014,7 +1025,6 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
         setFilingIndex(0);
         setFilingReadOnly(true);
         setFilingMode(true);
-        setMobilePane('container'); // keep the binder visible on mobile; guide is the pinned bar
         setActiveLocationId(selectedLoc.id);
         showToast(t('loc.resorted'));
       } else {
@@ -1246,23 +1256,11 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
         </div>
       )}
 
-      {/* Tabs stay visible during filing so there's always a way back — otherwise
-          starting Sort & File hides them and dismissing the filing popup leaves no
-          navigation. Switching to Unsorted cancels filing (its column is hidden
-          while filing, so it must exit to be shown). */}
-      {isStacked && (
-        <div className="sub-nav-tabs storage-pane-tabs" style={{ gridColumn: '1 / -1', marginBottom: 0, position: 'sticky', top: 0, zIndex: 50 }}>
-          <button type="button" className={`sub-nav-tab ${mobilePane === 'container' ? 'active' : ''}`} onClick={() => setMobilePane('container')}>{t('loc.paneContainer')}</button>
-          <button type="button" className={`sub-nav-tab ${mobilePane === 'unsorted' ? 'active' : ''}`} onClick={() => { if (filingMode) { setFilingMode(false); setFilingReadOnly(false); refreshAll(); } setMobilePane('unsorted'); }}>
-            Unsorted <span className={`tab-count-badge ${unsortedCards.length > 0 ? 'has-unsorted' : ''}`}>{unsortedCards.length}</span>
-          </button>
-        </div>
-      )}
 
       {/* Selected location detail. During mobile filing the binder stays visible
           (the recommended slot blinks in it); the compact filing bar is pinned
           at the bottom of the screen. */}
-      <div className="glass-panel" style={{ padding: '0.9rem', display: (isStacked && !filingMode && mobilePane !== 'container') ? 'none' : 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto' }}>
+      <div className="glass-panel" style={{ padding: '0.9rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <select
@@ -1595,6 +1593,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                     {[
                       ['set', t('collection.allSets'), containerFilterOptions.sets],
                       ['type', t('collection.allTypes'), containerFilterOptions.types],
+                      ['color', t('collection.allColors'), containerFilterOptions.colors],
                       ['rarity', t('collection.allRarities'), containerFilterOptions.rarities],
                       ['condition', t('collection.allConditions'), containerFilterOptions.conditions],
                       ['printing', t('collection.allPrintings'), containerFilterOptions.printings],
@@ -1610,7 +1609,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                       <option value="inPlay">{t('loc.inPlay')}</option>
                       <option value="notInPlay">{t('loc.notInPlay')}</option>
                     </select>
-                    <button className="btn btn-secondary" onClick={() => setContainerFilters({ search: '', set: '', type: '', rarity: '', condition: '', printing: '', language: '', deckStatus: '' })} style={{ fontSize: '0.72rem', padding: '0.3rem' }}>{t('collection.clearFilters')}</button>
+                    <button className="btn btn-secondary" onClick={() => setContainerFilters({ search: '', set: '', type: '', color: '', rarity: '', condition: '', printing: '', language: '', deckStatus: '' })} style={{ fontSize: '0.72rem', padding: '0.3rem' }}>{t('collection.clearFilters')}</button>
                   </div>
                 )}
               </div>
@@ -1869,7 +1868,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
       </div>
 
       {/* Unsorted queue */}
-      <div className="glass-panel location-unsorted-col" style={{ padding: '0.75rem', display: (isStacked && (filingMode || mobilePane !== 'unsorted')) ? 'none' : 'flex', flexDirection: 'column', gap: '0.5rem', overflowY: 'auto', maxHeight: (isStacked && !filingMode && mobilePane === 'unsorted') ? 'none' : undefined }}>
+      <div className="glass-panel location-unsorted-col" style={{ padding: '0.75rem', display: isStacked && filingMode ? 'none' : 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         {filingMode ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', height: '100%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2041,12 +2040,15 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
               </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
+            <div style={{ display: 'flex', gap: '0.4rem' }}>
               <input
-                className="input-control" placeholder={t('loc.searchPlaceholder')} value={unsortedSearch}
-                onChange={(e) => setUnsortedSearch(e.target.value)} style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem' }}
+                className="input-control" placeholder={t('loc.searchPlaceholder')} value={unsortedFilters.search}
+                onChange={(e) => setUnsortedFilters(filters => ({ ...filters, search: e.target.value }))} style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem', flex: 1, minWidth: 0 }}
               />
-              <select className="select-control" value={unsortedSort} onChange={(e) => setUnsortedSort(e.target.value)} style={{ fontSize: '0.7rem', padding: '0.3rem 0.5rem' }}>
+              <button className={`btn ${showUnsortedFilters ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setShowUnsortedFilters(show => !show)} style={{ padding: '0.3rem 0.5rem', display: 'inline-flex', alignItems: 'center' }} title={t('collection.filters')}>
+                <SlidersHorizontal size={13} />
+              </button>
+              <select className="select-control" value={unsortedSort} onChange={(e) => setUnsortedSort(e.target.value)} style={{ fontSize: '0.7rem', padding: '0.3rem 0.5rem', maxWidth: '150px' }}>
                 <option value="scanned-desc">{t('collection.sort.scanned-desc')}</option>
                 <option value="scanned-asc">{t('collection.sort.scanned-asc')}</option>
                 <option value="name-asc">{t('loc.sortAZ')}</option>
@@ -2054,6 +2056,30 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                 <option value="set-number">{t('loc.sortSetNumber')}</option>
               </select>
             </div>
+            {showUnsortedFilters && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.5rem' }}>
+                {[
+                  ['set', t('collection.allSets'), unsortedFilterOptions.sets],
+                  ['type', t('collection.allTypes'), unsortedFilterOptions.types],
+                  ['color', t('collection.allColors'), unsortedFilterOptions.colors],
+                  ['rarity', t('collection.allRarities'), unsortedFilterOptions.rarities],
+                  ['condition', t('collection.allConditions'), unsortedFilterOptions.conditions],
+                  ['printing', t('collection.allPrintings'), unsortedFilterOptions.printings],
+                  ['language', t('collection.allLanguages'), unsortedFilterOptions.languages]
+                ].map(([key, label, options]) => (
+                  <select key={key} className="select-control" value={unsortedFilters[key]} onChange={(e) => setUnsortedFilters(filters => ({ ...filters, [key]: e.target.value }))} style={{ fontSize: '0.72rem', padding: '0.3rem' }}>
+                    <option value="">{label}</option>
+                    {options.map(option => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                ))}
+                <select className="select-control" value={unsortedFilters.deckStatus} onChange={(e) => setUnsortedFilters(filters => ({ ...filters, deckStatus: e.target.value }))} style={{ fontSize: '0.72rem', padding: '0.3rem' }}>
+                  <option value="">{t('loc.allDeckStatuses')}</option>
+                  <option value="inPlay">{t('loc.inPlay')}</option>
+                  <option value="notInPlay">{t('loc.notInPlay')}</option>
+                </select>
+                <button className="btn btn-secondary" onClick={() => setUnsortedFilters({ search: '', set: '', type: '', color: '', rarity: '', condition: '', printing: '', language: '', deckStatus: '' })} style={{ fontSize: '0.72rem', padding: '0.3rem' }}>{t('collection.clearFilters')}</button>
+              </div>
+            )}
 
             {unsortedCards.length > 0 && !unsortedSelectMode && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>

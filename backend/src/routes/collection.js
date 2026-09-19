@@ -601,7 +601,11 @@ router.get('/collection', async (req, res) => {
         l.type as location_type,
         cp.idx as compartment_idx,
         cp.label as compartment_label,
-        cp.capacity as compartment_capacity
+        cp.capacity as compartment_capacity,
+        (SELECT GROUP_CONCAT(d.name, ', ')
+         FROM deck_cards dc
+         JOIN decks d ON d.id = dc.deck_id
+         WHERE dc.card_id = c.card_id AND d.user_id = c.user_id) AS deck_names
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
       LEFT JOIN locations l ON c.location_id = l.id

@@ -379,6 +379,7 @@
   "loc.selectContainer": "Select Container...",
   "loc.createContainer": "Create Container",
   "loc.importContainer": "Import ManaBox container",
+  "loc.inDeck": "In deck",
   "loc.selectPrompt": "Select a container to view its compartments.",
   "loc.containerSettings": "Container Settings",
   "loc.saveRules": "Save Rules",

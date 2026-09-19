@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { DndContext, DragOverlay, MouseSensor, useSensor, useSensors, useDraggable, useDroppable, pointerWithin } from '@dnd-kit/core';
-import { Plus, Minus, Trash2, X, MoreVertical, Settings, RefreshCw, Lock, LayoutGrid, List, MousePointerClick, ChevronDown, ChevronUp, Edit3, Upload, Search, SlidersHorizontal } from 'lucide-react';
+import { Plus, Minus, Trash2, X, MoreVertical, Settings, RefreshCw, Lock, LayoutGrid, List, MousePointerClick, ChevronDown, ChevronUp, Edit3, Upload, Search, SlidersHorizontal, Layers } from 'lucide-react';
 import { sortCardsByOrder } from '../utils/cardSort';
 import { getFoilOverlayClass, getPrintingBadgeLabel, getPrintingBadgeStyle } from '../utils/cardPrinting';
 import { getCardRarityBorder, getRarityBadgeStyle, getRarityBadgeLabel } from '../utils/cardRarity';
@@ -1593,9 +1593,14 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                       onClick={() => storage.selectMode ? storage.toggleSelect(card.entry_id) : setInspectorCard(card)}
                       aria-label={displayName(card)}
                       title={displayName(card)}
-                      style={{ display: 'flex', justifyContent: 'center', width: '100%', padding: '0.25rem', border: selected ? '2px solid var(--accent-red)' : '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', background: selected ? 'rgba(255,71,71,0.12)' : 'rgba(255,255,255,0.03)', cursor: 'pointer' }}
+                      style={{ position: 'relative', display: 'flex', justifyContent: 'center', width: '100%', padding: '0.25rem', border: selected ? '2px solid var(--accent-red)' : '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', background: selected ? 'rgba(255,71,71,0.12)' : 'rgba(255,255,255,0.03)', cursor: 'pointer' }}
                     >
                       <CardImage card={card} style={{ width: '100%', borderRadius: '3px' }} />
+                      {card.deck_names && (
+                        <span title={`${t('loc.inDeck')}: ${card.deck_names}`} style={{ position: 'absolute', right: '0.4rem', bottom: '0.4rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.15rem 0.3rem', borderRadius: '999px', background: 'rgba(0,0,0,0.8)', color: 'white', fontSize: '0.62rem', fontWeight: 700 }}>
+                          <Layers size={11} /> {t('loc.inDeck')}
+                        </span>
+                      )}
                     </button>
                   );
                 })}

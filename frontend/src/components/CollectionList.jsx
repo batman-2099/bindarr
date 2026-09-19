@@ -672,7 +672,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
           <select className="select-control" value={bulkMoveTarget} onChange={(e) => setBulkMoveTarget(e.target.value)} style={{ fontSize: '0.72rem', maxWidth: '170px', padding: '0.3rem 0.4rem' }}>
             <option value="">{t('bulk.moveToContainer')}</option>
             <option value="unassign">{t('bulk.unassignedPile')}</option>
-            {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+            {locations.slice().sort((a, b) => a.name.localeCompare(b.name)).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
           <button className="btn btn-primary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!bulkMoveTarget || !selectedIds.size} onClick={() => runBulk('move', bulkMoveTarget === 'unassign' ? null : bulkMoveTarget)}>{t('bulk.applyMove')}</button>
           <div style={{ width: '1px', height: '22px', background: 'var(--border-glass)' }} />

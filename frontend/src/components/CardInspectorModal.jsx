@@ -517,7 +517,6 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                 quantity={q} purchasePrice={purchasePrice} condition={condition} printing={printing} language={language}
                 onQuantity={setQ} onPurchasePrice={setPurchasePrice} onCondition={setCondition} onPrinting={setPrinting} onLanguage={handleLanguageChange}
                 grader={grader} grade={grade} certNumber={certNumber}
-                onGrader={setGrader} onGrade={setGrade} onCertNumber={setCertNumber}
               />
 
               {/* What this copy is worth, when the card's market price is not it —
@@ -554,7 +553,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                 <label>{t('inspector.storageContainer')}</label>
                 <select className="select-control" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
                   <option value="">{t('bulk.unassignedPile')}</option>
-                  {locations.map((loc) => (
+                  {locations.slice().sort((a, b) => a.name.localeCompare(b.name)).map((loc) => (
                     <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
                   ))}
                 </select>

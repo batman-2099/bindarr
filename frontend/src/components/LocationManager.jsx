@@ -820,11 +820,43 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
     } catch (err) { console.error(err); showToast(t('loc.errRowRulesGeneric')); }
   };
 
+  const offerContainerExpansion = async (cardsToFit) => {
+    if (!selectedLoc || selectedLoc.locked) return false;
+    const capacity = Math.max(1, compartments.at(-1)?.capacity || (isBinderType ? 9 : 400));
+    const compartmentsToAdd = Math.ceil(cardsToFit / capacity);
+    const unit = isBinderType ? t('loc.pageLower') : t('loc.rowLower');
+    if (!window.confirm(t('loc.confirmExpandToFit', { name: selectedLoc.name, count: compartmentsToAdd, unit, cards: cardsToFit }))) {
+      return false;
+    }
+
+    try {
+      for (let i = 0; i < compartmentsToAdd; i++) {
+        const response = await fetch(`/api/locations/${selectedLoc.id}/compartments`, { method: 'POST' });
+        if (!response.ok) throw new Error('Failed to add compartment');
+      }
+      await Promise.all([fetchCompartments(selectedLoc.id), fetchLocations()]);
+      return true;
+    } catch (error) {
+      console.error(error);
+      showToast(t('loc.errExpandToFit'));
+      return false;
+    }
+  };
+
   const handleApplyAll = async () => {
     if (!activeLocationId || unsortedCards.length === 0) return;
     const target = locations.find(l => l.id === activeLocationId);
     if (!window.confirm(t('loc.confirmAutoFile', { count: unsortedCards.length, name: target?.name }))) return;
     try {
+      const recommendationRes = await fetch(`/api/locations/${activeLocationId}/recommend-batch`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entry_ids: unsortedCards.map(c => c.entry_id) })
+      });
+      if (recommendationRes.ok) {
+        const recommendations = await recommendationRes.json();
+        const fullCount = recommendations.filter(item => item.full).length;
+        if (fullCount > 0) await offerContainerExpansion(fullCount);
+      }
       const res = await fetch(`/api/locations/${activeLocationId}/apply-all`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ entry_ids: unsortedCards.map(c => c.entry_id) })
@@ -849,6 +881,10 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
       if (!res.ok) { showToast(t('loc.errFilingMode')); return; }
       const data = await res.json();
       const placeable = data.filter(d => d.recommended);
+      const fullCount = data.filter(d => d.full).length;
+      if (fullCount > 0 && await offerContainerExpansion(fullCount)) {
+        return startFilingMode();
+      }
       const noRoom = data.filter(d => !d.recommended);
 
       if (placeable.length === 0) {
@@ -1364,6 +1400,29 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
             <button className="btn btn-secondary" style={{ fontSize: '0.68rem', padding: '0.25rem 0.5rem' }} onClick={() => storage.setSelectedIds(new Set(cardsInActiveLocation.map(c => c.entry_id)))}>Select all ({cardsInActiveLocation.length})</button>
             <button className="btn btn-secondary" style={{ fontSize: '0.68rem', padding: '0.25rem 0.5rem' }} onClick={() => storage.setSelectedIds(new Set())}>{t('bulk.clear')}</button>
             <div style={{ width: '1px', height: '20px', background: 'var(--border-glass)' }} />
+            <select
+              className="select-control"
+              value={storage.bulkMoveTarget}
+              onChange={(e) => storage.setBulkMoveTarget(e.target.value)}
+              style={{ fontSize: '0.68rem', padding: '0.25rem 0.4rem', minWidth: '150px' }}
+            >
+              <option value="">{t('loc.moveSelectedTo')}</option>
+              {locations.filter(location => location.id !== selectedLoc?.id).map(location => (
+                <option key={location.id} value={location.id}>{location.name}</option>
+              ))}
+            </select>
+            <button
+              className="btn btn-secondary"
+              style={{ fontSize: '0.68rem', padding: '0.25rem 0.6rem' }}
+              disabled={!storage.selectedIds.size || !storage.bulkMoveTarget}
+              onClick={async () => {
+                const target = locations.find(location => String(location.id) === storage.bulkMoveTarget);
+                await storage.runBulk('move', storage.bulkMoveTarget, t('loc.confirmBulkFile', { count: storage.selectedIds.size, name: target?.name || t('loc.containerLower') }));
+                storage.setBulkMoveTarget('');
+              }}
+            >
+              {t('loc.file')}
+            </button>
             <button
               className="btn btn-primary"
               style={{ fontSize: '0.68rem', padding: '0.25rem 0.6rem' }}

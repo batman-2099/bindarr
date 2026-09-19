@@ -1,7 +1,7 @@
 // Storage container configuration: capacity summaries, bulk capacity edits, and
 // freezing a sorted layout into manual positions.
 //
-// Replaces test/e2e/storage_settings.test.js, which asserted the same three
+// Replaces test/e2e/storage_settings.test.js, which asserted the same capacity
 // behaviours but spawned the whole server as a child process, seeded a session row
 // by hand, and then 401'd on it — so it had been failing for as long as anyone had
 // been running the e2e suite, and reported the failure as "locs.find is not a
@@ -112,7 +112,15 @@ async function main() {
   assert.deepStrictEqual(caps, [42, 42], `updateAll must set both rows, got ${caps}`);
   console.log('PASS: ?updateAll=true sets capacity on every compartment');
 
-  // 3. Switching a sorted container to Custom freezes the CURRENT sorted order into
+  // 3. Expanding a full container adds a row with the configured capacity, so
+  // the filing UI can ask for exactly enough new rows before retrying placement.
+  const expansion = await fetch(`${base}/api/locations/${loc.lastID}/compartments`, { method: 'POST' });
+  assert.strictEqual(expansion.status, 201, 'POST /locations/:id/compartments must add capacity');
+  const addedRow = await expansion.json();
+  assert.strictEqual(addedRow.capacity, 42, 'a new row must inherit the configured capacity');
+  console.log('PASS: expansion adds a same-capacity row');
+
+  // 4. Switching a sorted container to Custom freezes the CURRENT sorted order into
   //    dense positions, rather than leaving the stale ones that would render
   //    jumbled the moment sorting stops being applied.
   const put = await fetch(`${base}/api/locations/${loc.lastID}`, {

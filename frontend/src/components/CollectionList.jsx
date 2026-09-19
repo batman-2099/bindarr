@@ -63,7 +63,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
   }, [selectedCardFilter]);
 
   // UX view state
-  const [viewMode, setViewMode] = useState('gallery'); // 'gallery' or 'list'
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('collection_default_view') || 'gallery'); // 'gallery' or 'list'
   const [inspectorCard, setInspectorCard] = useState(null);
   const [inspectorStartEdit, setInspectorStartEdit] = useState(false);
   const [subTab, setSubTab] = useState('collection'); // 'collection', 'wishlist'

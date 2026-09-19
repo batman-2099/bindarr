@@ -74,6 +74,13 @@ function Settings({ user, onUpdateUser, showToast }) {
   const [currency, setCurrencyState] = useState(() => getCurrency());
   const [defaultGameValue, setDefaultGameValue] = useState(() => defaultGame());
   const [shownGames, setShownGames] = useState(() => enabledGames());
+  const [collectionDefaultView, setCollectionDefaultView] = useState(() => localStorage.getItem('collection_default_view') || 'gallery');
+  const [storageDefaultView, setStorageDefaultView] = useState(() => localStorage.getItem('storage_default_view') || 'layout');
+  const [deckDefaultView, setDeckDefaultView] = useState(() => localStorage.getItem('deck_default_view') || 'list');
+  const [defaultCardScale, setDefaultCardScale] = useState(() => {
+    const scale = Number(localStorage.getItem('card_default_scale'));
+    return scale >= 0.6 && scale <= 2.5 ? scale : 1;
+  });
 
   const [versionInfo, setVersionInfo] = useState(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -1050,6 +1057,44 @@ function Settings({ user, onUpdateUser, showToast }) {
             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>
               {t(shownGames.length === 1 ? 'prefs.defaultGameHintSingle' : 'prefs.defaultGameHint')}
             </div>
+          </div>
+
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>{t('prefs.defaultViews')}</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
+              {[
+                ['collection', collectionDefaultView, setCollectionDefaultView, 'collection_default_view', [['gallery', t('collection.galleryView')], ['list', t('collection.listView')]]],
+                ['storage', storageDefaultView, setStorageDefaultView, 'storage_default_view', [['layout', t('loc.gridView')], ['list', t('loc.detailView')]]],
+                ['deck', deckDefaultView, setDeckDefaultView, 'deck_default_view', [['list', t('deck.tableView')], ['grid', t('deck.gridView')]]]
+              ].map(([key, value, setValue, storageKey, options]) => (
+                <div key={key}>
+                  <label htmlFor={`settings-${key}-view`} style={{ fontSize: '0.75rem' }}>{t(`prefs.defaultView.${key}`)}</label>
+                  <select id={`settings-${key}-view`} className="select-control" value={value} onChange={(e) => { setValue(e.target.value); localStorage.setItem(storageKey, e.target.value); }}>
+                    {options.map(([option, label]) => <option key={option} value={option}>{label}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>{t('prefs.defaultViewsHint')}</div>
+          </div>
+
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label htmlFor="settings-default-card-scale">{t('prefs.defaultCardScale')}</label>
+            <select
+              id="settings-default-card-scale"
+              className="select-control"
+              value={defaultCardScale}
+              onChange={(e) => {
+                const scale = Number(e.target.value);
+                setDefaultCardScale(scale);
+                localStorage.setItem('card_default_scale', scale);
+              }}
+            >
+              {[0.6, 0.8, 1, 1.2, 1.4, 1.6, 1.8, 2, 2.2, 2.4, 2.5].map(scale => (
+                <option key={scale} value={scale}>{Math.round(scale * 100)}%</option>
+              ))}
+            </select>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>{t('prefs.defaultCardScaleHint')}</div>
           </div>
         </div>
 

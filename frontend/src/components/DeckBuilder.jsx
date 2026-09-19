@@ -49,9 +49,12 @@ function DeckBuilder({ showToast }) {
   const [viewMode, setViewMode] = useState('list'); // 'list' or 'detail'
   
   // Deck View & Display Modes
-  const [cardDisplayMode, setCardDisplayMode] = useState('list'); // 'list' | 'grid'
+  const [cardDisplayMode, setCardDisplayMode] = useState(() => localStorage.getItem('deck_default_view') || 'list'); // 'list' | 'grid'
   const [deckCardSortBy, setDeckCardSortBy] = useState('type');
-  const [deckCardScale, setDeckCardScale] = useState(1);
+  const [deckCardScale, setDeckCardScale] = useState(() => {
+    const scale = Number(localStorage.getItem('card_default_scale'));
+    return scale >= 0.6 && scale <= 2.5 ? scale : 1;
+  });
   const [previewCard, setPreviewCard] = useState(null);
 
   // Deck Creation States & Constants

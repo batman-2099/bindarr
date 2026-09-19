@@ -15,6 +15,16 @@ import CardImage from './CardImage';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useT } from '../utils/i18n';
 
+const CONTAINER_LIST_SORTS = {
+  'name-asc': [{ by: 'name', dir: 'asc' }],
+  'name-desc': [{ by: 'name', dir: 'desc' }],
+  'price-desc': [{ by: 'price', dir: 'desc' }],
+  'price-asc': [{ by: 'price', dir: 'asc' }],
+  'set-asc': [{ by: 'set', dir: 'asc' }, { by: 'number', dir: 'asc' }],
+  'type-asc': [{ by: 'type', dir: 'asc' }, { by: 'name', dir: 'asc' }],
+  'rarity-desc': [{ by: 'rarity', dir: 'desc' }, { by: 'name', dir: 'asc' }]
+};
+
 // An Unsorted-queue card that can be dragged into a binder pocket. Split in two
 // so the hook only mounts when dragging is on — the queue also renders for
 // auto-sorted and locked containers, where there is nothing to drag to.
@@ -116,11 +126,15 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   const [unsortedSearch, setUnsortedSearch] = useState('');
   const [unsortedSort, setUnsortedSort] = useState('scanned-desc');
   const [unsortedViewMode, setUnsortedViewMode] = useState('grid'); // 'grid' | 'detail'
-  const [containerViewMode, setContainerViewMode] = useState('layout'); // 'layout' | 'list'
-  const [containerCardScale, setContainerCardScale] = useState(1);
+  const [containerViewMode, setContainerViewMode] = useState(() => localStorage.getItem('storage_default_view') || 'layout'); // 'layout' | 'list'
+  const [containerCardScale, setContainerCardScale] = useState(() => {
+    const scale = Number(localStorage.getItem('card_default_scale'));
+    return scale >= 0.6 && scale <= 2.5 ? scale : 1;
+  });
   const [unsortedBulkLocation, setUnsortedBulkLocation] = useState('');
   const [showContainerFilters, setShowContainerFilters] = useState(false);
   const [containerFilters, setContainerFilters] = useState({ search: '', set: '', type: '', rarity: '', condition: '', printing: '', language: '', deckStatus: '' });
+  const [containerSortBy, setContainerSortBy] = useState('storage');
 
   const {
     selectMode: unsortedSelectMode,
@@ -794,7 +808,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   const containerListCards = useMemo(() => {
     const search = containerFilters.search.toLowerCase();
     const compartmentIndex = new Map(compartments.map((compartment, index) => [compartment.id, index]));
-    return cardsInActiveLocation
+    const cards = cardsInActiveLocation
       .filter(card =>
         (!search || [card.name, card.printed_name, card.set_name, card.number].some(value => String(value || '').toLowerCase().includes(search)))
         && (!containerFilters.set || card.set_name === containerFilters.set)
@@ -809,7 +823,10 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
         (compartmentIndex.get(a.compartment_id) ?? Infinity) - (compartmentIndex.get(b.compartment_id) ?? Infinity)
         || (a.position || 0) - (b.position || 0)
       );
-  }, [cardsInActiveLocation, compartments, containerFilters]);
+    return containerSortBy === 'storage'
+      ? cards
+      : sortCardsByOrder(cards, CONTAINER_LIST_SORTS[containerSortBy], undefined, setsList);
+  }, [cardsInActiveLocation, compartments, containerFilters, containerSortBy, setsList]);
 
   const openCompartmentRules = (comp) => {
     let draft = [];
@@ -1568,6 +1585,10 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                   <button className={`btn ${showContainerFilters ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setShowContainerFilters(show => !show)} style={{ padding: '0.35rem 0.6rem', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
                     <SlidersHorizontal size={13} /> {t('collection.filters')}
                   </button>
+                  <select className="select-control" value={containerSortBy} onChange={(e) => setContainerSortBy(e.target.value)} style={{ maxWidth: '150px', fontSize: '0.72rem', padding: '0.35rem 0.5rem' }} aria-label={t('collection.sortBy')}>
+                    <option value="storage">{t('loc.storageOrder')}</option>
+                    {['name-asc', 'name-desc', 'price-desc', 'price-asc', 'set-asc', 'type-asc', 'rarity-desc'].map(key => <option key={key} value={key}>{t(`collection.sort.${key}`)}</option>)}
+                  </select>
                 </div>
                 {showContainerFilters && (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.5rem' }}>

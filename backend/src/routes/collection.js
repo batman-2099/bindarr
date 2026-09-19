@@ -571,6 +571,7 @@ router.get('/collection', async (req, res) => {
         c.market_value,
         c.market_value_source,
         c.market_value_at,
+        c.missing,
         cc.name,
         -- The localized name for a non-English printing, so every view that
         -- renders a collection card can show it as the card actually reads.
@@ -605,7 +606,7 @@ router.get('/collection', async (req, res) => {
         (SELECT GROUP_CONCAT(d.name, ', ')
          FROM deck_cards dc
          JOIN decks d ON d.id = dc.deck_id
-         WHERE dc.card_id = c.card_id AND d.user_id = c.user_id) AS deck_names
+         WHERE dc.card_id = c.card_id AND d.user_id = c.user_id AND d.checked_out = 1) AS deck_names
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
       LEFT JOIN locations l ON c.location_id = l.id
@@ -909,7 +910,7 @@ router.put('/collection/:id', async (req, res) => {
   const {
     quantity, condition, printing, language, purchase_price,
     location_id, compartment_id, list_type, is_trade, favorite, game, notes,
-    grader, grade, cert_number, market_value
+    grader, grade, cert_number, market_value, missing
   } = req.body;
 
   try {
@@ -979,6 +980,7 @@ router.put('/collection/:id', async (req, res) => {
     if (is_trade !== undefined) { updates.push('is_trade = ?'); params.push(is_trade ? 1 : 0); }
     if (favorite !== undefined) { updates.push('favorite = ?'); params.push(favorite ? 1 : 0); }
     if (game !== undefined) { updates.push('game = ?'); params.push(game); }
+    if (missing !== undefined) { updates.push('missing = ?'); params.push(missing ? 1 : 0); }
     if (notes !== undefined) { updates.push('notes = ?'); params.push(notes); }
     // Grading. The three columns move together on purpose: sending grader:'Raw'
     // must clear the grade and cert in the same statement, or the row keeps a grade
@@ -1185,7 +1187,7 @@ router.delete('/collection/:id', async (req, res) => {
 });
 
 // 5b. Bulk actions
-const BULK_ACTIONS = ['delete', 'move', 'trade', 'untrade', 'list_type', 'condition', 'printing', 'purchase_split', 'add_to_deck'];
+const BULK_ACTIONS = ['delete', 'move', 'trade', 'untrade', 'list_type', 'condition', 'printing', 'purchase_split', 'add_to_deck', 'missing'];
 // Allowed field values mirror the collection table CHECK constraints in db.js.
 const BULK_CONDITIONS = ['Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged'];
 const BULK_PRINTINGS = ['Normal', 'Holofoil', 'Reverse Holofoil', '1st Edition', 'Promo'];
@@ -1243,6 +1245,11 @@ router.post('/collection/bulk', async (req, res) => {
 
     if (action === 'trade' || action === 'untrade') {
       const result = await db.run(`UPDATE collection SET is_trade = ? WHERE id IN (${placeholders}) AND user_id = ?`, [action === 'trade' ? 1 : 0, ...ids, req.user.id]);
+      return res.json({ message: `Updated ${result.changes} card(s)`, affected: result.changes });
+    }
+
+    if (action === 'missing') {
+      const result = await db.run(`UPDATE collection SET missing = ? WHERE id IN (${placeholders}) AND user_id = ?`, [value ? 1 : 0, ...ids, req.user.id]);
       return res.json({ message: `Updated ${result.changes} card(s)`, affected: result.changes });
     }
 

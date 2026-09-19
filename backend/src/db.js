@@ -256,6 +256,7 @@ async function initDb() {
       list_type TEXT DEFAULT 'collection',
       game TEXT DEFAULT 'pokemon',
       added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      missing INTEGER DEFAULT 0,
       FOREIGN KEY(location_id) REFERENCES locations(id) ON DELETE SET NULL,
       FOREIGN KEY(compartment_id) REFERENCES compartments(id) ON DELETE SET NULL,
       FOREIGN KEY(card_id) REFERENCES card_cache(id)
@@ -647,6 +648,9 @@ async function initDb() {
   }
   if (!collectionCols.some(c => c.name === 'market_value_at')) {
     await run(`ALTER TABLE collection ADD COLUMN market_value_at DATETIME`);
+  }
+  if (!collectionCols.some(c => c.name === 'missing')) {
+    await run(`ALTER TABLE collection ADD COLUMN missing INTEGER DEFAULT 0`);
   }
   // A cert number identifies one physical slab, so entering it twice is a mistake
   // rather than a second copy — unlike raw cards, where two identical rows are

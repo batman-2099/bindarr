@@ -51,6 +51,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
   const [isTrade, setIsTrade] = useState(0);
   const [favorite, setFavorite] = useState(0);
   const [listType, setListType] = useState('collection');
+  const [missing, setMissing] = useState(false);
   const [notes, setNotes] = useState('');
   const [grader, setGrader] = useState('Raw');
   const [grade, setGrade] = useState('');
@@ -97,6 +98,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
     setGrader(card.grader || 'Raw');
     setGrade(card.grade == null ? '' : String(card.grade));
     setCertNumber(card.cert_number || '');
+    setMissing(!!card.missing);
     setMarketValue(card.market_value == null ? '' : String(card.market_value));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset form only when the entry changes, not on every card mutation
   }, [targetEntryId, startInEdit]);
@@ -161,6 +163,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
           list_type: listType,
           is_trade: isTrade ? 1 : 0,
           favorite: favorite ? 1 : 0,
+          missing: missing ? 1 : 0,
           notes,
           grader,
           grade: grade === '' ? null : parseFloat(grade),
@@ -183,6 +186,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
         card.list_type = listType;
         card.is_trade = isTrade ? 1 : 0;
         card.favorite = favorite ? 1 : 0;
+        card.missing = missing ? 1 : 0;
         card.notes = notes;
         card.grader = grader;
         card.grade = grade === '' ? null : parseFloat(grade);
@@ -473,6 +477,12 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                   </label>
                 </div>
               )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: missing ? 'rgba(255,71,71,0.1)' : 'rgba(255,255,255,0.02)', padding: '0.6rem 0.9rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
+                <input type="checkbox" checked={missing} onChange={(e) => setMissing(e.target.checked)} id="isMissing" style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
+                <label htmlFor="isMissing" style={{ cursor: 'pointer', margin: 0, fontWeight: 700, color: missing ? 'var(--accent-red)' : 'var(--text-strong)', fontSize: '0.85rem' }}>
+                  {t('inspector.markMissing')}
+                </label>
+              </div>
 
               <CardEntryFields
                 game={activeCard.game || activeCard.supertype}

@@ -11,6 +11,7 @@ const db = require('../src/db');
 const deckRouter = require('../src/routes/decks');
 const collectionRouter = require('../src/routes/collection');
 const getCollection = collectionRouter.stack.find(layer => layer.route?.path === '/collection' && layer.route.methods.get).route.stack[0].handle;
+const updateCollection = collectionRouter.stack.find(layer => layer.route?.path === '/collection/:id' && layer.route.methods.put).route.stack[0].handle;
 const getDeck = deckRouter.stack.find(layer => layer.route?.path === '/:id' && layer.route.methods.get).route.stack[0].handle;
 const updatePulled = deckRouter.stack.find(layer => layer.route?.path === '/:id/cards/:card_id/pulled' && layer.route.methods.put).route.stack[0].handle;
 
@@ -34,7 +35,12 @@ async function testCheckedOutCardsAreUnavailable() {
     const collectionRes = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
     await getCollection({ query: {}, user: { id: 1 } }, collectionRes);
     assert.strictEqual(collectionRes.statusCode, 200);
-    assert.strictEqual(collectionRes.body[0].deck_names, 'Testing, Goblin Stampede', 'collection cards must identify every deck containing their printing');
+    assert.strictEqual(collectionRes.body[0].deck_names, 'Goblin Stampede', 'collection cards must identify only checked-out decks containing their printing');
+    const missingRes = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
+    await updateCollection({ params: { id: 1 }, body: { missing: true }, user: { id: 1 } }, missingRes);
+    assert.strictEqual(missingRes.statusCode, 200);
+    await getCollection({ query: {}, user: { id: 1 } }, collectionRes);
+    assert.strictEqual(collectionRes.body[0].missing, 1, 'a missing copy must remain marked in the collection');
     const pulledRes = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
     await updatePulled({ params: { id: testing.lastID, card_id: 'goblin' }, body: { pulled: true }, user: { id: 1 } }, pulledRes);
     assert.strictEqual(pulledRes.statusCode, 200);

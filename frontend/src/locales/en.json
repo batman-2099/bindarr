@@ -276,6 +276,8 @@
   "deck.sortOldest": "Oldest First",
   "deck.sortMostCards": "Most Cards",
   "deck.sortByType": "Card type",
+  "deck.pulled": "Pulled",
+  "deck.errPulled": "Failed to update pull status",
   "deck.gridView": "Grid view",
   "deck.tableView": "Table view",
   "deck.noMatches": "No decks match your filter",

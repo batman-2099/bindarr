@@ -10,6 +10,7 @@ process.env.DEFAULT_ADMIN_PASSWORD = 'test-admin-password';
 const db = require('../src/db');
 const deckRouter = require('../src/routes/decks');
 const getDeck = deckRouter.stack.find(layer => layer.route?.path === '/:id' && layer.route.methods.get).route.stack[0].handle;
+const updatePulled = deckRouter.stack.find(layer => layer.route?.path === '/:id/cards/:card_id/pulled' && layer.route.methods.put).route.stack[0].handle;
 
 async function testCheckedOutCardsAreUnavailable() {
   try {
@@ -28,6 +29,11 @@ async function testCheckedOutCardsAreUnavailable() {
     assert.deepStrictEqual(res.body.cards[0].owned_qty, 2);
     assert.deepStrictEqual(res.body.cards[0].locked_qty, 2);
     assert.strictEqual(res.body.cards[0].locked_decks, 'Goblin Stampede');
+    const pulledRes = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
+    await updatePulled({ params: { id: testing.lastID, card_id: 'goblin' }, body: { pulled: true }, user: { id: 1 } }, pulledRes);
+    assert.strictEqual(pulledRes.statusCode, 200);
+    await getDeck({ params: { id: testing.lastID }, user: { id: 1 } }, res);
+    assert.strictEqual(res.body.cards[0].checked_out, 1, 'pulled status must survive a deck reload');
     assert.strictEqual(res.body.cards[0].quantity > res.body.cards[0].owned_qty - res.body.cards[0].locked_qty, true,
       'Testing must mark cards in checked-out Goblin Stampede unavailable');
   } finally {

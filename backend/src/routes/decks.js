@@ -126,7 +126,7 @@ router.get('/:id', async (req, res) => {
 
     const cardsQuery = `
       SELECT
-        dc.quantity,
+        dc.quantity, dc.checked_out,
         cc.id,
         cc.name, cc.printed_name,
         cc.supertype,
@@ -344,6 +344,28 @@ router.post('/:id/cards', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to add card to deck' });
+  }
+});
+
+// Mark an individual deck card as physically pulled.
+router.put('/:id/cards/:card_id/pulled', async (req, res) => {
+  const { id, card_id } = req.params;
+  const { pulled } = req.body || {};
+  if (typeof pulled !== 'boolean') return res.status(400).json({ error: 'pulled must be a boolean' });
+
+  try {
+    const deck = await db.get(`SELECT id FROM decks WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    if (!deck) return res.status(404).json({ error: 'Deck not found or unauthorized' });
+
+    const result = await db.run(
+      `UPDATE deck_cards SET checked_out = ? WHERE deck_id = ? AND card_id = ?`,
+      [pulled ? 1 : 0, id, card_id]
+    );
+    if (result.changes === 0) return res.status(404).json({ error: 'Card not found in deck' });
+    res.json({ pulled });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to update pull status' });
   }
 });
 

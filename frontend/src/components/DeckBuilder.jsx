@@ -241,6 +241,7 @@ function DeckBuilder({ showToast }) {
         const data = await response.json();
         const locations = locationsResponse.ok ? await locationsResponse.json() : [];
         setDeckCardLocations(Object.fromEntries(locations.map(({ card_id, locations: cardLocations }) => [card_id, cardLocations])));
+        // Pulled status comes from deck_cards so it persists across reloads.
         // Also get checkout status from deck list
         const deckMeta = decks.find(d => d.id === deckId);
         setActiveDeck({ ...data, checked_out: deckMeta?.checked_out || 0, checked_out_at: deckMeta?.checked_out_at || null });
@@ -253,6 +254,28 @@ function DeckBuilder({ showToast }) {
       showToast(t('deck.errLoadDetails'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePulledChange = async (cardId, pulled) => {
+    if (!activeDeck || savingCard) return;
+    setSavingCard(true);
+    try {
+      const response = await fetch(`/api/decks/${activeDeck.id}/cards/${cardId}/pulled`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pulled })
+      });
+      if (!response.ok) throw new Error();
+      setActiveDeck(deck => ({
+        ...deck,
+        cards: deck.cards.map(card => card.id === cardId ? { ...card, checked_out: pulled ? 1 : 0 } : card)
+      }));
+    } catch (error) {
+      console.error(error);
+      showToast(t('deck.errPulled'));
+    } finally {
+      setSavingCard(false);
     }
   };
 
@@ -1744,6 +1767,10 @@ function DeckBuilder({ showToast }) {
                                         <AlertTriangle size={13} /> {card.locked_decks ? t('deck.unavailableCopiesInDecks', { count: card.quantity - ((card.owned_qty || 0) - (card.locked_qty || 0)), decks: card.locked_decks }) : t('deck.unavailableCopies', { count: card.quantity - ((card.owned_qty || 0) - (card.locked_qty || 0)) })}
                                       </span>
                                     )}
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer', color: card.checked_out ? 'var(--type-grass)' : 'var(--text-secondary)', fontSize: '0.7rem', fontWeight: 600 }}>
+                                      <input type="checkbox" checked={!!card.checked_out} disabled={savingCard} onChange={(e) => handlePulledChange(card.id, e.target.checked)} />
+                                      {t('deck.pulled')}
+                                    </label>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: '4px', border: '1px solid var(--border-glass)' }}>
                                       <button
                                         className={`btn ${card.quantity === 1 ? 'btn-danger' : 'btn-secondary'} btn-icon-only`}
@@ -1792,6 +1819,10 @@ function DeckBuilder({ showToast }) {
                                     </div>
                                   )}
                                   <div style={{ padding: '4px', display: 'flex', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', color: card.checked_out ? 'var(--type-grass)' : 'var(--text-secondary)', fontSize: '0.65rem', fontWeight: 600 }}>
+                                      <input type="checkbox" checked={!!card.checked_out} disabled={savingCard} onChange={(e) => handlePulledChange(card.id, e.target.checked)} />
+                                      {t('deck.pulled')}
+                                    </label>
                                     <div style={{ display: 'flex', gap: '2px' }}>
                                       <button className={`btn ${card.quantity === 1 ? 'btn-danger' : 'btn-secondary'} btn-icon-only`} style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} disabled={savingCard} onClick={() => handleUpdateCardQty(card.id, card.quantity - 1)} title={t(card.quantity === 1 ? 'deck.removeFromDeck' : 'deck.decreaseQty')}>
                                         {card.quantity === 1 ? <Trash2 size={10} /> : '-'}

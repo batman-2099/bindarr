@@ -190,7 +190,7 @@ const KNOWN_OPTIONS = {
   printing: ['Normal', 'Holofoil', 'Reverse Holofoil', '1st Edition', 'Promo'],
   language: LANGUAGE_NAMES,
   rarity: ['Common', 'Uncommon', 'Rare', 'Mythic', 'Special', 'Bonus', 'Promo', 'Rare Holo', 'Rare Ultra', 'Rare Secret', 'Amazing Rare', 'Radiant Rare', 'Illustration Rare', 'Special Illustration Rare', 'Hyper Rare', 'Classic Collection'],
-  color_identity: ['W', 'U', 'B', 'R', 'G', 'Colorless']
+  color_identity: ['White', 'Blue', 'Black', 'Red', 'Green', 'Colorless']
 };
 
 export function FilterBuilder({ value, onChange, setsList = [], fieldOptions = {} }) {

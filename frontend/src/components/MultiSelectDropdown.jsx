@@ -34,7 +34,7 @@ export default function MultiSelectDropdown({ label, options, value, onChange, a
       : t('bulk.selected', { count: value.length });
 
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={ref} style={{ position: 'relative', zIndex: open ? 100 : 0 }}>
       <button
         type="button"
         className="select-control"
@@ -51,7 +51,7 @@ export default function MultiSelectDropdown({ label, options, value, onChange, a
       {open && (
         <div
           style={{
-            position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 20,
+            position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 101,
             minWidth: '100%', maxHeight: '260px', overflowY: 'auto',
             background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
             borderRadius: 'var(--radius-sm)', padding: '0.35rem', boxShadow: 'var(--shadow-glow)'

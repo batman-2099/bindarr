@@ -17,7 +17,7 @@ process.env.DEFAULT_ADMIN_PASSWORD = 'test-admin-password';
 
 
 const db = require('../src/db');
-const { recommendSlot, sortCards, getSortCategory } = require('../src/utils/compartmentSort');
+const { recommendSlot, sortCards, getSortCategory, locationAcceptsCard } = require('../src/utils/compartmentSort');
 
 // Pure test (no DB): the 'language' filing scheme orders by language rank
 // (English, Japanese, ...) then by name, and buckets cards by language.
@@ -51,6 +51,17 @@ function testFavoriteScheme() {
   console.log('PASS: favorite sort key floats starred cards to the front');
 }
 
+function testMtgContainerFilters() {
+  const land = { game: 'mtg', types: ['White'], subtypes: ['Land', 'Plains'], color_identity: ['White'] };
+  assert.strictEqual(locationAcceptsCard({ game: 'mtg', rule_type: 'compound', rule_config: { rules: [
+    { action: 'include', field: 'types', operator: 'equals', value: 'Land' },
+    { action: 'include', field: 'color_identity', operator: 'equals', value: 'W' }
+  ] } }, land), true, 'a white land must match Type and Color Identity rules');
+  assert.strictEqual(locationAcceptsCard({ game: 'mtg', rule_type: 'compound', rule_config: { rules: [
+    { action: 'include', field: 'color_identity', operator: 'equals', value: 'Colorless' }
+  ] } }, { ...land, color_identity: [] }), true, 'colorless cards must match the Colorless identity rule');
+}
+
 function cleanup() {
   try { db.dbConnection.close(); } catch { /* already closed */ }
   for (const suffix of ['', '-wal', '-shm']) {
@@ -69,6 +80,7 @@ async function insertCard(id, name) {
 async function main() {
   testLanguageScheme();
   testFavoriteScheme();
+  testMtgContainerFilters();
   await db.initDb(); // creates schema + default admin (user id 1)
   const userId = 1;
 

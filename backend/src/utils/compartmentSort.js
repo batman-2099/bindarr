@@ -32,6 +32,12 @@ function prepareCardMetadata(card) {
   };
 }
 
+const COLOR_IDENTITY_NAMES = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green' };
+
+function colorIdentityName(value) {
+  return COLOR_IDENTITY_NAMES[String(value || '').toUpperCase()] || value;
+}
+
 function evaluateCompoundRules(rules, cardMetadata) {
   for (const rule of (rules || [])) {
     let matches = false;
@@ -48,13 +54,20 @@ function evaluateCompoundRules(rules, cardMetadata) {
         cValue = [...base, ...sub];
       }
     }
+    if (rule.field === 'color_identity' && Array.isArray(cValue) && cValue.length === 0) {
+      cValue = ['Colorless'];
+    }
+    const ruleValue = rule.field === 'color_identity' ? colorIdentityName(rule.value) : rule.value;
+    if (rule.field === 'color_identity' && Array.isArray(cValue)) {
+      cValue = cValue.map(colorIdentityName);
+    }
 
     if (rule.operator === 'equals') {
-      if (Array.isArray(cValue)) matches = cValue.some(v => String(v).toLowerCase() === String(rule.value).toLowerCase());
-      else matches = String(cValue).toLowerCase() === String(rule.value).toLowerCase();
+      if (Array.isArray(cValue)) matches = cValue.some(v => String(v).toLowerCase() === String(ruleValue).toLowerCase());
+      else matches = String(cValue).toLowerCase() === String(ruleValue).toLowerCase();
     } else if (rule.operator === 'contains') {
-      if (Array.isArray(cValue)) matches = cValue.some(v => String(v).toLowerCase().includes(String(rule.value).toLowerCase()));
-      else matches = String(cValue || '').toLowerCase().includes(String(rule.value).toLowerCase());
+      if (Array.isArray(cValue)) matches = cValue.some(v => String(v).toLowerCase().includes(String(ruleValue).toLowerCase()));
+      else matches = String(cValue || '').toLowerCase().includes(String(ruleValue).toLowerCase());
     } else if (rule.operator === '>') {
       matches = parseFloat(cValue) > parseFloat(rule.value);
     } else if (rule.operator === '<') {

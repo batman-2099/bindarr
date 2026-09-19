@@ -966,6 +966,8 @@
   "collection.allSupertypes": "All Supertypes",
   "collection.fType": "Type / Color",
   "collection.allTypes": "All Types",
+  "collection.fColor": "Color",
+  "collection.allColors": "All Colors",
   "collection.fRarity": "Rarity",
   "collection.allRarities": "All Rarities",
   "collection.allConditions": "All Conditions",

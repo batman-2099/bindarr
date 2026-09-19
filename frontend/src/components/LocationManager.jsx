@@ -784,7 +784,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
 
   const containerFilterOptions = useMemo(() => ({
     sets: Array.from(new Set(cardsInActiveLocation.map(card => card.set_name).filter(Boolean))).sort(),
-    types: Array.from(new Set(cardsInActiveLocation.flatMap(card => card.types || []).filter(Boolean))).sort(),
+    types: Array.from(new Set(cardsInActiveLocation.flatMap(card => [...(card.types || []), ...(card.subtypes || [])]).filter(Boolean))).sort(),
     rarities: Array.from(new Set(cardsInActiveLocation.map(card => card.rarity).filter(Boolean))).sort(),
     conditions: Array.from(new Set(cardsInActiveLocation.map(card => card.condition).filter(Boolean))).sort(),
     printings: Array.from(new Set(cardsInActiveLocation.map(card => card.printing).filter(Boolean))).sort(),
@@ -798,7 +798,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
       .filter(card =>
         (!search || [card.name, card.printed_name, card.set_name, card.number].some(value => String(value || '').toLowerCase().includes(search)))
         && (!containerFilters.set || card.set_name === containerFilters.set)
-        && (!containerFilters.type || (card.types || []).includes(containerFilters.type))
+        && (!containerFilters.type || [...(card.types || []), ...(card.subtypes || [])].includes(containerFilters.type))
         && (!containerFilters.rarity || card.rarity === containerFilters.rarity)
         && (!containerFilters.condition || card.condition === containerFilters.condition)
         && (!containerFilters.printing || card.printing === containerFilters.printing)

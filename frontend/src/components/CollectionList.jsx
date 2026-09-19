@@ -82,6 +82,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
   const [setFilter, setSetFilter] = useState([]);
   const [typeFilter, setTypeFilter] = useState([]);
   const [supertypeFilter, setSupertypeFilter] = useState([]);
+  const [colorFilter, setColorFilter] = useState([]);
   const [cmcFilter, setCmcFilter] = useState([]);
   const [languageFilter, setLanguageFilter] = useState([]);
   const [minPriceFilter, setMinPriceFilter] = useState('');
@@ -212,7 +213,11 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
     [collection]
   );
   const uniqueTypes = useMemo(
-    () => Array.from(new Set(collection.flatMap(item => item.types || []).filter(Boolean))).sort(),
+    () => Array.from(new Set(collection.flatMap(item => [...(item.types || []), ...(item.subtypes || [])]).filter(Boolean))).sort(),
+    [collection]
+  );
+  const uniqueColors = useMemo(
+    () => Array.from(new Set(collection.flatMap(item => item.color_identity || []).filter(Boolean))).sort(),
     [collection]
   );
   const uniqueSupertypes = useMemo(
@@ -243,7 +248,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
     setSearchFilter('');
     setGameFilter('');
     setLocationFilter([]); setRarityFilter([]); setConditionFilter([]); setGraderFilter([]);
-    setPrintingFilter([]); setSetFilter([]); setTypeFilter([]); setSupertypeFilter([]);
+    setPrintingFilter([]); setSetFilter([]); setTypeFilter([]); setSupertypeFilter([]); setColorFilter([]);
     setCmcFilter([]); setLanguageFilter([]);
     setMinPriceFilter(''); setMaxPriceFilter('');
     setTradeOnly(false); setFavoriteOnly(false);
@@ -272,7 +277,8 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
       const matchesCondition = conditionFilter.length === 0 ? true : conditionFilter.includes(item.condition);
       const matchesPrinting = printingFilter.length === 0 ? true : printingFilter.includes(item.printing);
       const matchesSet = setFilter.length === 0 ? true : setFilter.includes(item.set_name);
-      const matchesType = typeFilter.length === 0 ? true : typeFilter.some(t => (item.types || []).includes(t));
+      const matchesType = typeFilter.length === 0 ? true : typeFilter.some(t => [...(item.types || []), ...(item.subtypes || [])].includes(t));
+      const matchesColor = colorFilter.length === 0 ? true : colorFilter.some(c => (item.color_identity || []).includes(c));
       const matchesSupertype = supertypeFilter.length === 0 ? true : supertypeFilter.includes(item.supertype);
       const matchesCmc = cmcFilter.length === 0 ? true : cmcFilter.includes(String(item.cmc));
       const matchesLanguage = languageFilter.length === 0 ? true : languageFilter.includes(item.language);
@@ -289,7 +295,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
       const matchesNotCheckedOut = !notCheckedOutOnly || (item.checked_out_qty || 0) === 0;
 
       return matchesSearch && matchesGame && matchesLocation && matchesRarity && matchesCondition &&
-             matchesPrinting && matchesSet && matchesType && matchesSupertype &&
+             matchesPrinting && matchesSet && matchesType && matchesColor && matchesSupertype &&
              matchesCmc && matchesLanguage && matchesFavorite && matchesGrader && matchesMinPrice && matchesMaxPrice &&
              matchesNotCheckedOut;
     });
@@ -300,7 +306,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
       sortCardsByOrder(result, SORT_CRITERIA[sortBy] || SORT_CRITERIA['added-newest'], undefined, setsList);
     }
     return result;
-  }, [collection, searchFilter, gameFilter, locationFilter, rarityFilter, conditionFilter, printingFilter, setFilter, typeFilter, supertypeFilter, cmcFilter, languageFilter, favoriteOnly, graderFilter, minPriceFilter, maxPriceFilter, notCheckedOutOnly, sortBy, setsList]);
+  }, [collection, searchFilter, gameFilter, locationFilter, rarityFilter, conditionFilter, printingFilter, setFilter, typeFilter, colorFilter, supertypeFilter, cmcFilter, languageFilter, favoriteOnly, graderFilter, minPriceFilter, maxPriceFilter, notCheckedOutOnly, sortBy, setsList]);
 
   // Group duplicate cards if stack option is active
   const processedCollection = useMemo(() => {
@@ -386,7 +392,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
       </div>
 
       {/* Filter Panel */}
-      <div className="glass-panel" style={{ marginBottom: '1.5rem', padding: '1rem 1.25rem' }}>
+      <div className="glass-panel" style={{ position: 'relative', zIndex: 40, overflow: 'visible', marginBottom: '1.5rem', padding: '1rem 1.25rem' }}>
         {/* Always-visible top bar: search + sort + filters toggle */}
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2.5fr) minmax(150px, 1fr) auto', gap: '0.75rem', alignItems: 'flex-end' }}>
           <Field label={t('collection.searchLabel')}>
@@ -479,6 +485,16 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
                   value={typeFilter}
                   onChange={setTypeFilter}
                   options={uniqueTypes.map(t => ({value: t, label: t}))}
+                />
+              </Field>
+
+              <Field label={t('collection.fColor')}>
+                <MultiSelectDropdown
+                  label={t('collection.fColor')}
+                  allLabel={t('collection.allColors')}
+                  value={colorFilter}
+                  onChange={setColorFilter}
+                  options={uniqueColors.map(c => ({ value: c, label: c }))}
                 />
               </Field>
 

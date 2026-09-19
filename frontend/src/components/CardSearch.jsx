@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, Plus, X, ShieldAlert, Check, MousePointerClick, Zap, Undo2, Maximize2 } from 'lucide-react';
+import { Search, Plus, X, ShieldAlert, Check, MousePointerClick, Zap, Undo2, Maximize2, Upload } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { priceText } from '../utils/formatPrice';
 import { resolveCardPrice } from '../utils/resolveCardPrice';
@@ -65,6 +65,8 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
   const [rapidBusy, setRapidBusy] = useState(false);
   const [rapidLog, setRapidLog] = useState([]);
   const rapidInputRef = useRef(null);
+  const textImportInput = useRef(null);
+  const [importingText, setImportingText] = useState(false);
 
   // Filter states
   const [filterRarity, setFilterRarity] = useState('');
@@ -534,6 +536,34 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
     }
   };
 
+  const handleManaBoxImport = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      setImportingText(true);
+      try {
+        const response = await fetch('/api/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ format: 'manabox', data: String(reader.result || '') })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || t('settings.importFailed', { error: '' }));
+        showToast(data.message);
+        onAddSuccess();
+      } catch (error) {
+        console.error(error);
+        showToast(error.message || t('settings.importFailed', { error: '' }));
+      } finally {
+        setImportingText(false);
+      }
+    };
+    reader.onerror = () => showToast(t('settings.errReadFile'));
+    reader.readAsText(file);
+    event.target.value = '';
+  };
+
   // Helper to determine location type layout guidance
   return (
     <div>
@@ -645,6 +675,11 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
               <Zap size={18} />
               {t(rapidMode ? 'search.rapidOn' : 'search.rapid')}
             </button>
+            <button type="button" className="btn btn-secondary" onClick={() => textImportInput.current?.click()} disabled={importingText} style={{ flex: '0 1 auto' }}>
+              <Upload size={18} />
+              {importingText ? t('settings.importing') : t('deck.chooseManaBoxFile')}
+            </button>
+            <input ref={textImportInput} type="file" accept=".txt,text/plain" onChange={handleManaBoxImport} style={{ display: 'none' }} />
           </div>
         </form>
       </div>

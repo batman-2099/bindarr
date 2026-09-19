@@ -1597,16 +1597,19 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                       key={card.entry_id}
                       type="button"
                       onClick={() => storage.selectMode ? storage.toggleSelect(card.entry_id) : setInspectorCard(card)}
-                      style={{ position: 'relative', display: 'flex', justifyContent: 'center', width: '100%', padding: '0.25rem', border: selected ? '2px solid var(--accent-red)' : '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', background: selected ? 'rgba(255,71,71,0.12)' : 'rgba(255,255,255,0.03)', cursor: 'pointer' }}
+                      style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', padding: '0.25rem', border: selected ? '2px solid var(--accent-red)' : '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', background: selected ? 'rgba(255,71,71,0.12)' : 'rgba(255,255,255,0.03)', cursor: 'pointer' }}
                     >
                       <CardImage card={card} style={{ width: '100%', borderRadius: '3px' }} />
+                      <span style={{ width: '100%', marginTop: '0.3rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-strong)', fontSize: '0.65rem', fontWeight: 700 }}>
+                        {displayName(card)}
+                      </span>
                       {card.deck_names && (
-                        <span title={`${t('loc.inPlay')}: ${card.deck_names}`} style={{ position: 'absolute', right: '0.4rem', bottom: '0.4rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.15rem 0.3rem', borderRadius: '999px', background: 'rgba(0,0,0,0.8)', color: 'white', fontSize: '0.62rem', fontWeight: 700 }}>
+                        <span title={`${t('loc.inPlay')}: ${card.deck_names}`} style={{ position: 'absolute', right: '0.4rem', bottom: '1.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.15rem 0.3rem', borderRadius: '999px', background: 'rgba(0,0,0,0.8)', color: 'white', fontSize: '0.62rem', fontWeight: 700 }}>
                           <Layers size={11} /> {t('loc.inPlay')}
                         </span>
                       )}
                       {card.missing ? (
-                        <span style={{ position: 'absolute', left: '0.4rem', bottom: '0.4rem', padding: '0.15rem 0.3rem', borderRadius: '999px', background: 'var(--accent-red)', color: 'white', fontSize: '0.62rem', fontWeight: 700 }}>
+                        <span style={{ position: 'absolute', left: '0.4rem', bottom: '1.5rem', padding: '0.15rem 0.3rem', borderRadius: '999px', background: 'var(--accent-red)', color: 'white', fontSize: '0.62rem', fontWeight: 700 }}>
                           {t('inspector.missing')}
                         </span>
                       ) : null}

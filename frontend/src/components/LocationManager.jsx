@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { DndContext, DragOverlay, MouseSensor, useSensor, useSensors, useDraggable, useDroppable, pointerWithin } from '@dnd-kit/core';
-import { Plus, Minus, Trash2, X, MoreVertical, Settings, RefreshCw, Lock, LayoutGrid, List, MousePointerClick, ChevronDown, ChevronUp, Edit3, Upload } from 'lucide-react';
+import { Plus, Minus, Trash2, X, MoreVertical, Settings, RefreshCw, Lock, LayoutGrid, List, MousePointerClick, ChevronDown, ChevronUp, Edit3, Upload, Search, SlidersHorizontal } from 'lucide-react';
 import { sortCardsByOrder } from '../utils/cardSort';
 import { getFoilOverlayClass, getPrintingBadgeLabel, getPrintingBadgeStyle } from '../utils/cardPrinting';
 import { getCardRarityBorder, getRarityBadgeStyle, getRarityBadgeLabel } from '../utils/cardRarity';
@@ -119,6 +119,8 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   const [containerViewMode, setContainerViewMode] = useState('layout'); // 'layout' | 'list'
   const [containerCardScale, setContainerCardScale] = useState(1);
   const [unsortedBulkLocation, setUnsortedBulkLocation] = useState('');
+  const [showContainerFilters, setShowContainerFilters] = useState(false);
+  const [containerFilters, setContainerFilters] = useState({ search: '', set: '', type: '', rarity: '', condition: '', printing: '', language: '' });
 
   const {
     selectMode: unsortedSelectMode,
@@ -780,13 +782,33 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
     [allCards, activeLocationId]
   );
 
+  const containerFilterOptions = useMemo(() => ({
+    sets: Array.from(new Set(cardsInActiveLocation.map(card => card.set_name).filter(Boolean))).sort(),
+    types: Array.from(new Set(cardsInActiveLocation.flatMap(card => card.types || []).filter(Boolean))).sort(),
+    rarities: Array.from(new Set(cardsInActiveLocation.map(card => card.rarity).filter(Boolean))).sort(),
+    conditions: Array.from(new Set(cardsInActiveLocation.map(card => card.condition).filter(Boolean))).sort(),
+    printings: Array.from(new Set(cardsInActiveLocation.map(card => card.printing).filter(Boolean))).sort(),
+    languages: Array.from(new Set(cardsInActiveLocation.map(card => card.language).filter(Boolean))).sort()
+  }), [cardsInActiveLocation]);
+
   const containerListCards = useMemo(() => {
+    const search = containerFilters.search.toLowerCase();
     const compartmentIndex = new Map(compartments.map((compartment, index) => [compartment.id, index]));
-    return [...cardsInActiveLocation].sort((a, b) =>
-      (compartmentIndex.get(a.compartment_id) ?? Infinity) - (compartmentIndex.get(b.compartment_id) ?? Infinity)
-      || (a.position || 0) - (b.position || 0)
-    );
-  }, [cardsInActiveLocation, compartments]);
+    return cardsInActiveLocation
+      .filter(card =>
+        (!search || [card.name, card.printed_name, card.set_name, card.number].some(value => String(value || '').toLowerCase().includes(search)))
+        && (!containerFilters.set || card.set_name === containerFilters.set)
+        && (!containerFilters.type || (card.types || []).includes(containerFilters.type))
+        && (!containerFilters.rarity || card.rarity === containerFilters.rarity)
+        && (!containerFilters.condition || card.condition === containerFilters.condition)
+        && (!containerFilters.printing || card.printing === containerFilters.printing)
+        && (!containerFilters.language || card.language === containerFilters.language)
+      )
+      .sort((a, b) =>
+        (compartmentIndex.get(a.compartment_id) ?? Infinity) - (compartmentIndex.get(b.compartment_id) ?? Infinity)
+        || (a.position || 0) - (b.position || 0)
+      );
+  }, [cardsInActiveLocation, compartments, containerFilters]);
 
   const openCompartmentRules = (comp) => {
     let draft = [];
@@ -1529,6 +1551,37 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
               </div>
             )}
 
+            {containerViewMode === 'list' && (
+              <div className="glass-panel" style={{ padding: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <div style={{ position: 'relative', flex: 1 }}>
+                    <Search size={14} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                    <input className="input-control" value={containerFilters.search} onChange={(e) => setContainerFilters(filters => ({ ...filters, search: e.target.value }))} placeholder={t('collection.searchPlaceholder')} style={{ width: '100%', padding: '0.35rem 0.5rem 0.35rem 2rem', fontSize: '0.75rem' }} />
+                  </div>
+                  <button className={`btn ${showContainerFilters ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setShowContainerFilters(show => !show)} style={{ padding: '0.35rem 0.6rem', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <SlidersHorizontal size={13} /> {t('collection.filters')}
+                  </button>
+                </div>
+                {showContainerFilters && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.5rem' }}>
+                    {[
+                      ['set', t('collection.allSets'), containerFilterOptions.sets],
+                      ['type', t('collection.allTypes'), containerFilterOptions.types],
+                      ['rarity', t('collection.allRarities'), containerFilterOptions.rarities],
+                      ['condition', t('collection.allConditions'), containerFilterOptions.conditions],
+                      ['printing', t('collection.allPrintings'), containerFilterOptions.printings],
+                      ['language', t('collection.allLanguages'), containerFilterOptions.languages]
+                    ].map(([key, label, options]) => (
+                      <select key={key} className="select-control" value={containerFilters[key]} onChange={(e) => setContainerFilters(filters => ({ ...filters, [key]: e.target.value }))} style={{ fontSize: '0.72rem', padding: '0.3rem' }}>
+                        <option value="">{label}</option>
+                        {options.map(option => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    ))}
+                    <button className="btn btn-secondary" onClick={() => setContainerFilters({ search: '', set: '', type: '', rarity: '', condition: '', printing: '', language: '' })} style={{ fontSize: '0.72rem', padding: '0.3rem' }}>{t('collection.clearFilters')}</button>
+                  </div>
+                )}
+              </div>
+            )}
             {containerViewMode === 'list' && (
               <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${84 * containerCardScale}px, 1fr))`, gap: '0.45rem' }}>
                 {containerListCards.map(card => {

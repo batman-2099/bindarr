@@ -136,6 +136,9 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   const [showContainerFilters, setShowContainerFilters] = useState(false);
   const [containerFilters, setContainerFilters] = useState({ search: '', set: '', type: '', color: '', rarity: '', condition: '', printing: '', language: '', deckStatus: '' });
   const [containerSortBy, setContainerSortBy] = useState('name-asc');
+  const [stackContainerCards, setStackContainerCards] = useState(true);
+  const [stackContainerByCondition, setStackContainerByCondition] = useState(false);
+  const [stackContainerByPrinting, setStackContainerByPrinting] = useState(true);
 
   const {
     selectMode: unsortedSelectMode,
@@ -839,6 +842,21 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
       ? cards
       : sortCardsByOrder(cards, CONTAINER_LIST_SORTS[containerSortBy], undefined, setsList);
   }, [cardsInActiveLocation, compartments, containerFilters, containerSortBy, setsList]);
+
+  const processedContainerListCards = useMemo(() => {
+    if (!stackContainerCards) return containerListCards;
+    const groups = {};
+    containerListCards.forEach(card => {
+      let key = card.card_id;
+      if (stackContainerByCondition) key += `-${card.condition}`;
+      if (stackContainerByPrinting) key += `-${card.printing}`;
+      if (!groups[key]) groups[key] = { ...card };
+      else groups[key].quantity += card.quantity;
+    });
+    return Object.values(groups);
+  }, [containerListCards, stackContainerCards, stackContainerByCondition, stackContainerByPrinting]);
+
+  const displayContainerListCards = storage.selectMode ? containerListCards : processedContainerListCards;
 
   const openCompartmentRules = (comp) => {
     let draft = [];
@@ -1588,6 +1606,24 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                     {['name-asc', 'name-desc', 'price-desc', 'price-asc', 'set-asc', 'type-asc', 'rarity-desc'].map(key => <option key={key} value={key}>{t(`collection.sort.${key}`)}</option>)}
                   </select>
                 </div>
+                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <input type="checkbox" id="stackContainerCardsOpt" checked={stackContainerCards} onChange={(e) => setStackContainerCards(e.target.checked)} />
+                    <label htmlFor="stackContainerCardsOpt" style={{ cursor: 'pointer', margin: 0, fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-strong)' }}>{t('collection.stackDuplicates')}</label>
+                  </div>
+                  {stackContainerCards && (
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input type="checkbox" id="stackContainerByConditionOpt" checked={stackContainerByCondition} onChange={(e) => setStackContainerByCondition(e.target.checked)} />
+                        <label htmlFor="stackContainerByConditionOpt" style={{ cursor: 'pointer', margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{t('collection.splitByCondition')}</label>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input type="checkbox" id="stackContainerByPrintingOpt" checked={stackContainerByPrinting} onChange={(e) => setStackContainerByPrinting(e.target.checked)} />
+                        <label htmlFor="stackContainerByPrintingOpt" style={{ cursor: 'pointer', margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{t('collection.splitByPrinting')}</label>
+                      </div>
+                    </>
+                  )}
+                </div>
                 {showContainerFilters && (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.5rem' }}>
                     {[
@@ -1616,7 +1652,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
             )}
             {containerViewMode === 'list' && (
               <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${84 * containerCardScale}px, 1fr))`, gap: '0.45rem' }}>
-                {containerListCards.map(card => {
+                {displayContainerListCards.map(card => {
                   const selected = storage.selectedIds.has(card.entry_id);
                   return (
                     <button
@@ -1626,12 +1662,17 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                       style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', padding: '0.25rem', border: selected ? '2px solid var(--accent-red)' : '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', background: selected ? 'rgba(255,71,71,0.12)' : 'rgba(255,255,255,0.03)', cursor: 'pointer' }}
                     >
                       <CardImage card={card} style={{ width: '100%', borderRadius: '3px' }} />
+                      {card.quantity > 1 && (
+                        <span style={{ position: 'absolute', top: '0.35rem', right: '0.35rem', padding: '0.25rem 0.5rem', borderRadius: '999px', background: 'rgba(0,0,0,0.85)', color: 'white', fontSize: '1rem', fontWeight: 800 }}>
+                          ×{card.quantity}
+                        </span>
+                      )}
                       <span style={{ width: '100%', marginTop: '0.3rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-strong)', fontSize: '0.65rem', fontWeight: 700 }}>
                         {displayName(card)}
                       </span>
                       {card.checked_out_qty > 0 && (
-                        <span title={`${t('loc.inPlay')}: ${card.deck_names}`} style={{ position: 'absolute', right: '0.4rem', bottom: '1.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.15rem 0.3rem', borderRadius: '999px', background: 'rgba(0,0,0,0.8)', color: 'white', fontSize: '0.62rem', fontWeight: 700 }}>
-                          <Layers size={11} /> {card.checked_out_qty < card.quantity ? `${card.checked_out_qty}/${card.quantity} Out` : t('loc.inPlay')}
+                        <span title={`${t('loc.inPlay')}: ${card.deck_names}`} style={{ position: 'absolute', right: '0.35rem', bottom: '1.35rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.25rem 0.45rem', borderRadius: '999px', background: 'rgba(0,0,0,0.85)', border: '2px solid var(--accent-red)', color: 'white', fontSize: '0.85rem', fontWeight: 800 }}>
+                          <Layers size={14} /> {card.checked_out_qty < card.quantity ? `${card.checked_out_qty}/${card.quantity} Out` : t('loc.inPlay')}
                         </span>
                       )}
                       {card.missing ? (

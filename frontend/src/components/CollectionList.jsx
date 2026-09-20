@@ -66,7 +66,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('collection_default_view') || 'gallery'); // 'gallery' or 'list'
   const [inspectorCard, setInspectorCard] = useState(null);
   const [inspectorStartEdit, setInspectorStartEdit] = useState(false);
-  const [subTab, setSubTab] = useState('collection'); // 'collection', 'wishlist'
+  const [subTab, setSubTab] = useState('collection'); // 'collection', 'unsorted', 'wishlist'
   const [showFilters, setShowFilters] = useState(false);
 
   // Search & Filter state
@@ -114,9 +114,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
     try {
       setLoading(true);
       let url = '/api/collection?list_type=collection';
-      if (subTab === 'wishlist') {
-        url = '/api/collection?list_type=wishlist';
-      }
+      if (subTab === 'wishlist') url = '/api/collection?list_type=wishlist';
       if (tradeOnly) {
         url += '&is_trade=1';
       }
@@ -293,8 +291,9 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
       const matchesMinPrice = minPriceFilter === '' ? true : price >= parseFloat(minPriceFilter);
       const matchesMaxPrice = maxPriceFilter === '' ? true : price <= parseFloat(maxPriceFilter);
       const matchesNotCheckedOut = !notCheckedOutOnly || (item.checked_out_qty || 0) === 0;
+      const matchesUnsorted = subTab !== 'unsorted' || !item.location_id;
 
-      return matchesSearch && matchesGame && matchesLocation && matchesRarity && matchesCondition &&
+      return matchesSearch && matchesUnsorted && matchesGame && matchesLocation && matchesRarity && matchesCondition &&
              matchesPrinting && matchesSet && matchesType && matchesColor && matchesSupertype &&
              matchesCmc && matchesLanguage && matchesFavorite && matchesGrader && matchesMinPrice && matchesMaxPrice &&
              matchesNotCheckedOut;
@@ -306,7 +305,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
       sortCardsByOrder(result, SORT_CRITERIA[sortBy] || SORT_CRITERIA['added-newest'], undefined, setsList);
     }
     return result;
-  }, [collection, searchFilter, gameFilter, locationFilter, rarityFilter, conditionFilter, printingFilter, setFilter, typeFilter, colorFilter, supertypeFilter, cmcFilter, languageFilter, favoriteOnly, graderFilter, minPriceFilter, maxPriceFilter, notCheckedOutOnly, sortBy, setsList]);
+  }, [collection, searchFilter, gameFilter, locationFilter, rarityFilter, conditionFilter, printingFilter, setFilter, typeFilter, colorFilter, supertypeFilter, cmcFilter, languageFilter, favoriteOnly, graderFilter, minPriceFilter, maxPriceFilter, notCheckedOutOnly, subTab, sortBy, setsList]);
 
   // Group duplicate cards if stack option is active
   const processedCollection = useMemo(() => {
@@ -347,6 +346,13 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
             style={{ fontSize: '0.85rem', padding: '0.45rem 1.25rem', borderRadius: 'var(--radius-sm)' }}
           >
             {t('nav.collection')}
+          </button>
+          <button
+            className={`btn ${subTab === 'unsorted' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setSubTab('unsorted')}
+            style={{ fontSize: '0.85rem', padding: '0.45rem 1.25rem', borderRadius: 'var(--radius-sm)' }}
+          >
+            {t('bulk.unassignedPile')}
           </button>
           <button
             className={`btn ${subTab === 'wishlist' ? 'btn-primary' : 'btn-secondary'}`}
@@ -616,7 +622,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
                 </label>
               </div>
 
-              {subTab === 'collection' && (
+              {subTab !== 'wishlist' && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <input type="checkbox" id="notCheckedOutOpt" checked={notCheckedOutOnly} onChange={(e) => setNotCheckedOutOnly(e.target.checked)} style={{ width: '14px', height: '14px', cursor: 'pointer' }} />
                   <label htmlFor="notCheckedOutOpt" style={{ cursor: 'pointer', margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>

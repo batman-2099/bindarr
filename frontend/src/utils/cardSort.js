@@ -16,6 +16,7 @@ export function typeCategory(types) {
   return t[0] || 'Colorless';
 }
 
+
 export function getPrintingRank(printing, foilSorting) {
   const order = foilSorting === 'foils_first' ? cardOrder.printingFoilsFirst : cardOrder.printingNormalsFirst;
   return order[printing] || 10;

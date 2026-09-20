@@ -128,6 +128,7 @@ function typeCategory(types) {
   return t[0] || 'Colorless';
 }
 
+
 function getColorCategory(card) {
   if (!card) return 'Colorless';
   let ci = [];

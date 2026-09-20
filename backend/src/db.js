@@ -2,6 +2,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { BASIC_LAND_COLORS } = require('./utils/mtgColors');
 
 // The app began life as "PokeKeep", a Pokémon-only tracker, so its database was
 // called pokemon_cards.db. It has handled Magic since v1.4.x, and the file name
@@ -584,6 +585,18 @@ async function initDb() {
         [needle, skip, needle, needle, skip]
       );
     }
+  }
+
+
+  // Older cached basic lands may lack an identity even though their mana ability
+  // supplies one. Repair them so Collection and Storage show their true color.
+  for (const [landType, color] of Object.entries(BASIC_LAND_COLORS)) {
+    await run(
+      `UPDATE card_cache SET color_identity = ?
+       WHERE game = 'mtg' AND (color_identity IS NULL OR color_identity = '[]')
+         AND (name = ? OR subtypes LIKE ?)`,
+      [JSON.stringify([color]), landType, `%${landType}%`]
+    );
   }
 
   const collectionCols = await all(`PRAGMA table_info(collection)`);

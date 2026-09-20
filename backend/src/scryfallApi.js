@@ -5,6 +5,7 @@ const { parseSetList } = require('./utils/setQuery');
 const cardSearchSql = require('./utils/cardSearchSql');
 const languages = require('./utils/languages');
 const { cacheNormalizedCards } = require('./utils/cardCache');
+const { normalizeMtgColorIdentity } = require('./utils/mtgColors');
 
 // Scryfall needs no API key but asks callers to identify themselves and accept
 // JSON. See https://scryfall.com/docs/api. IDs from Scryfall are UUIDs / set-num
@@ -226,7 +227,7 @@ function normalizeCard(raw, lang) {
   const usd = eurOnly ? money(prices.eur) : money(prices.usd);
   const usdFoil = eurOnly ? money(prices.eur_foil) : money(prices.usd_foil);
   const cmc = raw.cmc != null ? parseFloat(raw.cmc) : null;
-  const colorIdentity = raw.color_identity || face.color_identity || [];
+  const colorIdentity = normalizeMtgColorIdentity(raw.color_identity || face.color_identity, typeLine, raw.name || face.name);
 
   return {
     id: `mtg-${raw.id}`,
@@ -249,7 +250,7 @@ function normalizeCard(raw, lang) {
     price_avg7: null,
     price_avg30: null,
     cmc: cmc,
-    color_identity: colorIdentity.map(c => COLOR_NAMES[c] || c),
+    color_identity: colorIdentity,
     game: 'mtg',
     // Which printing this row IS. The quick-add form defaults the copy's language
     // to it, so adding a Japanese card no longer files it as English.

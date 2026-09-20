@@ -13,6 +13,38 @@ router.get('/export', async (req, res) => {
   const targetFormat = (ecosystem || format || 'internal').toLowerCase();
 
   try {
+    if (format.toLowerCase() === 'backup') {
+      const [collection, locations, compartments, compartmentAssignments, decks, deckCards, cardCache] = await Promise.all([
+        db.all('SELECT * FROM collection WHERE user_id = ? ORDER BY id', [req.user.id]),
+        db.all('SELECT * FROM locations WHERE user_id = ? ORDER BY id', [req.user.id]),
+        db.all('SELECT cp.* FROM compartments cp JOIN locations l ON l.id = cp.location_id WHERE l.user_id = ? ORDER BY cp.location_id, cp.idx', [req.user.id]),
+        db.all('SELECT ca.* FROM compartment_assignments ca JOIN compartments cp ON cp.id = ca.compartment_id JOIN locations l ON l.id = cp.location_id WHERE l.user_id = ? ORDER BY ca.compartment_id, ca.filter_value', [req.user.id]),
+        db.all('SELECT * FROM decks WHERE user_id = ? ORDER BY id', [req.user.id]),
+        db.all('SELECT dc.* FROM deck_cards dc JOIN decks d ON d.id = dc.deck_id WHERE d.user_id = ? ORDER BY dc.deck_id, dc.card_id', [req.user.id]),
+        db.all(`
+          SELECT * FROM card_cache WHERE id IN (
+            SELECT card_id FROM collection WHERE user_id = ?
+            UNION
+            SELECT dc.card_id FROM deck_cards dc JOIN decks d ON d.id = dc.deck_id WHERE d.user_id = ?
+          ) ORDER BY id
+        `, [req.user.id, req.user.id])
+      ]);
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename=bindarr_backup_${new Date().toISOString().slice(0, 10)}.json`);
+      return res.json({
+        format: 'bindarr-backup',
+        version: 1,
+        exported_at: new Date().toISOString(),
+        collection,
+        card_cache: cardCache,
+        locations,
+        compartments,
+        compartment_assignments: compartmentAssignments,
+        decks,
+        deck_cards: deckCards
+      });
+    }
+
     const query = `
       SELECT 
         c.quantity,

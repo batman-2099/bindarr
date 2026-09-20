@@ -295,7 +295,7 @@ function Settings({ user, onUpdateUser, showToast }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `bindarr_collection.${format === 'json' ? 'json' : 'csv'}`;
+      a.download = format === 'backup' ? 'bindarr_backup.json' : `bindarr_collection.${format === 'json' ? 'json' : 'csv'}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -856,6 +856,15 @@ function Settings({ user, onUpdateUser, showToast }) {
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <button
+              type="button"
+              onClick={() => handleExport('backup')}
+              className="btn btn-primary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}
+            >
+              <Download size={14} />
+              <span>{t('settings.exportBackup')}</span>
+            </button>
             <button
               type="button"
               onClick={() => handleExport('csv')}

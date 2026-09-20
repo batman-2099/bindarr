@@ -177,30 +177,31 @@ function Settings({ user, onUpdateUser, showToast }) {
     return `${REPO_URL}/issues/new?labels=enhancement&title=${encodeURIComponent('[Feature] ')}&body=${encodeURIComponent(body)}`;
   };
 
-  const handleImportFile = async (e) => {
+  const handleImportFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (!window.confirm(t('settings.confirmImport', { file: file.name }))) {
-      e.target.value = '';
-      return;
-    }
-
     const reader = new FileReader();
-    const isJson = file.name.endsWith('.json');
-    const format = isJson ? 'json' : (file.name.endsWith('.txt') ? 'manabox' : 'csv');
-
+    const filename = file.name.toLowerCase();
     reader.onload = async (event) => {
       try {
         const fileData = event.target.result;
+        let format = filename.endsWith('.json') ? 'json' : (filename.endsWith('.txt') ? 'manabox' : 'csv');
+        let completeBackup = false;
+        if (format === 'json') {
+          try {
+            const parsed = JSON.parse(fileData);
+            completeBackup = parsed?.format === 'bindarr-backup' && parsed.version === 1;
+          } catch { /* The server returns the normal JSON-import error. */ }
+        }
+        if (!window.confirm(t(completeBackup ? 'settings.confirmRestore' : 'settings.confirmImport', { file: file.name }))) return;
+        if (completeBackup) format = 'backup';
+
         showToast(t('settings.importing'));
         const response = await fetch('/api/import', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            format,
-            data: fileData
-          })
+          body: JSON.stringify({ format, data: fileData })
         });
 
         const result = await response.json();

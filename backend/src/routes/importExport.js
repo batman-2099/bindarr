@@ -7,6 +7,125 @@ const { generateExportCSV } = require('../utils/csvExporters');
 const { resolveCardPrice } = require('../utils/priceHelpers');
 const { isBinderType } = require('../utils/compartmentSort');
 
+function parseCompleteBackup(data) {
+  const backup = typeof data === 'string' ? JSON.parse(data) : data;
+  const arrays = ['collection', 'card_cache', 'locations', 'compartments', 'compartment_assignments', 'decks', 'deck_cards'];
+  if (!backup || backup.format !== 'bindarr-backup' || backup.version !== 1 || !arrays.every(key => Array.isArray(backup[key]))) {
+    throw new Error('Invalid backup file');
+  }
+
+  const cardIds = new Set(backup.card_cache.map(card => card.id));
+  const locationIds = new Set(backup.locations.map(location => location.id));
+  const compartmentIds = new Set(backup.compartments.map(compartment => compartment.id));
+  const deckIds = new Set(backup.decks.map(deck => deck.id));
+  if (
+    backup.card_cache.some(card => !card.id || !card.name)
+    || backup.locations.some(location => !location.id || !location.name || !location.type)
+    || backup.compartments.some(compartment => !compartment.id || !locationIds.has(compartment.location_id))
+    || backup.compartment_assignments.some(assignment => !compartmentIds.has(assignment.compartment_id))
+    || backup.collection.some(card => !cardIds.has(card.card_id) || (card.location_id != null && !locationIds.has(card.location_id)) || (card.compartment_id != null && !compartmentIds.has(card.compartment_id)))
+    || backup.deck_cards.some(card => !cardIds.has(card.card_id) || !deckIds.has(card.deck_id))
+  ) {
+    throw new Error('Invalid backup references');
+  }
+  return backup;
+}
+
+async function restoreCompleteBackup(backup, userId) {
+  const locationIds = new Map();
+  const compartmentIds = new Map();
+  const deckIds = new Map();
+
+  await db.withTransaction(async () => {
+    await db.run('DELETE FROM deck_cards WHERE deck_id IN (SELECT id FROM decks WHERE user_id = ?)', [userId]);
+    await db.run('DELETE FROM decks WHERE user_id = ?', [userId]);
+    await db.run('DELETE FROM collection WHERE user_id = ?', [userId]);
+    await db.run('DELETE FROM locations WHERE user_id = ?', [userId]);
+
+    for (const card of backup.card_cache) {
+      await db.run(`
+        INSERT OR IGNORE INTO card_cache (
+          id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url,
+          price_trend, price_normal, price_holofoil, price_reverse_holofoil, price_avg1, price_avg7,
+          price_avg30, price_1st_edition, price_currency, price_source, cmc, color_identity, game,
+          language, printed_name, tcgplayer_product_id, last_updated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        card.id, card.name, card.supertype, card.subtypes, card.types, card.rarity, card.set_id, card.set_name, card.number, card.image_url,
+        card.price_trend, card.price_normal, card.price_holofoil, card.price_reverse_holofoil, card.price_avg1, card.price_avg7,
+        card.price_avg30, card.price_1st_edition, card.price_currency, card.price_source, card.cmc, card.color_identity, card.game,
+        card.language, card.printed_name, card.tcgplayer_product_id, card.last_updated
+      ]);
+    }
+
+    for (const location of backup.locations) {
+      const result = await db.run(`
+        INSERT INTO locations (name, type, sort_order, foil_sorting, rule_type, rule_config, game, user_id, locked, allow_stacking)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        location.name, location.type, location.sort_order, location.foil_sorting, location.rule_type, location.rule_config,
+        location.game, userId, location.locked || 0, location.allow_stacking || 0
+      ]);
+      locationIds.set(location.id, result.lastID);
+    }
+
+    for (const compartment of backup.compartments) {
+      const result = await db.run(`
+        INSERT INTO compartments (location_id, idx, label, capacity, rule_config, locked)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, [
+        locationIds.get(compartment.location_id), compartment.idx, compartment.label, compartment.capacity,
+        compartment.rule_config, compartment.locked || 0
+      ]);
+      compartmentIds.set(compartment.id, result.lastID);
+    }
+
+    for (const assignment of backup.compartment_assignments) {
+      await db.run('INSERT INTO compartment_assignments (compartment_id, filter_value) VALUES (?, ?)', [
+        compartmentIds.get(assignment.compartment_id), assignment.filter_value
+      ]);
+    }
+
+    for (const card of backup.collection) {
+      await db.run(`
+        INSERT INTO collection (
+          card_id, quantity, condition, printing, language, purchase_price, location_id, compartment_id,
+          position, favorite, is_trade, list_type, game, added_at, notes, grader, grade, cert_number,
+          market_value, market_value_source, market_value_at, missing, user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        card.card_id, card.quantity, card.condition, card.printing, card.language, card.purchase_price,
+        card.location_id == null ? null : locationIds.get(card.location_id),
+        card.compartment_id == null ? null : compartmentIds.get(card.compartment_id),
+        card.position, card.favorite || 0, card.is_trade || 0, card.list_type, card.game, card.added_at,
+        card.notes || '', card.grader || 'Raw', card.grade, card.cert_number, card.market_value,
+        card.market_value_source, card.market_value_at, card.missing || 0, userId
+      ]);
+    }
+
+    for (const deck of backup.decks) {
+      const result = await db.run(`
+        INSERT INTO decks (
+          name, description, checked_out, checked_out_at, game, created_at, format, category,
+          accent_color, target_size, user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        deck.name, deck.description, deck.checked_out || 0, deck.checked_out_at, deck.game, deck.created_at,
+        deck.format, deck.category, deck.accent_color, deck.target_size, userId
+      ]);
+      deckIds.set(deck.id, result.lastID);
+    }
+
+    for (const card of backup.deck_cards) {
+      await db.run('INSERT INTO deck_cards (deck_id, card_id, quantity, checked_out) VALUES (?, ?, ?, ?)', [
+        deckIds.get(card.deck_id), card.card_id, card.quantity, card.checked_out || 0
+      ]);
+    }
+  });
+
+  return { cards: backup.collection.length, locations: backup.locations.length, decks: backup.decks.length };
+}
+
 // Export endpoint
 router.get('/export', async (req, res) => {
   const { format = 'csv', ecosystem = 'internal' } = req.query;
@@ -130,6 +249,16 @@ router.post('/import', async (req, res) => {
     let rawItems = [];
     let unmatchedCount = 0;
     const formatKey = format.toLowerCase();
+    if (formatKey === 'backup') {
+      const backup = parseCompleteBackup(data);
+      const restored = await restoreCompleteBackup(backup, req.user.id);
+      return res.json({
+        success: true,
+        ...restored,
+        message: `Restored ${restored.cards} cards, ${restored.locations} containers, and ${restored.decks} decks.`
+      });
+    }
+
     if (formatKey === 'json') {
       rawItems = typeof data === 'string' ? JSON.parse(data) : data;
     } else if (formatKey === 'manabox') {
@@ -257,7 +386,8 @@ router.post('/import', async (req, res) => {
     const unmatched = unmatchedCount ? ` ${unmatchedCount} unmatched ManaBox printings were skipped.` : '';
     return res.json({ success: true, count: importedCount, message: `Successfully imported ${importedCount} items.${unmatched}` });
   } catch (error) {
-    return res.status(500).json({ error: 'Import failed', message: error.message });
+    const status = error.message.startsWith('Invalid backup') ? 400 : 500;
+    return res.status(status).json({ error: status === 400 ? error.message : 'Import failed', message: error.message });
   }
 });
 

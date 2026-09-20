@@ -238,6 +238,22 @@ router.get('/export', async (req, res) => {
   }
 });
 
+
+router.post('/import/preview', (req, res) => {
+  const { format = 'internal', data } = req.body;
+  if (format.toLowerCase() !== 'manabox' || !data) {
+    return res.status(400).json({ error: 'ManaBox text is required' });
+  }
+  const items = parseManaboxText(data);
+  if (!items.length) return res.status(400).json({ error: 'No ManaBox cards found' });
+  const summary = items.reduce((out, item) => {
+    out.cards += item.quantity;
+    if (item.printing === 'Holofoil') out.foils += item.quantity;
+    else out.normal += item.quantity;
+    return out;
+  }, { printings: items.length, cards: 0, normal: 0, foils: 0 });
+  res.json(summary);
+});
 // Import endpoint
 router.post('/import', async (req, res) => {
   const { format = 'internal', data } = req.body;

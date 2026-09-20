@@ -21,6 +21,11 @@ assert.deepStrictEqual(card('PLS', '58'), {
 assert.strictEqual(card('POR', '118').printing, 'Normal', 'non-foil annotation must not make a card foil');
 assert.strictEqual(card('7ED', '339', 'Holofoil').quantity, 1, 'ManaBox foil markers must be retained');
 assert.ok(cards.length > 0, 'the supplied ManaBox export must yield cards');
+assert.deepStrictEqual(
+  parseManaboxText('1 Spider-Suit (SPM) 176\n1 Spider-Suit (SPM) 176 *F*').map(item => item.printing),
+  ['Normal', 'Holofoil'],
+  'mixed foil copies must remain separate'
+);
 
 async function testImportRoute() {
   const os = require('os');
@@ -31,6 +36,7 @@ async function testImportRoute() {
   const db = require('../src/db');
   const scryfallApi = require('../src/scryfallApi');
   const importRouter = require('../src/routes/importExport');
+  const previewHandler = importRouter.stack.find(layer => layer.route?.path === '/import/preview').route.stack[0].handle;
   const originalBulkFetch = scryfallApi.bulkFetchByIdentifier;
   const originalCacheCards = scryfallApi.cacheCards;
   const handler = importRouter.stack.find(layer => layer.route?.path === '/import').route.stack[0].handle;
@@ -39,12 +45,13 @@ async function testImportRoute() {
     await db.initDb();
     await db.run(`INSERT INTO card_cache (id, name, game) VALUES (?, ?, ?)`, ['mtg-caldera', 'Caldera Kavu', 'mtg']);
     await db.run(`INSERT INTO card_cache (id, name, game) VALUES (?, ?, ?)`, ['mtg-mountain', 'Mountain', 'mtg']);
+    await db.run(`INSERT INTO card_cache (id, name, game) VALUES (?, ?, ?)`, ['mtg-spider', 'Spider-Suit', 'mtg']);
 
     scryfallApi.bulkFetchByIdentifier = async (rows) => ({
       cards: [],
       pairs: rows.map(row => ({
         row,
-        card: { id: row.name === 'Caldera Kavu' ? 'mtg-caldera' : 'mtg-mountain' }
+        card: { id: row.name === 'Caldera Kavu' ? 'mtg-caldera' : row.name === 'Spider-Suit' ? 'mtg-spider' : 'mtg-mountain' }
       }))
     });
     scryfallApi.cacheCards = async () => {};
@@ -54,18 +61,28 @@ async function testImportRoute() {
       status(code) { this.statusCode = code; return this; },
       json(body) { this.body = body; return this; }
     };
+    const preview = {
+      statusCode: 200,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; }
+    };
+    const data = '2 Caldera Kavu (PLS) 58\n1 Mountain (7ED) 339★ *F*\n1 Spider-Suit (SPM) 176\n1 Spider-Suit (SPM) 176 *F*';
+    await previewHandler({ body: { format: 'manabox', data } }, preview);
+    assert.deepStrictEqual(preview.body, { printings: 4, cards: 5, normal: 3, foils: 2 });
     await handler({
-      body: { format: 'manabox', data: '2 Caldera Kavu (PLS) 58\n1 Mountain (7ED) 339★ *F*' },
+      body: { format: 'manabox', data },
       user: { id: 1 }
     }, res);
 
     assert.strictEqual(res.statusCode, 200);
-    assert.strictEqual(res.body.count, 2);
+    assert.strictEqual(res.body.count, 4);
     assert.deepStrictEqual(await db.all(
-      `SELECT card_id, quantity, printing, game FROM collection ORDER BY card_id`
+      `SELECT card_id, quantity, printing, game FROM collection ORDER BY card_id, printing`
     ), [
       { card_id: 'mtg-caldera', quantity: 2, printing: 'Normal', game: 'mtg' },
-      { card_id: 'mtg-mountain', quantity: 1, printing: 'Holofoil', game: 'mtg' }
+      { card_id: 'mtg-mountain', quantity: 1, printing: 'Holofoil', game: 'mtg' },
+      { card_id: 'mtg-spider', quantity: 1, printing: 'Holofoil', game: 'mtg' },
+      { card_id: 'mtg-spider', quantity: 1, printing: 'Normal', game: 'mtg' }
     ]);
   } finally {
     scryfallApi.bulkFetchByIdentifier = originalBulkFetch;

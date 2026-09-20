@@ -307,31 +307,31 @@ async function bulkFetchByIdentifier(rows) {
   for (let i = 0; i < rows.length; i += COLLECTION_BATCH) {
     const chunk = rows.slice(i, i + COLLECTION_BATCH);
     const byKey = new Map();
-    const identifiers = chunk.map(row => {
+    const identifiers = [];
+    for (const row of chunk) {
       const uuid = scryfallUuid(row.id || row.card_id);
-      if (uuid) {
-        byKey.set(`id:${uuid.toLowerCase()}`, row);
-        return { id: uuid };
-      }
       const setId = row.set_id != null ? String(row.set_id).toLowerCase() : '';
       const num = row.number != null ? String(row.number) : '';
-      if (setId && num) {
-        byKey.set(`sn:${setId}|${num.toLowerCase()}`, row);
-        return { set: setId, collector_number: num };
+      const key = uuid ? `id:${uuid.toLowerCase()}`
+        : setId && num ? `sn:${setId}|${num.toLowerCase()}`
+          : `n:${String(row.name || '').toLowerCase()}`;
+      if (!byKey.has(key)) {
+        byKey.set(key, []);
+        identifiers.push(uuid ? { id: uuid } : setId && num
+          ? { set: setId, collector_number: num } : { name: row.name || '' });
       }
-      byKey.set(`n:${String(row.name || '').toLowerCase()}`, row);
-      return { name: row.name || '' };
-    });
+      byKey.get(key).push(row);
+    }
 
     const resp = await scryPostRetried('/cards/collection', { identifiers });
     notFound += ((resp.data && resp.data.not_found) || []).length;
     for (const raw of (resp.data && resp.data.data) || []) {
       const norm = normalizeCard(raw);
       cards.push(norm);
-      const row = byKey.get(`id:${String(raw.id).toLowerCase()}`)
+      const matchingRows = byKey.get(`id:${String(raw.id).toLowerCase()}`)
         || byKey.get(`sn:${String(norm.set_id).toLowerCase()}|${String(norm.number).toLowerCase()}`)
         || byKey.get(`n:${String(norm.name).toLowerCase()}`);
-      if (row) pairs.push({ row, card: norm });
+      for (const row of matchingRows || []) pairs.push({ row, card: norm });
     }
   }
   return { cards, pairs, notFound };

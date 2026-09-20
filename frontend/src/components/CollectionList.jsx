@@ -95,7 +95,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
   // Stacking state (default to stacked)
   const [stackCards, setStackCards] = useState(true);
   const [stackByCondition, setStackByCondition] = useState(false);
-  const [stackByPrinting, setStackByPrinting] = useState(false);
+  const [stackByPrinting, setStackByPrinting] = useState(true);
 
   // Multi-select / bulk actions — shared long-press + /api/collection/bulk logic.
   const {

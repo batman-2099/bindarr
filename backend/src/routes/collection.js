@@ -4,6 +4,7 @@ const tcgApi = require('../tcgApi');
 const tcgdexApi = require('../tcgdexApi');
 const scryfallApi = require('../scryfallApi');
 const lorcastApi = require('../lorcastApi');
+const mtgjsonApi = require('../mtgjsonApi');
 const cvScan = require('../cvScan');
 const tcgplayerCatalog = require('../tcgplayerCatalog');
 const languages = require('../utils/languages');
@@ -15,7 +16,7 @@ const { searchLimiter } = require('../middleware/auth');
 const { resolveCardPrice, parseCardRow, recordPrice } = require('../utils/priceHelpers');
 const { parseSetList } = require('../utils/setQuery');
 const { compartmentLabel, isBinderType, rebalanceCompartmentByScheme, stackKey, STACK_KEY_SQL } = require('../utils/compartmentSort');
-const { checkedOutAllocation, resolveCompartmentAndPosition, describePlacement, setStackQuantity } = require('../utils/collectionHelpers');
+const { checkedOutAllocation, resolveCompartmentAndPosition, describePlacement, setStackQuantity, defaultCompartmentPlan } = require('../utils/collectionHelpers');
 const { validateDeckAddition } = require('../utils/deckRules');
 const { splitPrice } = require('../utils/splitPrice');
 
@@ -904,6 +905,125 @@ router.post('/collection/bulk-add', async (req, res) => {
   });
 });
 
+// MTGJSON's deck cards carry the exact Scryfall printing id. Combine repeated
+// printings before resolving so one deck never asks Scryfall for the same card
+// twice, while preserving the deck's copy count.
+function deckCardRows(deck) {
+  const rows = new Map();
+  for (const section of ['commander', 'mainBoard', 'sideBoard']) {
+    for (const card of deck[section] || []) {
+      const id = card.identifiers?.scryfallId;
+      const set_id = card.setCode;
+      const number = card.number;
+      if (!id && !(set_id && number)) continue;
+      const printing = card.isFoil ? 'Holofoil' : 'Normal';
+      const language = card.language || 'English';
+      const key = `${id || `${set_id}|${number}`}|${printing}|${language}`;
+      const row = rows.get(key) || { id, set_id, number, name: card.name, printing, language, quantity: 0 };
+      row.quantity += Math.max(1, parseInt(card.count, 10) || 1);
+      rows.set(key, row);
+    }
+  }
+  return [...rows.values()];
+}
+
+function deckDetails(deck) {
+  const groups = { creatures: new Map(), spells: new Map(), lands: new Map() };
+  for (const section of ['commander', 'mainBoard', 'sideBoard']) {
+    for (const card of deck[section] || []) {
+      const group = card.types?.includes('Creature') ? groups.creatures
+        : card.types?.includes('Land') ? groups.lands : groups.spells;
+      const key = `${card.name}|${card.setCode}|${card.number}|${card.isFoil ? 'foil' : 'normal'}`;
+      const row = group.get(key) || { name: card.name, setCode: card.setCode, number: card.number, count: 0, type: card.type };
+      row.count += Math.max(1, parseInt(card.count, 10) || 1);
+      group.set(key, row);
+    }
+  }
+  return Object.fromEntries(Object.entries(groups).map(([name, cards]) => [
+    name,
+    [...cards.values()].sort((a, b) => a.name.localeCompare(b.name)),
+  ]));
+}
+
+// Product deck names and files come from MTGJSON, but this proxy keeps their
+// large catalog off the browser and lets the server validate the requested file.
+router.get('/mtg-decks', searchLimiter, async (req, res) => {
+  try {
+    res.json(await mtgjsonApi.searchDecks(req.query.q));
+  } catch (error) {
+    console.error('MTGJSON deck search failed:', error.message);
+    res.status(502).json({ error: 'Failed to search MTGJSON decks' });
+  }
+});
+
+router.get('/mtg-decks/:fileName', searchLimiter, async (req, res) => {
+  try {
+    const deck = await mtgjsonApi.getDeck(req.params.fileName);
+    if (!deck) return res.status(404).json({ error: 'MTGJSON deck not found' });
+    res.json({ name: deck.name, ...deckDetails(deck) });
+  } catch (error) {
+    console.error('MTGJSON deck details failed:', error.message);
+    res.status(502).json({ error: 'Failed to load MTGJSON deck details' });
+  }
+});
+
+router.post('/mtg-decks/:fileName/import', searchLimiter, async (req, res) => {
+  try {
+    const deck = await mtgjsonApi.getDeck(req.params.fileName);
+    if (!deck) return res.status(404).json({ error: 'MTGJSON deck not found' });
+
+    const rows = deckCardRows(deck);
+    if (!rows.length) return res.status(422).json({ error: 'This MTGJSON deck has no importable cards' });
+    const total = rows.reduce((sum, row) => sum + row.quantity, 0);
+    const { cards, pairs } = await scryfallApi.bulkFetchByIdentifier(rows);
+    await scryfallApi.cacheCards(cards);
+
+    let locationId = null;
+    if (req.body?.create_container) {
+      const existing = await db.get('SELECT id FROM locations WHERE name = ? AND user_id = ?', [deck.name, req.user.id]);
+      if (existing) return res.status(409).json({ error: `A storage container named "${deck.name}" already exists` });
+      const plan = defaultCompartmentPlan('Deck Box');
+      const location = await db.run(`
+        INSERT INTO locations (name, type, game, user_id)
+        VALUES (?, 'Deck Box', 'mtg', ?)
+      `, [deck.name, req.user.id]);
+      locationId = location.lastID;
+      await db.createCompartments(locationId, plan.count, Math.max(plan.capacity, total));
+    }
+
+    let added = 0;
+    const failed = [];
+    for (const { row, card } of pairs) {
+      try {
+        await addCardToCollection(req.user, {
+          card_id: card.id,
+          quantity: row.quantity,
+          printing: row.printing,
+          language: row.language,
+          game: 'mtg',
+          location_id: locationId,
+        });
+        added += row.quantity;
+      } catch (error) {
+        if (!(error instanceof AddCardError)) console.error(error);
+        failed.push({ name: row.name, error: error instanceof AddCardError ? error.message : 'Failed to add card' });
+      }
+    }
+
+    const missing = total - pairs.reduce((sum, { row }) => sum + row.quantity, 0);
+    res.status(failed.length && !added ? 500 : 200).json({
+      message: `Added ${added} of ${total} cards from ${deck.name}.`,
+      location_id: locationId,
+      added,
+      missing,
+      failed,
+    });
+  } catch (error) {
+    console.error('MTGJSON deck import failed:', error.message);
+    res.status(502).json({ error: 'Failed to import MTGJSON deck' });
+  }
+});
+
 // 4. Update Collection Entry
 router.put('/collection/:id', async (req, res) => {
   const { id } = req.params;
@@ -1327,4 +1447,5 @@ router.post('/collection/bulk', async (req, res) => {
 });
 
 router.normalizeSearchParams = normalizeSearchParams;
+router.addCardToCollection = addCardToCollection;
 module.exports = router;

@@ -67,6 +67,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
   const rapidInputRef = useRef(null);
   const textImportInput = useRef(null);
   const [importingText, setImportingText] = useState(false);
+  const [manaBoxPreview, setManaBoxPreview] = useState(null);
 
   // Filter states
   const [filterRarity, setFilterRarity] = useState('');
@@ -543,15 +544,15 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
     reader.onload = async () => {
       setImportingText(true);
       try {
-        const response = await fetch('/api/import', {
+        const text = String(reader.result || '');
+        const response = await fetch('/api/import/preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ format: 'manabox', data: String(reader.result || '') })
+          body: JSON.stringify({ format: 'manabox', data: text })
         });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || t('settings.importFailed', { error: '' }));
-        showToast(data.message);
-        onAddSuccess();
+        const summary = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(summary.error || t('settings.importFailed', { error: '' }));
+        setManaBoxPreview({ ...summary, text, filename: file.name });
       } catch (error) {
         console.error(error);
         showToast(error.message || t('settings.importFailed', { error: '' }));
@@ -562,6 +563,28 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
     reader.onerror = () => showToast(t('settings.errReadFile'));
     reader.readAsText(file);
     event.target.value = '';
+  };
+
+  const commitManaBoxImport = async () => {
+    if (!manaBoxPreview) return;
+    setImportingText(true);
+    try {
+      const response = await fetch('/api/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format: 'manabox', data: manaBoxPreview.text })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || t('settings.importFailed', { error: '' }));
+      setManaBoxPreview(null);
+      showToast(data.message);
+      onAddSuccess();
+    } catch (error) {
+      console.error(error);
+      showToast(error.message || t('settings.importFailed', { error: '' }));
+    } finally {
+      setImportingText(false);
+    }
   };
 
   // Helper to determine location type layout guidance
@@ -1039,6 +1062,37 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
           </div>
         )}
       </div>
+
+      {manaBoxPreview && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0, 0, 0, 0.78)', display: 'grid', placeItems: 'center', padding: '1rem' }}
+          onClick={() => !importingText && setManaBoxPreview(null)}
+        >
+          <div className="glass-panel" onClick={event => event.stopPropagation()} style={{ width: '100%', maxWidth: '420px', display: 'grid', gap: '1rem' }}>
+            <div>
+              <h2 style={{ margin: 0, color: 'var(--text-strong)', fontSize: '1.1rem' }}>{t('manaboxPreview.title')}</h2>
+              <p style={{ margin: '0.35rem 0 0', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>{manaBoxPreview.filename}</p>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', fontSize: '0.8rem' }}>
+              {[
+                [t('manaboxPreview.cards'), manaBoxPreview.cards],
+                [t('manaboxPreview.normal'), manaBoxPreview.normal],
+                [t('manaboxPreview.foils'), manaBoxPreview.foils],
+              ].map(([label, value]) => (
+                <div key={label} style={{ padding: '0.6rem', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', textAlign: 'center' }}>
+                  <strong style={{ display: 'block', color: 'var(--text-strong)', fontSize: '1rem' }}>{value}</strong>
+                  <span style={{ color: 'var(--text-muted)' }}>{label}</span>
+                </div>
+              ))}
+            </div>
+            <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{t('manaboxPreview.printings', { count: manaBoxPreview.printings })}</p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setManaBoxPreview(null)} disabled={importingText}>{t('common.cancel')}</button>
+              <button type="button" className="btn btn-primary" onClick={commitManaBoxImport} disabled={importingText}>{importingText ? t('settings.importing') : t('manaboxPreview.commit')}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Outside the drawer on purpose: .quick-add-drawer is transformed, and a
           transformed ancestor becomes the containing block for position:fixed,

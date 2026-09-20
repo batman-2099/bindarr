@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Camera, Search, Award } from 'lucide-react';
+import { Camera, Search, Award, BookOpen } from 'lucide-react';
 import CameraScanner from './CameraScanner';
 import CardSearch from './CardSearch';
 import SlabLookup from './SlabLookup';
+import MtgDeckImport from './MtgDeckImport';
 import { useT } from '../utils/i18n';
 
 function AddCards({ onAddSuccess, showToast, setActiveTab, initialMode = 'scan' }) {
@@ -26,7 +27,7 @@ function AddCards({ onAddSuccess, showToast, setActiveTab, initialMode = 'scan' 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', gap: '1rem', position: 'relative' }}>
-        <div className="sub-nav-tabs" style={{ width: '100%', maxWidth: '400px', margin: 0 }}>
+        <div className="sub-nav-tabs" style={{ width: '100%', maxWidth: '520px', margin: 0 }}>
           <button 
             className={`sub-nav-tab ${mode === 'scan' ? 'active' : ''}`}
             onClick={() => setMode('scan')}
@@ -51,6 +52,13 @@ function AddCards({ onAddSuccess, showToast, setActiveTab, initialMode = 'scan' 
             <Award size={18} />
             <span>{t('addCards.slab')}</span>
           </button>
+          <button
+            className={`sub-nav-tab ${mode === 'deck' ? 'active' : ''}`}
+            onClick={() => setMode('deck')}
+          >
+            <BookOpen size={18} />
+            <span>{t('addCards.deck')}</span>
+          </button>
         </div>
       </div>
 
@@ -58,6 +66,7 @@ function AddCards({ onAddSuccess, showToast, setActiveTab, initialMode = 'scan' 
         {mode === 'scan' && <CameraScanner onAddSuccess={onAddSuccess} showToast={showToast} setActiveTab={setActiveTab} />}
         {mode === 'search' && <CardSearch onAddSuccess={onAddSuccess} showToast={showToast} setActiveTab={setActiveTab} />}
         {mode === 'slab' && <SlabLookup onAddSuccess={onAddSuccess} showToast={showToast} />}
+        {mode === 'deck' && <MtgDeckImport onAddSuccess={onAddSuccess} showToast={showToast} />}
       </div>
     </div>
   );

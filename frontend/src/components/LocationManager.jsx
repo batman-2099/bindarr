@@ -1693,7 +1693,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                         </span>
                       )}
                       {card.missing ? (
-                        <span style={{ position: 'absolute', left: '0.4rem', bottom: '1.5rem', padding: '0.15rem 0.3rem', borderRadius: '999px', background: 'var(--accent-red)', color: 'white', fontSize: '0.62rem', fontWeight: 700 }}>
+                        <span style={{ position: 'absolute', left: '0.35rem', bottom: '1.35rem', padding: '0.25rem 0.45rem', borderRadius: '999px', background: 'var(--accent-red)', color: 'white', fontSize: '0.85rem', fontWeight: 800 }}>
                           {t('inspector.missing')}
                         </span>
                       ) : null}

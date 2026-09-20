@@ -16,7 +16,7 @@ import { useBackGuard } from '../utils/useBackGuard';
 import { useT } from '../utils/i18n';
 
 const CONTAINER_LIST_SORTS = {
-  'name-asc': [{ by: 'name', dir: 'asc' }],
+  'name-asc': [{ by: 'name', dir: 'asc' }, { by: 'number', dir: 'asc' }],
   'name-desc': [{ by: 'name', dir: 'desc' }],
   'price-desc': [{ by: 'price', dir: 'desc' }],
   'price-asc': [{ by: 'price', dir: 'asc' }],
@@ -135,7 +135,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   const [unsortedBulkLocation, setUnsortedBulkLocation] = useState('');
   const [showContainerFilters, setShowContainerFilters] = useState(false);
   const [containerFilters, setContainerFilters] = useState({ search: '', set: '', type: '', color: '', rarity: '', condition: '', printing: '', language: '', deckStatus: '' });
-  const [containerSortBy, setContainerSortBy] = useState('storage');
+  const [containerSortBy, setContainerSortBy] = useState('name-asc');
 
   const {
     selectMode: unsortedSelectMode,

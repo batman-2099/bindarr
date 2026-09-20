@@ -8,7 +8,7 @@ import CardInspectorModal from './CardInspectorModal';
 import { useMultiSelect } from '../utils/useMultiSelect';
 import { isBinderType as computeIsBinder, binderSpread } from '../utils/cardOptions';
 import { displayName } from '../utils/languages';
-import CompartmentView, { FocusedCardInfo } from './CompartmentView';
+import CompartmentView, { FocusedCardInfo, getSortCategories } from './CompartmentView';
 import { SortBuilder, FilterBuilder } from './SortFilterBuilder';
 import CreateContainerModal from './CreateContainerModal';
 import CardImage from './CardImage';
@@ -858,6 +858,19 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
 
   const displayContainerListCards = storage.selectMode ? containerListCards : processedContainerListCards;
 
+  const containerListSections = useMemo(() => {
+    const field = CONTAINER_LIST_SORTS[containerSortBy]?.[0]?.by;
+    if (!field) return [{ label: null, cards: displayContainerListCards }];
+    const sections = [];
+    for (const card of displayContainerListCards) {
+      const label = getSortCategories(card, [{ by: field, divider: true }], setsList)[0]?.label || 'Other';
+      const section = sections.at(-1);
+      if (!section || section.label !== label) sections.push({ label, cards: [card] });
+      else section.cards.push(card);
+    }
+    return sections;
+  }, [containerSortBy, displayContainerListCards, setsList]);
+
   const openCompartmentRules = (comp) => {
     let draft = [];
     const cfg = comp.rule_config;
@@ -1651,8 +1664,12 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
               </div>
             )}
             {containerViewMode === 'list' && (
-              <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${84 * containerCardScale}px, 1fr))`, gap: '0.45rem' }}>
-                {displayContainerListCards.map(card => {
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {containerListSections.map(section => (
+                  <section key={section.label || 'storage'}>
+                    {section.label && <h3 style={{ margin: '0 0 0.4rem', color: 'var(--text-strong)', fontSize: '0.85rem' }}>{section.label}</h3>}
+                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${84 * containerCardScale}px, 1fr))`, gap: '0.45rem' }}>
+                      {section.cards.map(card => {
                   const selected = storage.selectedIds.has(card.entry_id);
                   return (
                     <button
@@ -1682,7 +1699,10 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                       ) : null}
                     </button>
                   );
-                })}
+                      })}
+                    </div>
+                  </section>
+                ))}
               </div>
             )}
             <div style={{ display: containerViewMode === 'layout' ? 'flex' : 'none', flexDirection: 'column', gap: isBinderType ? '1rem' : '0.6rem' }}>

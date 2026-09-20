@@ -29,9 +29,12 @@ Try it without installing anything at **[thenotoriousjeremy.github.io/bindarr](h
 ## Features
 
 - **Camera scanning** — photograph a card and the server identifies it from the image alone. Works for Magic, Pokémon, and Lorcana.
-- **Physical location tracking** — binders by page and slot (1–9), boxes by row and divider, with layout and scalable image-list views. Drag cards between pockets to arrange a binder, or file them by tapping on a phone.
-- **Deck Builder & checkout** — build decks, edit their properties, import ManaBox decklists, reserve cards for play, and see exactly which checked-out deck makes a copy unavailable.
-- **Search and bulk add** — search or browse a whole set with multi-select; pin a set and add by collector number one keystroke at a time.
+- **Collection and inventory** — search or browse a whole set with multi-select; pin a set and add by collector number one keystroke at a time. Stack duplicate rows or split them by condition and printing, filter out cards allocated to checked-out decks, mark copies missing without losing their location, and duplicate a raw copy from its inspector.
+- **Physical location tracking** — binders by page and slot (1–9), boxes by row and divider. Drag cards between pockets, file them by tapping on a phone, or move a multi-selection between containers. If Auto-file or guided filing runs out of space, it asks before adding matching pages or rows and continuing.
+- **Storage list tools** — switch between physical layout and scalable image-list views; list views support search, filters, storage/name/value/set/type/rarity sorting, duplicate stacking, card-count badges, and clear In Play/Missing states.
+- **Deck Builder & checkout** — build decks, edit their properties, view and sort cards by physical location, then check a deck out with a pull checklist. Copies remain at their recorded location and show which checked-out deck has them in play; pulled state persists until return.
+- **Imports** — preview and import ManaBox `.txt` collection exports, import ManaBox decklists or storage containers, and add an MTGJSON preconstructed Magic deck to your collection with an optional Deck Box.
+- **Complete portable backups** — export and restore collection cards, cached card data, containers and layouts, and decks from one Bindarr JSON file.
 - **Dashboard** — collection value, 7/30-day trends, rarity and type breakdowns, set completion.
 - **Graded slabs** — record grader, grade and cert number per copy (PSA cert lookup fills them in), and give a slab its own value instead of the raw card's price.
 - **Cards in 11 languages** — search, scan and record Japanese, Korean, Chinese, German, French, Spanish, Italian, Portuguese and Russian printings. A copy references the printing it actually is, so it shows the name and artwork on the card while staying searchable by its English name.
@@ -41,9 +44,14 @@ Try it without installing anything at **[thenotoriousjeremy.github.io/bindarr](h
 
 Architecture, the scan pipeline, and the data model are in [PROJECT.md](PROJECT.md).
 
-## Collection and deck workflows
+## Collection, storage, and deck workflows
 
 ### ManaBox imports
+
+**Collection:** Open **Add Cards**, select the upload button, then choose a
+ManaBox `.txt` export. Bindarr previews its card, normal, foil, and distinct
+printing counts before you commit. It resolves printings by set and collector
+number, so normal and foil copies of the same card remain separate.
 
 **Decks:** Open **Deck Builder → Create Deck → + Quick Import Decklist**, choose
 **ManaBox text export**, then select the `.txt` export. Bindarr reads the
@@ -57,20 +65,53 @@ matching **Unsorted cards you already own** into its first row. It never adds
 new collection cards during a container import; cards absent from Unsorted are
 reported as not found.
 
+### Magic preconstructed decks
+
+Open **Add Cards → Precon Deck**, search the MTGJSON deck catalog, and use
+**Details** to inspect its creatures, spells, and lands. **Add Full Deck**
+resolves every printing through Scryfall and adds the cards to your collection.
+Choose the optional Deck Box prompt to file the imported cards straight into a
+new container sized for the deck.
+
 ### Deck Builder
 
 Open a deck and select **Edit Properties** to change its name, description,
 format, category, accent color, and target size. A deck's game stays fixed:
 its cards are game-scoped.
 
-Deck cards that cannot currently be used have a red warning. The label shows
-the missing copy count and, when another checked-out deck holds the copy, that
+Deck cards can show their storage container, page or row, and slot; sort by
+location to collect them in physical order. **Check Out for Play** opens a
+pull checklist grouped by container and compartment. Checkout reserves only
+the copies allocated to that deck, preserves their storage locations, and
+persists each pulled card until it is returned.
+
+Cards that cannot currently be used have a red warning. The label shows the
+missing copy count and, when another checked-out deck holds the copy, that
 deck's name — for example, `1 unavailable — Goblin Stampede`.
 
-### Container views
+### Storage and inventory
 
-Containers support layout and image-list views. In image-list view, use the
-plus and minus controls to scale card images from 60% to 250%.
+Containers support physical layout and image-list views. In image-list view,
+use the plus and minus controls to scale card images from 60% to 250%, then
+search, filter, and sort the open container. List cards can be stacked like
+the Collection view, with optional condition and printing splits; the count is
+shown on the card.
+
+Cards allocated to a checked-out deck display an outlined **In Play** badge
+with its quantity; hover it for the deck name. Use the In Play/Not In Play
+filters to find them. Mark individual or selected cards **Missing** or
+**Found** without moving them, and use multi-select to file chosen cards into
+another container or return them to Unsorted. **Settings → Preferences** also
+remembers your default Collection, Storage, and Deck Builder view, plus grid
+card scale.
+
+### Complete backups
+
+In **Settings → Collection Backup & Data Options**, choose **Export Complete
+Backup** for a portable Bindarr JSON archive. It preserves collection rows,
+cached card data, storage containers and layouts, and decks. Import that same
+file from the panel to restore it into the current account after confirmation;
+restore replaces that account's collection cards, storage, and decks.
 
 ---
 

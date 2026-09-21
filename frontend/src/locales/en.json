@@ -852,6 +852,7 @@
   "importSummary.cards": "cards",
   "importSummary.copies": "copies",
   "importSummary.failedCards": "Cards not added",
+  "importSummary.downloadFailed": "Download failed cards",
   "manaboxPreview.commit": "Commit import",
   "search.addedCards.one": "Added {count} card.",
   "search.addedCards.other": "Added {count} cards.",

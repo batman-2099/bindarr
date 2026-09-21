@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, Plus, X, ShieldAlert, Check, MousePointerClick, Zap, Undo2, Maximize2, Upload } from 'lucide-react';
+import { Search, Plus, X, ShieldAlert, Check, MousePointerClick, Zap, Undo2, Maximize2, Upload, Download } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { priceText } from '../utils/formatPrice';
 import { resolveCardPrice } from '../utils/resolveCardPrice';
@@ -606,6 +606,20 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
     reader.onerror = () => showToast(t('settings.errReadFile'));
     reader.readAsText(file);
     event.target.value = '';
+  };
+
+  const downloadFailedImport = () => {
+    const text = importSummary.failed.items.map(item => {
+      const printing = item.set_code && item.collector_number
+        ? ` (${item.set_code}) ${item.collector_number}`
+        : '';
+      return `${item.quantity} ${item.name}${printing}`;
+    }).join('\n');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    link.download = `${importSummary.filename.replace(/\.[^.]+$/, '')}-failed.txt`;
+    link.click();
+    URL.revokeObjectURL(link.href);
   };
 
   const commitCsvImport = async () => {
@@ -1242,6 +1256,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
                     <div key={`${item.name}-${index}`} style={{ padding: '0.5rem 0.6rem', borderRadius: 'var(--radius-sm)', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>{item.quantity}× {item.name}</div>
                   ))}
                 </div>
+                <button type="button" className="btn btn-secondary" onClick={downloadFailedImport}><Download size={16} /> {t('importSummary.downloadFailed')}</button>
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>

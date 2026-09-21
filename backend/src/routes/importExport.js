@@ -345,6 +345,12 @@ router.post('/import', async (req, res) => {
     // text. Card IDs in exported Arena CSVs are Bindarr-local, not Scryfall
     // UUIDs, so writing them straight to card_cache made incomplete placeholder
     // cards instead of real normalized printings.
+    const failedItem = item => ({
+      name: item.name || item.card_id || 'Unknown card',
+      quantity: item.quantity || 1,
+      set_code: item.set_code || item.set_id || '',
+      collector_number: item.collector_number || item.number || ''
+    });
     let failedItems = [];
     const magicItems = manaBoxItems || (formatKey === 'internal' && rawItems.filter(item => item.game === 'mtg'));
     if (magicItems) {
@@ -356,7 +362,7 @@ router.post('/import', async (req, res) => {
       await scryfallApi.cacheCards(cards);
 
       unmatchedCount = magicItems.length - pairs.length;
-      failedItems = unmatchedRows.map(item => ({ name: item.name || item.card_id || 'Unknown card', quantity: item.quantity || 1 }));
+      failedItems = unmatchedRows.map(failedItem);
       rawItems = pairs.map(({ row, card }) => ({ ...row, card_id: card.id }));
       if (rawItems.length === 0) {
         return res.status(400).json({ error: 'No Magic cards matched Scryfall' });
@@ -381,7 +387,7 @@ router.post('/import', async (req, res) => {
         }
 
         if (!cardId) {
-          failedItems.push({ name: item.name || 'Unknown card', quantity: item.quantity || 1 });
+          failedItems.push(failedItem(item));
           continue;
         }
 

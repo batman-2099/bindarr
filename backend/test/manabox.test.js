@@ -161,7 +161,7 @@ async function testImportRoute() {
     }, partialImport);
     assert.deepStrictEqual(partialImport.body.summary, {
       added: { cards: 1, copies: 2 },
-      failed: { cards: 1, copies: 1, items: [{ name: 'Not A Card', quantity: 1 }] }
+      failed: { cards: 1, copies: 1, items: [{ name: 'Not A Card', quantity: 1, set_code: 'ABC', collector_number: '1' }] }
     });
     const csvPreview = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
     await previewHandler({ body: { format: 'internal', data: bindarrCsv } }, csvPreview);

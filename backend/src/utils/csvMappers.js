@@ -20,6 +20,16 @@ const STRATEGIES = {
     purchase_price: parseFloat(row['Purchase Price'] || row['purchase_price']) || 0,
     game: row['Game'] || row['game'] || 'mtg'
   }),
+  arena: (row) => ({
+    name: row['Name'],
+    set_code: row['Edition'],
+    collector_number: row['Collector Number'],
+    quantity: parseInt(row['Count'], 10) || 1,
+    condition: CONDITION_MAP[(row['Condition'] || '').toLowerCase()] || 'Near Mint',
+    printing: (row['Foil'] === 'true' || row['Foil'] === '1') ? 'Holofoil' : 'Normal',
+    language: row['Language'] || 'English',
+    game: 'mtg'
+  }),
   tcgplayer: (row) => ({
     name: row['Card Name'] || row['Name'],
     set_code: row['Set Code'] || row['Set'],

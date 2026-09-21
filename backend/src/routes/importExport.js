@@ -32,6 +32,13 @@ function parseCsvRows(data) {
     .map(values => Object.fromEntries(headers.map((header, index) => [header, values[index]])));
   return { headers, rows };
 }
+function csvFormat(headers, format) {
+  const names = headers.map(header => header.toLowerCase());
+  if (['name', 'set code', 'card number'].every(header => names.includes(header))) return 'manabox';
+  if (['count', 'name', 'edition', 'collector number'].every(header => names.includes(header))) return 'arena';
+  return format;
+}
+
 
 function parseCompleteBackup(data) {
   const backup = typeof data === 'string' ? JSON.parse(data) : data;
@@ -282,14 +289,11 @@ router.post('/import/preview', (req, res) => {
   }
 
   try {
-    const { rows } = parseCsvRows(data);
-    const items = parseThirdPartyCSV(rows, format);
+    const { headers, rows } = parseCsvRows(data);
+    const items = parseThirdPartyCSV(rows, csvFormat(headers, format));
     const errors = items.flatMap((item, index) => {
       const row = index + 2;
-      const rowErrors = [];
-      if (!item.card_id) rowErrors.push(`Row ${row}: Card ID is required.`);
-      if (!item.name) rowErrors.push(`Row ${row}: Name is required.`);
-      return rowErrors;
+      return item.name ? [] : [`Row ${row}: Name is required.`];
     });
     return res.json({
       cards: items.length,
@@ -335,10 +339,9 @@ router.post('/import', async (req, res) => {
       manaBoxItems = rawItems;
     } else {
       const { headers, rows } = parseCsvRows(data);
-      const manaBoxHeaders = headers.map(header => header.toLowerCase());
-      const isManaBoxCsv = ['name', 'set code', 'card number'].every(header => manaBoxHeaders.includes(header));
-      rawItems = parseThirdPartyCSV(rows, isManaBoxCsv ? 'manabox' : format);
-      if (isManaBoxCsv) manaBoxItems = rawItems;
+      const parsedFormat = csvFormat(headers, format);
+      rawItems = parseThirdPartyCSV(rows, parsedFormat);
+      if (parsedFormat === 'manabox') manaBoxItems = rawItems;
     }
 
     // Resolve Magic CSV rows through the same Scryfall bulk path as ManaBox

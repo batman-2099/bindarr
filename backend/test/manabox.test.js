@@ -146,6 +146,20 @@ async function testImportRoute() {
     await db.run(`UPDATE card_cache SET game = 'pokemon' WHERE id = ?`, ['mtg-a-brine-comber']);
     await db.initDb();
     assert.strictEqual((await db.get(`SELECT game FROM card_cache WHERE id = ?`, ['mtg-a-brine-comber'])).game, 'mtg');
+    const arenaCsv = fs.readFileSync(path.join(__dirname, '..', '..', 'mtga_collection.csv'), 'utf8')
+      .split(/\r?\n/).slice(0, 4).join('\n');
+    const arenaPreview = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
+    await previewHandler({ body: { format: 'internal', data: arenaCsv } }, arenaPreview);
+    assert.deepStrictEqual(arenaPreview.body, { cards: 3, quantity: 3, errors: [] });
+    const arenaImport = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+    await handler({ body: { format: 'internal', data: arenaCsv, list_type: 'arena' }, user: { id: 1 } }, arenaImport);
+    assert.strictEqual(arenaImport.body.count, 3);
+    assert.deepStrictEqual(bulkCalls.at(-1).map(row => [row.name, row.set_id, row.number]), [
+      ['A-Brine Comber', 'VOW', ''],
+      ['A-Cobbled Lancer', 'VOW', ''],
+      ['A-Cosmos Charger', 'KHM', '']
+    ]);
+    assert.strictEqual((await db.get(`SELECT list_type FROM collection WHERE card_id = ? ORDER BY id DESC LIMIT 1`, ['mtg-a-brine-comber'])).list_type, 'arena');
     scryfallApi.bulkFetchByIdentifier = async rows => {
       const card = resolvedCard(rows[0]);
       return {
@@ -168,7 +182,7 @@ async function testImportRoute() {
     assert.deepStrictEqual(csvPreview.body, { cards: 3, quantity: 3, errors: [] });
     const invalidPreview = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
     await previewHandler({ body: { format: 'internal', data: 'Card ID,Name,Quantity\n,,1' } }, invalidPreview);
-    assert.deepStrictEqual(invalidPreview.body.errors, ['Row 2: Card ID is required.', 'Row 2: Name is required.']);
+    assert.deepStrictEqual(invalidPreview.body.errors, ['Row 2: Name is required.']);
   } finally {
     scryfallApi.bulkFetchByIdentifier = originalBulkFetch;
     scryfallApi.cacheCards = originalCacheCards;

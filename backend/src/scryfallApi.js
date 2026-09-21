@@ -335,7 +335,8 @@ async function bulkFetchByIdentifier(rows) {
       for (const row of matchingRows || []) pairs.push({ row, card: norm });
     }
   }
-  return { cards, pairs, notFound };
+  const matchedRows = new Set(pairs.map(({ row }) => row));
+  return { cards, pairs, notFound, unmatchedRows: rows.filter(row => !matchedRows.has(row)) };
 }
 
 async function fetchFromScryfall(q, lang, retries = 3) {

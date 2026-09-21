@@ -28,9 +28,10 @@ async function testDuplicateIdentifiers() {
     };
     const normal = { name: 'Guy in the Chair', set_id: 'SPM', number: '102', printing: 'Normal' };
     const foil = { name: 'Guy in the Chair', set_id: 'SPM', number: '102', printing: 'Holofoil' };
-    const { cards, pairs } = await scryfallApi.bulkFetchByIdentifier([normal, foil]);
+    const { cards, pairs, unmatchedRows } = await scryfallApi.bulkFetchByIdentifier([normal, foil]);
     assert.strictEqual(cards.length, 1, 'one Scryfall printing is fetched once');
     assert.deepStrictEqual(pairs.map(pair => pair.row), [normal, foil], 'every source row receives the resolved card');
+    assert.deepStrictEqual(unmatchedRows, [], 'resolved rows are not reported as failed');
   } finally {
     try { db.dbConnection.close(); } catch { /* already closed */ }
     for (const suffix of ['', '-wal', '-shm']) {

@@ -345,9 +345,10 @@ router.post('/import', async (req, res) => {
     // text. Card IDs in exported Arena CSVs are Bindarr-local, not Scryfall
     // UUIDs, so writing them straight to card_cache made incomplete placeholder
     // cards instead of real normalized printings.
+    let failedItems = [];
     const magicItems = manaBoxItems || (formatKey === 'internal' && rawItems.filter(item => item.game === 'mtg'));
     if (magicItems) {
-      const { cards, pairs } = await scryfallApi.bulkFetchByIdentifier(magicItems.map(item => ({
+      const { cards, pairs, unmatchedRows = [] } = await scryfallApi.bulkFetchByIdentifier(magicItems.map(item => ({
         ...item,
         set_id: item.set_code,
         number: item.collector_number
@@ -355,6 +356,7 @@ router.post('/import', async (req, res) => {
       await scryfallApi.cacheCards(cards);
 
       unmatchedCount = magicItems.length - pairs.length;
+      failedItems = unmatchedRows.map(item => ({ name: item.name || item.card_id || 'Unknown card', quantity: item.quantity || 1 }));
       rawItems = pairs.map(({ row, card }) => ({ ...row, card_id: card.id }));
       if (rawItems.length === 0) {
         return res.status(400).json({ error: 'No Magic cards matched Scryfall' });
@@ -366,6 +368,7 @@ router.post('/import', async (req, res) => {
     }
 
     let importedCount = 0;
+    let addedItems = [];
 
     await db.withTransaction(async () => {
       for (const item of rawItems) {
@@ -377,7 +380,10 @@ router.post('/import', async (req, res) => {
           cardId = item.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
         }
 
-        if (!cardId) continue;
+        if (!cardId) {
+          failedItems.push({ name: item.name || 'Unknown card', quantity: item.quantity || 1 });
+          continue;
+        }
 
         const cached = await db.get(`SELECT id, game FROM card_cache WHERE id = ?`, [cardId]);
         const game = item.game || 'mtg';
@@ -422,11 +428,21 @@ router.post('/import', async (req, res) => {
           ]
         );
         importedCount++;
+        addedItems.push({ name: item.name || cardId, quantity: item.quantity || 1 });
       }
     });
 
-    const unmatched = unmatchedCount ? ` ${unmatchedCount} unmatched ManaBox printings were skipped.` : '';
-    return res.json({ success: true, count: importedCount, message: `Successfully imported ${importedCount} items.${unmatched}` });
+    const unmatched = unmatchedCount ? ` ${unmatchedCount} unmatched Magic printings were skipped.` : '';
+    const copies = items => items.reduce((total, item) => total + (Number(item.quantity) || 1), 0);
+    return res.json({
+      success: true,
+      count: importedCount,
+      message: `Successfully imported ${importedCount} items.${unmatched}`,
+      summary: {
+        added: { cards: addedItems.length, copies: copies(addedItems) },
+        failed: { cards: failedItems.length, copies: copies(failedItems), items: failedItems }
+      }
+    });
   } catch (error) {
     const status = error.message.startsWith('Invalid backup') ? 400 : 500;
     return res.status(status).json({ error: status === 400 ? error.message : 'Import failed', message: error.message });

@@ -70,6 +70,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
   const [importingText, setImportingText] = useState(false);
   const [manaBoxPreview, setManaBoxPreview] = useState(null);
   const [csvPreview, setCsvPreview] = useState(null);
+  const [importSummary, setImportSummary] = useState(null);
   const [addToArena, setAddToArena] = useState(false);
 
   // Filter states
@@ -622,7 +623,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
         return;
       }
       setCsvPreview(null);
-      showToast(data.message);
+      setImportSummary({ ...data.summary, filename: csvPreview.filename });
       onAddSuccess();
     } catch (error) {
       console.error(error);
@@ -644,7 +645,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || t('settings.importFailed', { error: '' }));
       setManaBoxPreview(null);
-      showToast(data.message);
+      setImportSummary({ ...data.summary, filename: manaBoxPreview.filename });
       onAddSuccess();
     } catch (error) {
       console.error(error);
@@ -1207,6 +1208,44 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
               <button type="button" className="btn btn-secondary" onClick={() => setCsvPreview(null)} disabled={importingText}>{t('common.cancel')}</button>
               <button type="button" className="btn btn-primary" onClick={commitCsvImport} disabled={importingText || csvPreview.errors.length > 0}>{importingText ? t('settings.importing') : t('csvPreview.commit')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {importSummary && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0, 0, 0, 0.78)', display: 'grid', placeItems: 'center', padding: '1rem' }}
+          onClick={() => setImportSummary(null)}
+        >
+          <div className="glass-panel" onClick={event => event.stopPropagation()} style={{ width: '100%', maxWidth: '520px', display: 'grid', gap: '1rem' }}>
+            <div>
+              <h2 style={{ margin: 0, color: 'var(--text-strong)', fontSize: '1.1rem' }}>{t('importSummary.title')}</h2>
+              <p style={{ margin: '0.35rem 0 0', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>{importSummary.filename}</p>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', fontSize: '0.8rem' }}>
+              {[
+                [t('importSummary.added'), importSummary.added],
+                [t('importSummary.failed'), importSummary.failed]
+              ].map(([label, summary]) => (
+                <div key={label} style={{ padding: '0.6rem', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', textAlign: 'center' }}>
+                  <strong style={{ display: 'block', color: 'var(--text-strong)', fontSize: '1rem' }}>{summary.cards} {t('importSummary.cards')}</strong>
+                  <span style={{ color: 'var(--text-muted)' }}>{summary.copies} {t('importSummary.copies')} · {label}</span>
+                </div>
+              ))}
+            </div>
+            {importSummary.failed.items.length > 0 && (
+              <div style={{ display: 'grid', gap: '0.4rem' }}>
+                <strong style={{ color: 'var(--accent-red)', fontSize: '0.85rem' }}>{t('importSummary.failedCards')}</strong>
+                <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'grid', gap: '0.35rem' }}>
+                  {importSummary.failed.items.map((item, index) => (
+                    <div key={`${item.name}-${index}`} style={{ padding: '0.5rem 0.6rem', borderRadius: 'var(--radius-sm)', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>{item.quantity}× {item.name}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-primary" onClick={() => setImportSummary(null)}>{t('common.close')}</button>
             </div>
           </div>
         </div>

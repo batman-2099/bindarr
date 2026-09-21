@@ -124,6 +124,10 @@ async function testImportRoute() {
     }, bindarrCsvRes);
     assert.strictEqual(bindarrCsvRes.statusCode, 200);
     assert.strictEqual(bindarrCsvRes.body.count, 3);
+    assert.deepStrictEqual(bindarrCsvRes.body.summary, {
+      added: { cards: 3, copies: 3 },
+      failed: { cards: 0, copies: 0, items: [] }
+    });
     assert.deepStrictEqual(await db.get(
       `SELECT card_id, quantity, list_type, game FROM collection WHERE card_id = ?`,
       ['mtg-a-brine-comber']
@@ -142,6 +146,23 @@ async function testImportRoute() {
     await db.run(`UPDATE card_cache SET game = 'pokemon' WHERE id = ?`, ['mtg-a-brine-comber']);
     await db.initDb();
     assert.strictEqual((await db.get(`SELECT game FROM card_cache WHERE id = ?`, ['mtg-a-brine-comber'])).game, 'mtg');
+    scryfallApi.bulkFetchByIdentifier = async rows => {
+      const card = resolvedCard(rows[0]);
+      return {
+        cards: [card],
+        pairs: [{ row: rows[0], card }],
+        unmatchedRows: rows.slice(1)
+      };
+    };
+    const partialImport = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+    await handler({
+      body: { format: 'manabox', data: '2 Caldera Kavu (PLS) 58\n1 Not A Card (ABC) 1', list_type: 'collection' },
+      user: { id: 1 }
+    }, partialImport);
+    assert.deepStrictEqual(partialImport.body.summary, {
+      added: { cards: 1, copies: 2 },
+      failed: { cards: 1, copies: 1, items: [{ name: 'Not A Card', quantity: 1 }] }
+    });
     const csvPreview = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
     await previewHandler({ body: { format: 'internal', data: bindarrCsv } }, csvPreview);
     assert.deepStrictEqual(csvPreview.body, { cards: 3, quantity: 3, errors: [] });

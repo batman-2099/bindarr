@@ -105,6 +105,24 @@ async function testImportRoute() {
     }, arenaRes);
     assert.strictEqual(arenaRes.statusCode, 200);
     assert.strictEqual((await db.get(`SELECT list_type FROM collection WHERE card_id = ? ORDER BY id DESC LIMIT 1`, ['mtg-caldera'])).list_type, 'arena');
+    const bindarrCsv = fs.readFileSync(path.join(__dirname, '..', '..', 'bindarr_mtg_import.csv'), 'utf8')
+      .split(/\r?\n/).slice(0, 4).join('\n');
+    const bindarrCsvRes = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+    await handler({
+      body: { format: 'internal', data: bindarrCsv, list_type: 'arena' },
+      user: { id: 1 }
+    }, bindarrCsvRes);
+    assert.strictEqual(bindarrCsvRes.statusCode, 200);
+    assert.strictEqual(bindarrCsvRes.body.count, 3);
+    assert.deepStrictEqual(await db.get(
+      `SELECT card_id, quantity, list_type, game FROM collection WHERE card_id = ?`,
+      ['mtg-arena-vow-ba8df259852a']
+    ), {
+      card_id: 'mtg-arena-vow-ba8df259852a',
+      quantity: 1,
+      list_type: 'arena',
+      game: 'mtg'
+    });
   } finally {
     scryfallApi.bulkFetchByIdentifier = originalBulkFetch;
     scryfallApi.cacheCards = originalCacheCards;

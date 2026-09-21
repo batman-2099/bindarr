@@ -403,7 +403,7 @@ router.post('/import', async (req, res) => {
             item.language || 'English',
             item.purchase_price || 0,
             list_type,
-            item.game || 'pokemon'
+            item.game || 'mtg'
           ]
         );
         importedCount++;

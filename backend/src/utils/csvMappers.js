@@ -18,7 +18,7 @@ const STRATEGIES = {
     printing: row['Printing'] || 'Normal',
     language: row['Language'] || 'English',
     purchase_price: parseFloat(row['Purchase Price'] || row['purchase_price']) || 0,
-    game: row['Game'] || row['game'] || 'pokemon'
+    game: row['Game'] || row['game'] || 'mtg'
   }),
   tcgplayer: (row) => ({
     name: row['Card Name'] || row['Name'],

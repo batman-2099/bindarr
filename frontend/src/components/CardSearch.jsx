@@ -66,6 +66,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
   const [rapidLog, setRapidLog] = useState([]);
   const rapidInputRef = useRef(null);
   const textImportInput = useRef(null);
+  const csvImportInput = useRef(null);
   const [importingText, setImportingText] = useState(false);
   const [manaBoxPreview, setManaBoxPreview] = useState(null);
   const [addToArena, setAddToArena] = useState(false);
@@ -571,6 +572,36 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
     event.target.value = '';
   };
 
+  const handleCsvImport = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      setImportingText(true);
+      try {
+        const text = String(reader.result || '');
+        const listType = addToArena || /(?:^|\n)"?mtg-arena-/i.test(text) ? 'arena' : 'collection';
+        const response = await fetch('/api/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ format: 'internal', data: text, list_type: listType })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || t('settings.importFailed', { error: '' }));
+        showToast(data.message);
+        onAddSuccess();
+      } catch (error) {
+        console.error(error);
+        showToast(error.message || t('settings.importFailed', { error: '' }));
+      } finally {
+        setImportingText(false);
+      }
+    };
+    reader.onerror = () => showToast(t('settings.errReadFile'));
+    reader.readAsText(file);
+    event.target.value = '';
+  };
+
   const commitManaBoxImport = async () => {
     if (!manaBoxPreview) return;
     setImportingText(true);
@@ -709,6 +740,11 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
               {importingText ? t('settings.importing') : t('deck.chooseManaBoxFile')}
             </button>
             <input ref={textImportInput} type="file" accept=".txt,text/plain" onChange={handleManaBoxImport} style={{ display: 'none' }} />
+            <button type="button" className="btn btn-secondary" onClick={() => csvImportInput.current?.click()} disabled={importingText} style={{ flex: '0 1 auto' }}>
+              <Upload size={18} />
+              {importingText ? t('settings.importing') : t('search.chooseCsvFile')}
+            </button>
+            <input ref={csvImportInput} type="file" accept=".csv,text/csv" onChange={handleCsvImport} style={{ display: 'none' }} />
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-secondary)', fontSize: '0.8rem', cursor: 'pointer' }}>
               <input type="checkbox" checked={addToArena} onChange={(e) => setAddToArena(e.target.checked)} />
               {t('search.addToArena')}

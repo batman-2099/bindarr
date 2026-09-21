@@ -833,6 +833,7 @@
   "search.addToCollection": "Add to Collection",
   "search.addToWishlist": "Add to Wishlist",
   "search.addToArena": "Add to Arena",
+  "search.chooseCsvFile": "Choose CSV File",
   "search.addedToCollection": "{name} added to collection!",
   "manaboxPreview.title": "ManaBox Import Summary",
   "manaboxPreview.cards": "Cards",

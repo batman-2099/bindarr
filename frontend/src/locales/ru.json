@@ -1,4 +1,6 @@
 {
+  "collection.exportViewCsv": "Экспорт вида в CSV",
+  "collection.exportViewTxt": "Экспорт вида в TXT",
   "addCards.scan": "Сканировать карты",
   "addCards.search": "Найти и добавить",
   "addCards.slab": "Грейдинговый слаб",

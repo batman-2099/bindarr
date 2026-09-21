@@ -6,6 +6,7 @@ import { CONDITIONS, PRINTINGS, GRADERS } from '../utils/cardOptions';
 import { getPrintingBadgeLabel, getPrintingBadgeStyle, getFoilOverlayClass } from '../utils/cardPrinting';
 import { getCardRarityBorder, getRarityBadgeLabel, getRarityBadgeStyle } from '../utils/cardRarity';
 import { sortCardsByOrder } from '../utils/cardSort';
+import { buildCollectionExport } from '../utils/collectionExport';
 import { useMultiSelect } from '../utils/useMultiSelect';
 import { defaultGameFilter, gameOptions, isGameEnabled, showGamePicker } from '../utils/games';
 import { useT } from '../utils/i18n';
@@ -267,8 +268,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
                             (item.number || '').includes(searchFilter);
       const matchesLocation = locationFilter.length === 0 ? true :
                               locationFilter.some(f => f === 'unassigned' ? !item.location_id : item.location_id == f);
-      // "All games" still means only the games the user has chosen to see: a hidden
-      // game's cards stay in the collection (and in exports) but are out of view.
+      // Hidden games remain stored but are excluded from this view and its exports.
       const itemGame = item.game || 'mtg';
       const matchesGame = gameFilter === '' ? isGameEnabled(itemGame) : itemGame === gameFilter;
       const matchesRarity = rarityFilter.length === 0 ? true : rarityFilter.includes(item.rarity);
@@ -330,6 +330,16 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
   // selectable and bulk actions hit real entry_ids (stacking merges rows).
   const displayCards = selectMode ? filteredCollection : processedCollection;
 
+  const exportView = (format) => {
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([buildCollectionExport(displayCards, format)], {
+      type: format === 'csv' ? 'text/csv;charset=utf-8' : 'text/plain;charset=utf-8',
+    }));
+    link.download = `bindarr-${subTab}-view.${format}`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
   const totalValue = useMemo(
     () => displayCards.reduce((sum, item) => sum + (item.price_trend || 0) * (item.quantity || 1), 0),
     [displayCards]
@@ -371,6 +381,12 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary" disabled={loading || !displayCards.length} onClick={() => exportView('csv')}>
+            {t('collection.exportViewCsv')}
+          </button>
+          <button className="btn btn-secondary" disabled={loading || !displayCards.length} onClick={() => exportView('txt')}>
+            {t('collection.exportViewTxt')}
+          </button>
           {/* Multi-select toggle (long-press cards is the primary path) */}
           <button
             className={`btn ${selectMode ? 'btn-primary' : 'btn-secondary'}`}

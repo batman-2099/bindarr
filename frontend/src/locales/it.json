@@ -1,4 +1,6 @@
 {
+  "collection.exportViewCsv": "Esporta vista CSV",
+  "collection.exportViewTxt": "Esporta vista TXT",
   "addCards.scan": "Scansiona carte",
   "addCards.search": "Cerca e aggiungi",
   "addCards.slab": "Slab gradata",

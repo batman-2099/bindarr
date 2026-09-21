@@ -1,4 +1,6 @@
 {
+  "collection.exportViewCsv": "将当前视图导出为CSV",
+  "collection.exportViewTxt": "将当前视图导出为TXT",
   "addCards.scan": "扫描卡牌",
   "addCards.search": "搜索并添加",
   "addCards.slab": "评级卡",

@@ -1,4 +1,6 @@
 {
+  "collection.exportViewCsv": "將目前檢視匯出為CSV",
+  "collection.exportViewTxt": "將目前檢視匯出為TXT",
   "addCards.scan": "掃描卡牌",
   "addCards.search": "搜尋並新增",
   "addCards.slab": "鑑定卡",

@@ -63,6 +63,10 @@ Open **Add Cards**, search by name, set, or collector number, then add the selec
 
 In **Add Cards**, select **Choose .txt file** and choose a ManaBox export. Bindarr previews normal, foil, and distinct-printing counts, then resolves each printing by set and collector number. Choose Arena before importing when the export represents your digital inventory.
 
+### Export the current collection view
+
+In **Collection**, choose **Export view CSV** or **Export view TXT**. Only the displayed results are exported, in their current order, respecting the active tab, search, filters, and duplicate stacking. CSV includes printing, condition, language, and purchase price; TXT uses decklist lines with quantity, name, set, and collector number. These controls do not export hidden cards or other inventory tabs.
+
 ### Create and import decks
 
 1. Open **Deck Builder → Create Deck**.

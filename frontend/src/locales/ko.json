@@ -1,4 +1,6 @@
 {
+  "collection.exportViewCsv": "현재 보기 CSV 내보내기",
+  "collection.exportViewTxt": "현재 보기 TXT 내보내기",
   "addCards.scan": "카드 스캔",
   "addCards.search": "검색해서 추가",
   "addCards.slab": "등급 슬랩",

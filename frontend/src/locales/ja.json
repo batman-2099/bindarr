@@ -1,4 +1,6 @@
 {
+  "collection.exportViewCsv": "表示中のカードをCSV出力",
+  "collection.exportViewTxt": "表示中のカードをTXT出力",
   "addCards.scan": "カードをスキャン",
   "addCards.search": "検索して追加",
   "addCards.slab": "鑑定済みスラブ",

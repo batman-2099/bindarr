@@ -89,7 +89,7 @@ Open **Add Cards → Precon Deck**, search MTGJSON by name, set code, or type, i
 
 **Storage** opens a searchable container gallery with card-art covers, names, types, and card counts. Sort by name or quantity, use the **Create Container** tile or **Import ManaBox container** action, and click a container to open it. The **Storage** grid button returns to the gallery; **Unassigned Pile** opens unfiled cards.
 
-Choose **Choose container image** on a gallery tile to pick artwork from cards currently stored in that container. The selection is saved with the container and included in complete backups. **Automatic image** restores the default cover; if the chosen card leaves the container, the gallery falls back to another available card image.
+In **Container Settings**, choose **Choose container image** to pick artwork from cards currently stored in that container. The selection is saved with the container and included in complete backups. **Automatic image** restores the default cover; if the chosen card leaves the container, the gallery falls back to another available card image.
 
 In **Storage**, choose the upload action beside **Create Container** and select a ManaBox `.txt` export. Bindarr creates a Box named after the file and files matching cards already in Unsorted into its first row. It never creates missing collection cards during this workflow.
 

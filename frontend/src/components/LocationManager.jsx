@@ -1196,7 +1196,6 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
               <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{location.type} · {location.total_cards || 0} {t('collection.cardUnit', { count: location.total_cards || 0 })}</span>
             </div>
           </button>
-          <button className="btn btn-secondary" style={{ margin: '0 1rem 0.75rem', fontSize: '0.75rem' }} onClick={() => setCoverLocation(location)}>{t('loc.chooseCover')}</button>
           </div>
         ))}
       </div>
@@ -1205,21 +1204,6 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
         <button className="btn btn-secondary" onClick={() => containerImportInput.current?.click()}><Upload size={16} /> {t('loc.importContainer')}</button>
         <input ref={containerImportInput} type="file" accept=".txt,text/plain" onChange={handleContainerImportFile} style={{ display: 'none' }} />
       </footer>
-      {coverLocation && (
-        <dialog ref={element => { if (element && !element.open) element.showModal(); }} onCancel={() => setCoverLocation(null)} aria-label={t('loc.chooseCover')} style={{ margin: 'auto', width: 'min(700px, 90vw)', maxHeight: '80vh', overflowY: 'auto', background: 'var(--bg-secondary)', color: 'var(--text-strong)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '1.25rem' }}>
-          <h3>{t('loc.chooseCover')} — {coverLocation.name}</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '0.75rem' }}>
-            {coverChoices.map(card => <button key={card.card_id} className="btn btn-secondary" disabled={savingCover} onClick={() => saveCover(card.card_id)} style={{ display: 'flex', flexDirection: 'column', padding: '0.4rem' }}>
-              <CardImage card={card} style={{ width: '100%', borderRadius: '4px' }} />
-              <span>{displayName(card)}</span>
-            </button>)}
-          </div>
-          <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
-            <button className="btn btn-secondary" disabled={savingCover} onClick={() => saveCover(null)}>{t('loc.automaticCover')}</button>
-            <button className="btn btn-secondary" disabled={savingCover} onClick={() => setCoverLocation(null)}>{t('common.close')}</button>
-          </div>
-        </dialog>
-      )}
       {showCreate && <CreateContainerModal onClose={() => setShowCreate(false)} onCreate={handleCreateLocation} setsList={setsList} filterFieldOptions={filterFieldOptions} />}
     </section>
   );
@@ -1236,6 +1220,21 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
       onDragEnd={handleDragEnd}
     >
     <div className="storage-workspace-grid">
+      {coverLocation && (
+        <dialog ref={element => { if (element && !element.open) element.showModal(); }} onCancel={() => setCoverLocation(null)} aria-label={t('loc.chooseCover')} style={{ margin: 'auto', width: 'min(700px, 90vw)', maxHeight: '80vh', overflowY: 'auto', background: 'var(--bg-secondary)', color: 'var(--text-strong)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '1.25rem' }}>
+          <h3>{t('loc.chooseCover')} — {coverLocation.name}</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '0.75rem' }}>
+            {coverChoices.map(card => <button key={card.card_id} className="btn btn-secondary" disabled={savingCover} onClick={() => saveCover(card.card_id)} style={{ display: 'flex', flexDirection: 'column', padding: '0.4rem' }}>
+              <CardImage card={card} style={{ width: '100%', borderRadius: '4px' }} />
+              <span>{displayName(card)}</span>
+            </button>)}
+          </div>
+          <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
+            <button className="btn btn-secondary" disabled={savingCover} onClick={() => saveCover(null)}>{t('loc.automaticCover')}</button>
+            <button className="btn btn-secondary" disabled={savingCover} onClick={() => setCoverLocation(null)}>{t('common.close')}</button>
+          </div>
+        </dialog>
+      )}
       {draggingCard && (
         <DragOverlay dropAnimation={null}>
           <img
@@ -1289,6 +1288,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
         <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
           <div className="glass-panel" style={{ width: '400px', maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', overscrollBehavior: 'contain', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', background: 'var(--bg-secondary)' }}>
             <h3 style={{ margin: 0 }}>{t('loc.containerSettings')}</h3>
+            <button className="btn btn-secondary" onClick={() => setCoverLocation(selectedLoc)}>{t('loc.chooseCover')}</button>
 
             <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
               {t('loc.containerName')}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Search, Trash2, Edit2, LayoutGrid, List, SlidersHorizontal, X, MousePointerClick } from 'lucide-react';
+import { Search, Trash2, Edit2, LayoutGrid, List, SlidersHorizontal, X, MousePointerClick, Download } from 'lucide-react';
 import { getCardDisplayName, translateJapaneseName } from '../utils/langHelper';
 import { priceText } from '../utils/formatPrice';
 import { CONDITIONS, PRINTINGS, GRADERS } from '../utils/cardOptions';
@@ -381,12 +381,6 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button className="btn btn-secondary" disabled={loading || !displayCards.length} onClick={() => exportView('csv')}>
-            {t('collection.exportViewCsv')}
-          </button>
-          <button className="btn btn-secondary" disabled={loading || !displayCards.length} onClick={() => exportView('txt')}>
-            {t('collection.exportViewTxt')}
-          </button>
           {/* Multi-select toggle (long-press cards is the primary path) */}
           <button
             className={`btn ${selectMode ? 'btn-primary' : 'btn-secondary'}`}
@@ -396,6 +390,14 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
           >
             <MousePointerClick size={14} />
             {t(selectMode ? 'bulk.done' : 'collection.select')}
+          </button>
+          <button className="btn btn-secondary" disabled={loading || !displayCards.length} onClick={() => exportView('csv')} style={{ fontSize: '0.8rem', padding: '0.4rem 0.9rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+            <Download size={14} />
+            {t('collection.exportViewCsv')}
+          </button>
+          <button className="btn btn-secondary" disabled={loading || !displayCards.length} onClick={() => exportView('txt')} style={{ fontSize: '0.8rem', padding: '0.4rem 0.9rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+            <Download size={14} />
+            {t('collection.exportViewTxt')}
           </button>
 
           {/* View Toggle */}

@@ -85,13 +85,19 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   const [showGallery, setShowGallery] = useState(true);
   const [gallerySearch, setGallerySearch] = useState('');
   const [gallerySort, setGallerySort] = useState('name-asc');
+  const [coverLocation, setCoverLocation] = useState(null);
+  const [savingCover, setSavingCover] = useState(false);
+  const coverChoices = useMemo(() => [...new Map(allCards
+    .filter(card => card.location_id === coverLocation?.id && card.image_url)
+    .map(card => [card.card_id, card])).values()], [allCards, coverLocation]);
   const galleryCovers = useMemo(() => {
     const covers = new Map();
+    const preferred = new Map(locations.map(location => [location.id, location.cover_card_id]));
     for (const card of allCards) {
-      if (card.location_id && card.image_url && !covers.has(card.location_id)) covers.set(card.location_id, card);
+      if (card.location_id && card.image_url && (!covers.has(card.location_id) || preferred.get(card.location_id) === card.card_id)) covers.set(card.location_id, card);
     }
     return covers;
-  }, [allCards]);
+  }, [allCards, locations]);
   const galleryLocations = useMemo(() => locations
     .filter(location => `${location.name} ${location.type}`.toLowerCase().includes(gallerySearch.toLowerCase()))
     .sort((a, b) => gallerySort === 'qty-desc'
@@ -1141,6 +1147,24 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
     }
   };
 
+  const saveCover = async (cardId) => {
+    setSavingCover(true);
+    try {
+      const response = await fetch(`/api/locations/${coverLocation.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cover_card_id: cardId }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || t('loc.errUpdateContainer'));
+      await fetchLocations();
+      setCoverLocation(null);
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      setSavingCover(false);
+    }
+  };
+
   if (loading) return <div className="spinner" />;
 
   if (showGallery) return (
@@ -1160,7 +1184,8 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
           <strong>{t('loc.createContainer')}</strong>
         </button>
         {galleryLocations.map(location => (
-          <button key={location.id} className="glass-panel" onClick={() => setActiveLocationId(location.id)} style={{ padding: 0, overflow: 'hidden', textAlign: 'left', color: 'var(--text-strong)', cursor: 'pointer' }}>
+          <div key={location.id} className="glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
+          <button onClick={() => setActiveLocationId(location.id)} style={{ width: '100%', padding: 0, border: 0, background: 'transparent', textAlign: 'left', color: 'var(--text-strong)', cursor: 'pointer' }}>
             <div style={{ height: '155px', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {galleryCovers.has(location.id)
                 ? <CardImage card={galleryCovers.get(location.id)} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 25%' }} />
@@ -1171,6 +1196,8 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
               <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{location.type} · {location.total_cards || 0} {t('collection.cardUnit', { count: location.total_cards || 0 })}</span>
             </div>
           </button>
+          <button className="btn btn-secondary" style={{ margin: '0 1rem 0.75rem', fontSize: '0.75rem' }} onClick={() => setCoverLocation(location)}>{t('loc.chooseCover')}</button>
+          </div>
         ))}
       </div>
       <footer style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
@@ -1178,6 +1205,21 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
         <button className="btn btn-secondary" onClick={() => containerImportInput.current?.click()}><Upload size={16} /> {t('loc.importContainer')}</button>
         <input ref={containerImportInput} type="file" accept=".txt,text/plain" onChange={handleContainerImportFile} style={{ display: 'none' }} />
       </footer>
+      {coverLocation && (
+        <dialog ref={element => { if (element && !element.open) element.showModal(); }} onCancel={() => setCoverLocation(null)} aria-label={t('loc.chooseCover')} style={{ margin: 'auto', width: 'min(700px, 90vw)', maxHeight: '80vh', overflowY: 'auto', background: 'var(--bg-secondary)', color: 'var(--text-strong)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '1.25rem' }}>
+          <h3>{t('loc.chooseCover')} — {coverLocation.name}</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '0.75rem' }}>
+            {coverChoices.map(card => <button key={card.card_id} className="btn btn-secondary" disabled={savingCover} onClick={() => saveCover(card.card_id)} style={{ display: 'flex', flexDirection: 'column', padding: '0.4rem' }}>
+              <CardImage card={card} style={{ width: '100%', borderRadius: '4px' }} />
+              <span>{displayName(card)}</span>
+            </button>)}
+          </div>
+          <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
+            <button className="btn btn-secondary" disabled={savingCover} onClick={() => saveCover(null)}>{t('loc.automaticCover')}</button>
+            <button className="btn btn-secondary" disabled={savingCover} onClick={() => setCoverLocation(null)}>{t('common.close')}</button>
+          </div>
+        </dialog>
+      )}
       {showCreate && <CreateContainerModal onClose={() => setShowCreate(false)} onCreate={handleCreateLocation} setsList={setsList} filterFieldOptions={filterFieldOptions} />}
     </section>
   );

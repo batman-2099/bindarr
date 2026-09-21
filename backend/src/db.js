@@ -779,6 +779,9 @@ async function initDb() {
   if (!locationsStackCols.some(c => c.name === 'allow_stacking')) {
     await run(`ALTER TABLE locations ADD COLUMN allow_stacking INTEGER NOT NULL DEFAULT 0`);
   }
+  if (!locationsStackCols.some(c => c.name === 'cover_card_id')) {
+    await run(`ALTER TABLE locations ADD COLUMN cover_card_id TEXT`);
+  }
 
   // --- PERFORMANCE INDEXES ---
   // `user_id` first, because it is the predicate on essentially every read in the

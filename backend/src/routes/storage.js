@@ -145,6 +145,14 @@ router.put('/locations/:id', async (req, res) => {
     if (!loc) {
       return res.status(404).json({ error: 'Location not found' });
     }
+    const { cover_card_id } = req.body;
+    if (cover_card_id !== undefined && cover_card_id !== null) {
+      if (typeof cover_card_id !== 'string' || !await db.get(
+        `SELECT c.id FROM collection c JOIN card_cache cc ON cc.id = c.card_id
+         WHERE c.location_id = ? AND c.user_id = ? AND c.card_id = ? AND cc.image_url IS NOT NULL AND cc.image_url != ''`,
+        [id, req.user.id, cover_card_id]
+      )) return res.status(400).json({ error: 'Choose a card image from this container' });
+    }
 
     if (name) {
       const dup = await db.get(`SELECT id FROM locations WHERE name = ? AND user_id = ? AND id != ?`, [name, req.user.id, id]);
@@ -175,11 +183,13 @@ router.put('/locations/:id', async (req, res) => {
         rule_config = COALESCE(?, rule_config),
         game = COALESCE(?, game),
         locked = COALESCE(?, locked),
-        allow_stacking = COALESCE(?, allow_stacking)
+        allow_stacking = COALESCE(?, allow_stacking),
+        cover_card_id = CASE WHEN ? THEN ? ELSE cover_card_id END
       WHERE id = ? AND user_id = ?
     `, [name, type, sort_order, foil_sorting, rule_type, ruleConfigJson, game,
         locked === undefined ? null : (locked ? 1 : 0),
         allow_stacking === undefined ? null : (allow_stacking ? 1 : 0),
+        cover_card_id !== undefined ? 1 : 0, cover_card_id ?? null,
         id, req.user.id]);
 
     let evicted = 0;

@@ -93,11 +93,11 @@ async function restoreCompleteBackup(backup, userId) {
 
     for (const location of backup.locations) {
       const result = await db.run(`
-        INSERT INTO locations (name, type, sort_order, foil_sorting, rule_type, rule_config, game, user_id, locked, allow_stacking)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO locations (name, type, sort_order, foil_sorting, rule_type, rule_config, game, user_id, locked, allow_stacking, cover_card_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         location.name, location.type, location.sort_order, location.foil_sorting, location.rule_type, location.rule_config,
-        location.game, userId, location.locked || 0, location.allow_stacking || 0
+        location.game, userId, location.locked || 0, location.allow_stacking || 0, location.cover_card_id || null
       ]);
       locationIds.set(location.id, result.lastID);
     }

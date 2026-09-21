@@ -443,15 +443,36 @@ router.post('/import-container', async (req, res) => {
       for (const { row, card } of pairs) {
         let remaining = row.quantity;
         const owned = await db.all(`
-          SELECT id FROM collection
+          SELECT * FROM collection
           WHERE user_id = ? AND card_id = ? AND printing = ? AND list_type = 'collection'
-            AND location_id IS NULL AND quantity = 1
+            AND location_id IS NULL AND quantity > 0
           ORDER BY id
-          LIMIT ?
-        `, [req.user.id, card.id, row.printing || 'Normal', remaining]);
+        `, [req.user.id, card.id, row.printing || 'Normal']);
         for (const entry of owned) {
-          entries.push(entry.id);
-          remaining--;
+          if (remaining <= 0) break;
+          const copies = Math.min(remaining, entry.quantity);
+          remaining -= copies;
+          const originalUsed = copies === entry.quantity;
+          if (originalUsed) {
+            await db.run(`UPDATE collection SET quantity = 1 WHERE id = ?`, [entry.id]);
+            entries.push(entry.id);
+          } else {
+            await db.run(`UPDATE collection SET quantity = quantity - ? WHERE id = ?`, [copies, entry.id]);
+          }
+          for (let copy = originalUsed ? 1 : 0; copy < copies; copy++) {
+            const added = await db.run(`
+              INSERT INTO collection (
+                card_id, user_id, quantity, condition, printing, language, purchase_price,
+                favorite, is_trade, list_type, game, added_at, notes, grader, grade,
+                cert_number, market_value, market_value_source, market_value_at, missing
+              ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+              entry.card_id, entry.user_id, entry.condition, entry.printing, entry.language, entry.purchase_price,
+              entry.favorite, entry.is_trade, entry.list_type, entry.game, entry.added_at, entry.notes, entry.grader,
+              entry.grade, entry.cert_number, entry.market_value, entry.market_value_source, entry.market_value_at, entry.missing
+            ]);
+            entries.push(added.lastID);
+          }
         }
       }
 

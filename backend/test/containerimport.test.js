@@ -4,7 +4,7 @@ const os = require('os');
 const path = require('path');
 const { parseManaboxText } = require('../src/utils/csvMappers');
 
-const data = fs.readFileSync(path.join(__dirname, '..', '..', 'Patrick.txt'), 'utf8');
+const data = fs.readFileSync(path.join(__dirname, '..', '..', 'Blast from the Past.txt'), 'utf8');
 const expected = parseManaboxText(data);
 const expectedCopies = expected.reduce((total, card) => total + card.quantity, 0);
 const tmpDb = path.join(os.tmpdir(), `bindarr-container-import-${process.pid}.db`);
@@ -28,29 +28,27 @@ async function testContainerImport() {
       const item = expected[index];
       const cardId = `mtg-test-${index}`;
       await db.run('INSERT INTO card_cache (id, name, game) VALUES (?, ?, ?)', [cardId, item.name, 'mtg']);
-      for (let copy = 0; copy < item.quantity; copy++) {
-        await db.run(`
-          INSERT INTO collection (card_id, quantity, condition, printing, language, game, user_id)
-          VALUES (?, 1, ?, ?, ?, 'mtg', ?)
-        `, [cardId, item.condition, item.printing, item.language, 1]);
-      }
+      await db.run(`
+        INSERT INTO collection (card_id, quantity, condition, printing, language, game, user_id)
+        VALUES (?, ?, ?, ?, ?, 'mtg', ?)
+      `, [cardId, item.quantity, item.condition, item.printing, item.language, 1]);
     }
-    const collectionCount = (await db.get('SELECT COUNT(*) AS count FROM collection WHERE user_id = 1')).count;
+    const collectionQuantity = (await db.get('SELECT SUM(quantity) AS count FROM collection WHERE user_id = 1')).count;
 
     const res = {
       statusCode: 200,
       status(code) { this.statusCode = code; return this; },
       json(body) { this.body = body; return this; }
     };
-    await importContainer({ body: { name: 'Black Box', data }, user: { id: 1 } }, res);
+    await importContainer({ body: { name: 'Blast from the Past', data }, user: { id: 1 } }, res);
 
     assert.strictEqual(res.statusCode, 201);
     assert.strictEqual(res.body.count, expectedCopies);
     assert.strictEqual(res.body.missing, 0);
-    assert.strictEqual((await db.get('SELECT COUNT(*) AS count FROM collection WHERE user_id = 1')).count, collectionCount,
-      'container import must move owned cards, not add new collection rows');
+    assert.strictEqual((await db.get('SELECT SUM(quantity) AS count FROM collection WHERE user_id = 1')).count, collectionQuantity,
+      'container import must move owned cards without changing the owned quantity');
     const location = await db.get('SELECT name, type, game FROM locations WHERE id = ?', [res.body.id]);
-    assert.deepStrictEqual(location, { name: 'Black Box', type: 'Box', game: 'mtg' });
+    assert.deepStrictEqual(location, { name: 'Blast from the Past', type: 'Box', game: 'mtg' });
     const compartment = await db.get('SELECT capacity FROM compartments WHERE location_id = ?', [res.body.id]);
     assert.strictEqual(compartment.capacity, expectedCopies);
     const cards = await db.all('SELECT quantity, location_id, compartment_id, position FROM collection WHERE location_id = ? ORDER BY position', [res.body.id]);

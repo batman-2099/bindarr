@@ -708,7 +708,7 @@ export default function CompartmentView({
                   {(pullMode ? pulledSet.has(card.entry_id) : card.checked_out_qty > 0) && (
                     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.62)', borderRadius: '4px', zIndex: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
                       <span style={{ fontSize: '0.5rem', fontWeight: 900, letterSpacing: '0.04em', color: 'var(--text-strong)', background: 'var(--accent-red)', padding: '2px 5px', borderRadius: '4px', transform: 'rotate(-8deg)', textTransform: 'uppercase' }}>
-                        {pullMode ? 'Pulled' : (card.checked_out_qty < card.quantity ? `${card.checked_out_qty}/${card.quantity} Out` : 'In Play')}
+                        {pullMode ? 'Pulled' : (card.checked_out_qty < card.quantity ? `${card.checked_out_qty}/${card.quantity} Out` : 'Playable')}
                       </span>
                     </div>
                   )}
@@ -1063,7 +1063,7 @@ export default function CompartmentView({
                     {(pullMode ? pulledSet.has(card.entry_id) : card.checked_out_qty > 0) && (
                       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.62)', borderRadius: '5px', zIndex: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
                         <span style={{ fontSize: '0.7rem', fontWeight: 900, letterSpacing: '0.04em', color: 'var(--text-strong)', background: 'var(--accent-red)', padding: '3px 8px', borderRadius: '4px', transform: 'rotate(-8deg)', textTransform: 'uppercase' }}>
-                          {pullMode ? 'Pulled' : (card.checked_out_qty < card.quantity ? `${card.checked_out_qty}/${card.quantity} Out` : 'In Play')}
+                          {pullMode ? 'Pulled' : (card.checked_out_qty < card.quantity ? `${card.checked_out_qty}/${card.quantity} Out` : 'Playable')}
                         </span>
                       </div>
                     )}

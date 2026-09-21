@@ -41,6 +41,29 @@ const formatCardLocations = (locations) => locations.map(({ take, location_name,
 
 const locationCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
+const MANA_SYMBOLS = [
+  ['white_cards', 'White', -475],
+  ['blue_cards', 'Blue', -370],
+  ['black_cards', 'Black', -265],
+  ['red_cards', 'Red', -160],
+  ['green_cards', 'Green', -55],
+];
+
+function ManaCounts({ deck }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+      {MANA_SYMBOLS.map(([field, name, x]) => deck[field] > 0 && (
+        <span key={field} title={`${deck[field]} ${name} card${deck[field] === 1 ? '' : 's'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '1px' }}>
+          <svg aria-hidden="true" width="16" height="16" viewBox={`${x - 50} 0 100 100`}>
+            <image href="/mana.svg" x="-945" y="-210.002" width="1045" height="730.002" />
+          </svg>
+          <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{deck[field]}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function DeckBuilder({ showToast }) {
   const { t } = useT();
   const [decks, setDecks] = useState([]);
@@ -1286,6 +1309,8 @@ function DeckBuilder({ showToast }) {
                   <tr style={{ borderBottom: '1px solid var(--border-glass)', background: 'rgba(0,0,0,0.2)', color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('deck.colGameFormat')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('deck.colNameDesc')}</th>
+                    <th style={{ padding: '0.75rem 1rem' }}>{t('filter.field.color_identity')}</th>
+                    <th style={{ padding: '0.75rem 1rem' }}>{t('deck.category')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('deck.colCapacity')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('admin.colStatus')}</th>
                     <th className="hide-mobile" style={{ padding: '0.75rem 1rem' }}>{t('admin.colCreated')}</th>
@@ -1339,15 +1364,20 @@ function DeckBuilder({ showToast }) {
                         <td style={{ padding: '0.75rem 1rem' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>{deck.name}</span>
-                            {deck.category && (
-                              <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'rgba(59,130,246,0.12)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.25)' }}>
-                                {deck.category}
-                              </span>
-                            )}
                           </div>
                           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
                             {deck.description || 'No description'}
                           </div>
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem' }}>
+                          {isMtg && <ManaCounts deck={deck} />}
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem' }}>
+                          {deck.category && (
+                            <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'rgba(59,130,246,0.12)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.25)' }}>
+                              {deck.category}
+                            </span>
+                          )}
                         </td>
                         <td style={{ padding: '0.75rem 1rem', width: '160px' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
@@ -1362,7 +1392,7 @@ function DeckBuilder({ showToast }) {
                         <td style={{ padding: '0.75rem 1rem' }}>
                           {deck.checked_out ? (
                             <span style={{ fontSize: '0.7rem', fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: 'rgba(234,179,8,0.15)', color: '#eab308', border: '1px solid rgba(234,179,8,0.4)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                              <Gamepad2 size={11} /> In Play
+                              <Gamepad2 size={11} /> {t('deck.inPlay')}
                             </span>
                           ) : isComplete ? (
                             <span style={{ fontSize: '0.7rem', fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: 'rgba(74, 222, 128, 0.15)', color: '#4ade80', border: '1px solid rgba(74, 222, 128, 0.3)' }}>
@@ -1497,7 +1527,7 @@ function DeckBuilder({ showToast }) {
                       alignItems: 'center',
                       gap: '4px'
                     }}>
-                      🎮 In Play
+                      🎮 {t('deck.inPlay')}
                     </span>
                   ) : null}
                 </h2>

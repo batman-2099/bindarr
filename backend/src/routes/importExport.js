@@ -341,18 +341,23 @@ router.post('/import', async (req, res) => {
       if (isManaBoxCsv) manaBoxItems = rawItems;
     }
 
-    if (manaBoxItems) {
-      const { cards, pairs } = await scryfallApi.bulkFetchByIdentifier(manaBoxItems.map(item => ({
+    // Resolve Magic CSV rows through the same Scryfall bulk path as ManaBox
+    // text. Card IDs in exported Arena CSVs are Bindarr-local, not Scryfall
+    // UUIDs, so writing them straight to card_cache made incomplete placeholder
+    // cards instead of real normalized printings.
+    const magicItems = manaBoxItems || (formatKey === 'internal' && rawItems.filter(item => item.game === 'mtg'));
+    if (magicItems) {
+      const { cards, pairs } = await scryfallApi.bulkFetchByIdentifier(magicItems.map(item => ({
         ...item,
         set_id: item.set_code,
         number: item.collector_number
       })));
       await scryfallApi.cacheCards(cards);
 
-      unmatchedCount = manaBoxItems.length - pairs.length;
+      unmatchedCount = magicItems.length - pairs.length;
       rawItems = pairs.map(({ row, card }) => ({ ...row, card_id: card.id }));
       if (rawItems.length === 0) {
-        return res.status(400).json({ error: 'No ManaBox cards matched Scryfall' });
+        return res.status(400).json({ error: 'No Magic cards matched Scryfall' });
       }
     }
 

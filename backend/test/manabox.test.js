@@ -48,17 +48,26 @@ async function testImportRoute() {
     await db.run(`INSERT INTO card_cache (id, name, game) VALUES (?, ?, ?)`, ['mtg-spider', 'Spider-Suit', 'mtg']);
 
     let cachedCards = [];
+    let bulkCalls = [];
     const resolvedCard = (row) => ({
-      id: row.name === 'Caldera Kavu' ? 'mtg-caldera' : row.name === 'Spider-Suit' ? 'mtg-spider' : 'mtg-mountain',
+      id: row.name === 'Caldera Kavu' ? 'mtg-caldera'
+        : row.name === 'Spider-Suit' ? 'mtg-spider'
+          : row.name === 'Mountain' ? 'mtg-mountain'
+            : `mtg-${row.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`,
+      name: row.name,
+      game: 'mtg',
       image_url: `https://images.example/${row.name.toLowerCase().replace(/\s+/g, '-')}.jpg`
     });
-    scryfallApi.bulkFetchByIdentifier = async (rows) => ({
-      cards: rows.map(resolvedCard),
-      pairs: rows.map(row => ({ row, card: resolvedCard(row) }))
-    });
+    scryfallApi.bulkFetchByIdentifier = async (rows) => {
+      bulkCalls.push(rows);
+      return { cards: rows.map(resolvedCard), pairs: rows.map(row => ({ row, card: resolvedCard(row) })) };
+    };
     scryfallApi.cacheCards = async (cards) => {
       cachedCards = cards;
-      for (const card of cards) await db.run('UPDATE card_cache SET image_url = ? WHERE id = ?', [card.image_url, card.id]);
+      for (const card of cards) {
+        await db.run(`INSERT OR IGNORE INTO card_cache (id, name, game, image_url) VALUES (?, ?, ?, ?)`, [card.id, card.name, card.game, card.image_url]);
+        await db.run('UPDATE card_cache SET image_url = ? WHERE id = ?', [card.image_url, card.id]);
+      }
     };
 
     const res = {
@@ -96,7 +105,7 @@ async function testImportRoute() {
     }, csvRes);
     assert.strictEqual(csvRes.statusCode, 200);
     assert.strictEqual(csvRes.body.count, 1);
-    assert.deepStrictEqual(cachedCards, [{ id: 'mtg-caldera', image_url: 'https://images.example/caldera-kavu.jpg' }]);
+    assert.deepStrictEqual(cachedCards, [{ id: 'mtg-caldera', name: 'Caldera Kavu', game: 'mtg', image_url: 'https://images.example/caldera-kavu.jpg' }]);
     assert.strictEqual((await db.get('SELECT image_url FROM card_cache WHERE id = ?', ['mtg-caldera'])).image_url, 'https://images.example/caldera-kavu.jpg');
     const arenaRes = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
     await handler({
@@ -107,7 +116,7 @@ async function testImportRoute() {
     assert.strictEqual((await db.get(`SELECT list_type FROM collection WHERE card_id = ? ORDER BY id DESC LIMIT 1`, ['mtg-caldera'])).list_type, 'arena');
     const bindarrCsv = fs.readFileSync(path.join(__dirname, '..', '..', 'bindarr_mtg_import.csv'), 'utf8')
       .split(/\r?\n/).slice(0, 4).join('\n');
-    await db.run(`INSERT INTO card_cache (id, name, game) VALUES (?, ?, ?)`, ['mtg-arena-vow-ba8df259852a', 'Stale CSV card', 'pokemon']);
+    await db.run(`INSERT INTO card_cache (id, name, game) VALUES (?, ?, ?)`, ['mtg-a-brine-comber', 'Stale CSV card', 'pokemon']);
     const bindarrCsvRes = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
     await handler({
       body: { format: 'internal', data: bindarrCsv, list_type: 'collection' },
@@ -117,17 +126,22 @@ async function testImportRoute() {
     assert.strictEqual(bindarrCsvRes.body.count, 3);
     assert.deepStrictEqual(await db.get(
       `SELECT card_id, quantity, list_type, game FROM collection WHERE card_id = ?`,
-      ['mtg-arena-vow-ba8df259852a']
+      ['mtg-a-brine-comber']
     ), {
-      card_id: 'mtg-arena-vow-ba8df259852a',
+      card_id: 'mtg-a-brine-comber',
       quantity: 1,
       list_type: 'collection',
       game: 'mtg'
     });
-    assert.strictEqual((await db.get(`SELECT game FROM card_cache WHERE id = ?`, ['mtg-arena-vow-ba8df259852a'])).game, 'mtg');
-    await db.run(`UPDATE card_cache SET game = 'pokemon' WHERE id = ?`, ['mtg-arena-vow-ba8df259852a']);
+    assert.strictEqual((await db.get(`SELECT game FROM card_cache WHERE id = ?`, ['mtg-a-brine-comber'])).game, 'mtg');
+    assert.deepStrictEqual(bulkCalls.at(-1).map(row => [row.name, row.set_id, row.number]), [
+      ['A-Brine Comber', 'VOW', undefined],
+      ['A-Cobbled Lancer', 'VOW', undefined],
+      ['A-Cosmos Charger', 'KHM', undefined]
+    ]);
+    await db.run(`UPDATE card_cache SET game = 'pokemon' WHERE id = ?`, ['mtg-a-brine-comber']);
     await db.initDb();
-    assert.strictEqual((await db.get(`SELECT game FROM card_cache WHERE id = ?`, ['mtg-arena-vow-ba8df259852a'])).game, 'mtg');
+    assert.strictEqual((await db.get(`SELECT game FROM card_cache WHERE id = ?`, ['mtg-a-brine-comber'])).game, 'mtg');
     const csvPreview = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
     await previewHandler({ body: { format: 'internal', data: bindarrCsv } }, csvPreview);
     assert.deepStrictEqual(csvPreview.body, { cards: 3, quantity: 3, errors: [] });

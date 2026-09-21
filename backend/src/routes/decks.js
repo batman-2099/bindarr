@@ -117,13 +117,23 @@ router.post('/', async (req, res) => {
         await addDeckCard(card.id, row.quantity);
       }
     } else if (decklist_text && typeof decklist_text === 'string') {
-      if (decklist_format === 'manabox' && deckGame === 'mtg') {
-        const items = parseManaboxText(decklist_text);
-        const { cards, pairs } = await scryfallApi.bulkFetchByIdentifier(items.map(item => ({
+      const manaBoxItems = deckGame === 'mtg' ? parseManaboxText(decklist_text) : [];
+      if (manaBoxItems.length || decklist_format === 'manabox') {
+        if (!manaBoxItems.length) {
+          const error = new Error('No ManaBox cards found in the decklist');
+          error.status = 422;
+          throw error;
+        }
+        const { cards, pairs } = await scryfallApi.bulkFetchByIdentifier(manaBoxItems.map(item => ({
           ...item,
           set_id: item.set_code,
           number: item.collector_number
         })));
+        if (pairs.length !== manaBoxItems.length) {
+          const error = new Error(`Only ${pairs.length} of ${manaBoxItems.length} ManaBox cards matched Scryfall`);
+          error.status = 422;
+          throw error;
+        }
         await scryfallApi.cacheCards(cards);
         for (const { row, card } of pairs) {
           await addDeckCard(card.id, row.quantity);

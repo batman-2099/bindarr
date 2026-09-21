@@ -206,8 +206,9 @@ function DeckBuilder({ showToast }) {
         })
       });
 
+      const data = await response.json();
       if (response.ok) {
-        showToast(t('deck.created'));
+        showToast(data.message || t('deck.created'));
         setNewDeckName('');
         setNewDeckDesc('');
         setNewDeckGame(defaultGame());
@@ -223,7 +224,7 @@ function DeckBuilder({ showToast }) {
         setShowImportDecklistArea(false);
         fetchDecks();
       } else {
-        showToast(t('deck.errCreate'));
+        showToast(data.error || t('deck.errCreate'));
       }
     } catch (err) {
       console.error(err);

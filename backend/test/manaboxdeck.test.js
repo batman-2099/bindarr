@@ -6,6 +6,9 @@ const { parseManaboxText } = require('../src/utils/csvMappers');
 
 const decklist = fs.readFileSync(path.join(__dirname, '..', '..', 'Zoraline’s Last Light.txt'), 'utf8');
 const expected = parseManaboxText(decklist);
+const greenRampDecklist = fs.readFileSync(path.join(__dirname, 'fixtures', 'green-ramp-deck.txt'), 'utf8');
+const greenRampExpected = parseManaboxText(greenRampDecklist);
+const firstDeckCardId = `mtg-test-${expected[0].set_code}-${expected[0].collector_number}-0`;
 const tmpDb = path.join(os.tmpdir(), `bindarr-manabox-deck-test-${process.pid}.db`);
 process.env.DB_PATH = tmpDb;
 process.env.DEFAULT_ADMIN_PASSWORD = 'test-admin-password';
@@ -25,13 +28,13 @@ async function testManaBoxDeckCreation() {
   try {
     await db.initDb();
     scryfallApi.bulkFetchByIdentifier = async rows => {
-      const cards = rows.map((row, index) => ({ id: `mtg-test-${index}`, name: row.name, game: 'mtg' }));
+      const cards = rows.map((row, index) => ({ id: `mtg-test-${row.set_id}-${row.number}-${index}`, name: row.name, game: 'mtg' }));
       return { cards, pairs: rows.map((row, index) => ({ row, card: cards[index] })) };
     };
     scryfallApi.cacheCards = async cards => {
       for (const card of cards) {
         const basicLand = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'].includes(card.name);
-        await db.run('INSERT INTO card_cache (id, name, game, supertype, subtypes) VALUES (?, ?, ?, ?, ?)', [card.id, card.name, card.game, basicLand ? 'Land' : null, basicLand ? JSON.stringify(['Basic', 'Land', card.name]) : null]);
+        await db.run('INSERT OR IGNORE INTO card_cache (id, name, game, supertype, subtypes) VALUES (?, ?, ?, ?, ?)', [card.id, card.name, card.game, basicLand ? 'Land' : null, basicLand ? JSON.stringify(['Basic', 'Land', card.name]) : null]);
         await db.run('INSERT INTO collection (card_id, user_id, quantity, list_type) VALUES (?, ?, ?, ?)', [card.id, 1, 999, 'arena']);
       }
     };
@@ -57,8 +60,8 @@ async function testManaBoxDeckCreation() {
     assert.deepStrictEqual(imported.find(card => card.name === 'Zoraline, Cosmos Caller'), { name: 'Zoraline, Cosmos Caller', quantity: 1 });
     assert.deepStrictEqual(imported.find(card => card.name === 'Plains'), { name: 'Plains', quantity: 8 });
     assert.strictEqual((await db.get('SELECT inventory_type FROM decks WHERE id = ?', [res.body.id])).inventory_type, 'arena');
-    assert.strictEqual((await validateDeckAddition({ deckId: res.body.id, userId: 1, cardId: 'mtg-test-0', newQty: 1 })).ok, true, 'Arena deck can use Arena cards');
-    assert.strictEqual((await validateDeckAddition({ deckId: res.body.id, userId: 1, cardId: 'mtg-test-0', newQty: 1000 })).ok, false, 'Arena deck cannot exceed Arena copies');
+    assert.strictEqual((await validateDeckAddition({ deckId: res.body.id, userId: 1, cardId: firstDeckCardId, newQty: 1 })).ok, true, 'Arena deck can use Arena cards');
+    assert.strictEqual((await validateDeckAddition({ deckId: res.body.id, userId: 1, cardId: firstDeckCardId, newQty: 1000 })).ok, false, 'Arena deck cannot exceed Arena copies');
     const duplicated = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
     await duplicateDeck({ params: { id: String(res.body.id) }, user: { id: 1 } }, duplicated);
     assert.strictEqual(duplicated.statusCode, 201);
@@ -81,8 +84,8 @@ async function testManaBoxDeckCreation() {
     await updateDeck(updateRequest, updateResponse);
     assert.strictEqual(updateResponse.statusCode, 200);
     assert.strictEqual((await db.get(`SELECT inventory_type FROM decks WHERE id = ?`, [res.body.id])).inventory_type, 'collection', 'deck switches after every card is available');
-    await db.run(`DELETE FROM collection WHERE card_id = ? AND user_id = ? AND list_type = 'arena'`, ['mtg-test-0', 1]);
-    await db.run(`INSERT INTO collection (card_id, user_id, quantity, list_type) VALUES (?, ?, ?, ?)`, ['mtg-test-0', 1, 1, 'collection']);
+    await db.run(`DELETE FROM collection WHERE card_id = ? AND user_id = ? AND list_type = 'arena'`, [firstDeckCardId, 1]);
+    await db.run(`INSERT INTO collection (card_id, user_id, quantity, list_type) VALUES (?, ?, ?, ?)`, [firstDeckCardId, 1, 1, 'collection']);
     const rejected = {
       statusCode: 200,
       status(code) { this.statusCode = code; return this; },
@@ -93,6 +96,33 @@ async function testManaBoxDeckCreation() {
       user: { id: 1 }
     }, rejected);
     assert.strictEqual(rejected.statusCode, 400, 'Arena deck import rejects physical-only cards');
+    const autoDetected = {
+      statusCode: 200,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; }
+    };
+    await createDeck({
+      body: { name: 'Green Ramp', game: 'mtg', decklist_format: 'plain', decklist_text: greenRampDecklist },
+      user: { id: 1 }
+    }, autoDetected);
+    assert.strictEqual(autoDetected.statusCode, 201, 'ManaBox text imports without selecting its format');
+    const importedGreenRamp = await db.all(`SELECT card_id, quantity FROM deck_cards WHERE deck_id = ?`, [autoDetected.body.id]);
+    assert.strictEqual(importedGreenRamp.length, greenRampExpected.length);
+    assert.strictEqual(importedGreenRamp.reduce((sum, card) => sum + card.quantity, 0), 60);
+    assert(importedGreenRamp.some(card => card.card_id === 'mtg-test-FDN-227-0'), 'exact ManaBox printing is used');
+
+    scryfallApi.bulkFetchByIdentifier = async () => ({ cards: [], pairs: [] });
+    const unmatched = {
+      statusCode: 200,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; }
+    };
+    await createDeck({
+      body: { name: 'Unmatched ManaBox deck', game: 'mtg', decklist_format: 'manabox', decklist_text: greenRampDecklist },
+      user: { id: 1 }
+    }, unmatched);
+    assert.strictEqual(unmatched.statusCode, 422);
+    assert.strictEqual(unmatched.body.error, `Only 0 of ${greenRampExpected.length} ManaBox cards matched Scryfall`);
   } finally {
     scryfallApi.bulkFetchByIdentifier = originalBulkFetch;
     scryfallApi.cacheCards = originalCacheCards;

@@ -47,14 +47,19 @@ async function testImportRoute() {
     await db.run(`INSERT INTO card_cache (id, name, game) VALUES (?, ?, ?)`, ['mtg-mountain', 'Mountain', 'mtg']);
     await db.run(`INSERT INTO card_cache (id, name, game) VALUES (?, ?, ?)`, ['mtg-spider', 'Spider-Suit', 'mtg']);
 
-    scryfallApi.bulkFetchByIdentifier = async (rows) => ({
-      cards: [],
-      pairs: rows.map(row => ({
-        row,
-        card: { id: row.name === 'Caldera Kavu' ? 'mtg-caldera' : row.name === 'Spider-Suit' ? 'mtg-spider' : 'mtg-mountain' }
-      }))
+    let cachedCards = [];
+    const resolvedCard = (row) => ({
+      id: row.name === 'Caldera Kavu' ? 'mtg-caldera' : row.name === 'Spider-Suit' ? 'mtg-spider' : 'mtg-mountain',
+      image_url: `https://images.example/${row.name.toLowerCase().replace(/\s+/g, '-')}.jpg`
     });
-    scryfallApi.cacheCards = async () => {};
+    scryfallApi.bulkFetchByIdentifier = async (rows) => ({
+      cards: rows.map(resolvedCard),
+      pairs: rows.map(row => ({ row, card: resolvedCard(row) }))
+    });
+    scryfallApi.cacheCards = async (cards) => {
+      cachedCards = cards;
+      for (const card of cards) await db.run('UPDATE card_cache SET image_url = ? WHERE id = ?', [card.image_url, card.id]);
+    };
 
     const res = {
       statusCode: 200,
@@ -84,6 +89,15 @@ async function testImportRoute() {
       { card_id: 'mtg-spider', quantity: 1, printing: 'Holofoil', game: 'mtg' },
       { card_id: 'mtg-spider', quantity: 1, printing: 'Normal', game: 'mtg' }
     ]);
+    const csvRes = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+    await handler({
+      body: { format: 'csv', data: 'Name,Set code,Card number,Quantity,Condition,Foil\nCaldera Kavu,PLS,58,1,near_mint,false' },
+      user: { id: 1 }
+    }, csvRes);
+    assert.strictEqual(csvRes.statusCode, 200);
+    assert.strictEqual(csvRes.body.count, 1);
+    assert.deepStrictEqual(cachedCards, [{ id: 'mtg-caldera', image_url: 'https://images.example/caldera-kavu.jpg' }]);
+    assert.strictEqual((await db.get('SELECT image_url FROM card_cache WHERE id = ?', ['mtg-caldera'])).image_url, 'https://images.example/caldera-kavu.jpg');
   } finally {
     scryfallApi.bulkFetchByIdentifier = originalBulkFetch;
     scryfallApi.cacheCards = originalCacheCards;

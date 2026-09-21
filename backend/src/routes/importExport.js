@@ -264,6 +264,7 @@ router.post('/import', async (req, res) => {
   try {
     let rawItems = [];
     let unmatchedCount = 0;
+    let manaBoxItems = null;
     const formatKey = format.toLowerCase();
     if (formatKey === 'backup') {
       const backup = parseCompleteBackup(data);
@@ -282,19 +283,7 @@ router.post('/import', async (req, res) => {
       if (rawItems.length === 0) {
         return res.status(400).json({ error: 'No ManaBox cards found' });
       }
-
-      const { cards, pairs } = await scryfallApi.bulkFetchByIdentifier(rawItems.map(item => ({
-        ...item,
-        set_id: item.set_code,
-        number: item.collector_number
-      })));
-      await scryfallApi.cacheCards(cards);
-
-      unmatchedCount = rawItems.length - pairs.length;
-      rawItems = pairs.map(({ row, card }) => ({ ...row, card_id: card.id }));
-      if (rawItems.length === 0) {
-        return res.status(400).json({ error: 'No ManaBox cards matched Scryfall' });
-      }
+      manaBoxItems = rawItems;
     } else {
       let lines = [];
       if (typeof data === 'string') {
@@ -337,7 +326,25 @@ router.post('/import', async (req, res) => {
         parsedRows.push(rowObj);
       }
 
-      rawItems = parseThirdPartyCSV(parsedRows, format);
+      const manaBoxHeaders = headers.map(header => header.toLowerCase());
+      const isManaBoxCsv = ['name', 'set code', 'card number'].every(header => manaBoxHeaders.includes(header));
+      rawItems = parseThirdPartyCSV(parsedRows, isManaBoxCsv ? 'manabox' : format);
+      if (isManaBoxCsv) manaBoxItems = rawItems;
+    }
+
+    if (manaBoxItems) {
+      const { cards, pairs } = await scryfallApi.bulkFetchByIdentifier(manaBoxItems.map(item => ({
+        ...item,
+        set_id: item.set_code,
+        number: item.collector_number
+      })));
+      await scryfallApi.cacheCards(cards);
+
+      unmatchedCount = manaBoxItems.length - pairs.length;
+      rawItems = pairs.map(({ row, card }) => ({ ...row, card_id: card.id }));
+      if (rawItems.length === 0) {
+        return res.status(400).json({ error: 'No ManaBox cards matched Scryfall' });
+      }
     }
 
     if (!Array.isArray(rawItems)) {

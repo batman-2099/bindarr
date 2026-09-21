@@ -675,11 +675,42 @@ function DeckBuilder({ showToast }) {
     showToast(t('deck.buylistCopied'));
   };
 
+  const loadArenaImportCards = async () => {
+    const response = await fetch(`/api/collection?game=${activeDeck.game || 'pokemon'}&list_type=arena`);
+    if (!response.ok) throw new Error(t('deck.errSearch'));
+    const byId = new Map();
+    for (const item of await response.json()) {
+      const card = byId.get(item.card_id) || { id: item.card_id, name: item.name, printed_name: item.printed_name, owned_qty: 0 };
+      card.owned_qty += item.quantity || 1;
+      byId.set(item.card_id, card);
+    }
+    return new Map([...byId.values()].flatMap(card => [
+      [card.name.toLowerCase(), card],
+      ...(card.printed_name ? [[card.printed_name.toLowerCase(), card]] : [])
+    ]));
+  };
+
+  const findImportCard = async (rawName, arenaCards) => {
+    if (arenaCards) return arenaCards.get(rawName.toLowerCase()) || null;
+    const res = await fetch(`/api/search?name=${encodeURIComponent(rawName)}&scope=collection&game=${activeDeck.game || 'pokemon'}`);
+    if (!res.ok) return null;
+    return (await res.json())[0] || null;
+  };
+
   const handleCompareImport = async () => {
     if (!importText.trim() || !activeDeck) return;
     setComparingImport(true);
     const lines = importText.split('\n').map(l => l.trim()).filter(Boolean);
     const results = [];
+    let arenaCards = null;
+    try {
+      if (activeDeck.inventory_type === 'arena') arenaCards = await loadArenaImportCards();
+    } catch (err) {
+      console.error(err);
+      setComparingImport(false);
+      showToast(t('deck.errSearch'));
+      return;
+    }
 
     for (const line of lines) {
       const parsed = parseDeckLine(line);
@@ -687,31 +718,27 @@ function DeckBuilder({ showToast }) {
       const { qty, name: rawName } = parsed;
 
       try {
-        const res = await fetch(`/api/search?name=${encodeURIComponent(rawName)}&scope=collection&game=${activeDeck.game || 'pokemon'}`);
-        if (res.ok) {
-          const cards = await res.json();
-          if (cards.length > 0) {
-            const card = cards[0];
-            const owned = card.owned_qty || 0;
-            const inDeck = activeDeck.cards.find(c => c.id === card.id)?.quantity || 0;
-            results.push({
-              rawName,
-              requestedQty: qty,
-              ownedQty: owned,
-              inDeckQty: inDeck,
-              card: card,
-              status: owned >= qty ? 'full' : owned > 0 ? 'partial' : 'missing'
-            });
-          } else {
-            results.push({
-              rawName,
-              requestedQty: qty,
-              ownedQty: 0,
-              inDeckQty: 0,
-              card: null,
-              status: 'missing'
-            });
-          }
+        const card = await findImportCard(rawName, arenaCards);
+        if (card) {
+          const owned = card.owned_qty || 0;
+          const inDeck = activeDeck.cards.find(c => c.id === card.id)?.quantity || 0;
+          results.push({
+            rawName,
+            requestedQty: qty,
+            ownedQty: owned,
+            inDeckQty: inDeck,
+            card,
+            status: owned >= qty ? 'full' : owned > 0 ? 'partial' : 'missing'
+          });
+        } else {
+          results.push({
+            rawName,
+            requestedQty: qty,
+            ownedQty: 0,
+            inDeckQty: 0,
+            card: null,
+            status: 'missing'
+          });
         }
       } catch (err) {
         console.error(err);
@@ -747,23 +774,28 @@ function DeckBuilder({ showToast }) {
       }
     } else {
       const lines = importText.split('\n').map(l => l.trim()).filter(Boolean);
+      let arenaCards = null;
+      try {
+        if (activeDeck.inventory_type === 'arena') arenaCards = await loadArenaImportCards();
+      } catch (err) {
+        console.error(err);
+        showToast(t('deck.errSearch'));
+        return;
+      }
+
       for (const line of lines) {
         const parsed = parseDeckLine(line);
         if (!parsed) continue;
         const { qty, name: rawName } = parsed;
-
         try {
-          const res = await fetch(`/api/search?name=${encodeURIComponent(rawName)}&scope=collection&game=${activeDeck.game || 'pokemon'}`);
-          if (res.ok) {
-            const cards = await res.json();
-            if (cards.length > 0) {
-              await fetch(`/api/decks/${activeDeck.id}/cards`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ card_id: cards[0].id, quantity: qty })
-              });
-              addedCount++;
-            }
+          const card = await findImportCard(rawName, arenaCards);
+          if (card) {
+            await fetch(`/api/decks/${activeDeck.id}/cards`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ card_id: card.id, quantity: qty })
+            });
+            addedCount++;
           }
         } catch (err) {
           console.error(err);

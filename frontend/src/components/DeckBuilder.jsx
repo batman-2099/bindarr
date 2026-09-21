@@ -142,6 +142,7 @@ function DeckBuilder({ showToast }) {
   const [importText, setImportText] = useState('');
   const [importComparison, setImportComparison] = useState(null);
   const [comparingImport, setComparingImport] = useState(false);
+  const [importSummary, setImportSummary] = useState(null);
 
   // Checkout States
   const [checkingOut, setCheckingOut] = useState(false);
@@ -769,69 +770,44 @@ function DeckBuilder({ showToast }) {
   };
 
   const handleImportDeck = async () => {
-    if (!activeDeck) return;
-    const itemsToImport = importComparison
-      ? importComparison.filter(item => item.card && item.ownedQty > 0)
-      : [];
-
-    if (itemsToImport.length === 0 && !importText.trim()) return;
-
+    if (!activeDeck || !importComparison) return;
     let addedCount = 0;
-    
-    if (importComparison) {
-      for (const item of itemsToImport) {
-        try {
-          const addQty = Math.min(item.requestedQty, item.ownedQty);
-          await fetch(`/api/decks/${activeDeck.id}/cards`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ card_id: item.card.id, quantity: addQty })
-          });
-          addedCount++;
-        } catch (err) {
-          console.error(err);
-        }
+    const skipped = [];
+
+    for (const item of importComparison) {
+      if (!item.card || item.ownedQty <= 0) {
+        skipped.push({ name: item.rawName, quantity: item.requestedQty, reason: 'deck.notOwned' });
+        continue;
       }
-    } else {
-      const lines = importText.split('\n').map(l => l.trim()).filter(Boolean);
-      let arenaCards = null;
+
+      const addQty = Math.min(item.requestedQty, item.ownedQty);
       try {
-        if (activeDeck.inventory_type === 'arena') arenaCards = await loadArenaImportCards();
+        const response = await fetch(`/api/decks/${activeDeck.id}/cards`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ card_id: item.card.id, quantity: addQty })
+        });
+        if (response.ok) {
+          addedCount++;
+          if (item.requestedQty > addQty) {
+            skipped.push({ name: item.rawName, quantity: item.requestedQty - addQty, reason: 'deck.notOwned' });
+          }
+        } else {
+          skipped.push({ name: item.rawName, quantity: addQty, reason: 'deck.importFailed' });
+        }
       } catch (err) {
         console.error(err);
-        showToast(t('deck.errSearch'));
-        return;
-      }
-
-      for (const line of lines) {
-        const parsed = parseDeckLine(line);
-        if (!parsed) continue;
-        const { qty } = parsed;
-        try {
-          const card = await findImportCard(parsed, arenaCards);
-          if (card) {
-            await fetch(`/api/decks/${activeDeck.id}/cards`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ card_id: card.id, quantity: qty })
-            });
-            addedCount++;
-          }
-        } catch (err) {
-          console.error(err);
-        }
+        skipped.push({ name: item.rawName, quantity: addQty, reason: 'deck.importFailed' });
       }
     }
 
     if (addedCount > 0) {
-      showToast(t('deck.imported', { count: addedCount }));
       await loadDeckDetails(activeDeck.id);
       setImportText('');
       setImportComparison(null);
-      setShowImportModal(false);
-    } else {
-      showToast(t('deck.errNoMatches'));
     }
+    setImportSummary({ addedCount, skipped });
+    setShowImportModal(false);
   };
 
   // The game the active deck is built for (legacy decks default to Pokémon).
@@ -2676,6 +2652,29 @@ function DeckBuilder({ showToast }) {
                 <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleImportDeck}>{t('deck.importMatched')}</button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {importSummary && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}>
+          <div className="glass-panel" style={{ maxWidth: '600px', width: '100%', padding: '1.75rem' }}>
+            <h3 style={{ fontSize: '1.2rem', color: 'var(--text-strong)', marginBottom: '0.5rem' }}>{t('deck.importSummary')}</h3>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>{t('deck.imported', { count: importSummary.addedCount })}</p>
+            {importSummary.skipped.length > 0 && (
+              <>
+                <h4 style={{ fontSize: '0.9rem', color: 'var(--accent-yellow)', margin: '0 0 0.5rem' }}>{t('deck.notImported')}</h4>
+                <div style={{ maxHeight: '260px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                  {importSummary.skipped.map((item, index) => (
+                    <div key={`${item.name}-${index}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', padding: '0.5rem 0.65rem', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem' }}>
+                      <span style={{ color: 'var(--text-strong)', fontWeight: 600 }}>{item.name}</span>
+                      <span style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{t('deck.reqQuantity', { count: item.quantity })} · {t(item.reason)}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            <button className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={() => setImportSummary(null)}>{t('common.close')}</button>
           </div>
         </div>
       )}

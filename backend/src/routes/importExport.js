@@ -7,6 +7,32 @@ const { generateExportCSV } = require('../utils/csvExporters');
 const { resolveCardPrice } = require('../utils/priceHelpers');
 const { isBinderType } = require('../utils/compartmentSort');
 
+function parseCsvRows(data) {
+  const lines = typeof data === 'string' ? data.split(/\r?\n/).map(line => line.trim()).filter(Boolean) : [];
+  if (lines.length <= 1) throw new Error('CSV file is empty or missing headers');
+
+  const parseLine = (line) => {
+    const values = [];
+    let value = '';
+    let quoted = false;
+    for (const char of line) {
+      if (char === '"') quoted = !quoted;
+      else if (char === ',' && !quoted) {
+        values.push(value.trim());
+        value = '';
+      } else value += char;
+    }
+    values.push(value.trim());
+    return values.map(cell => cell.replace(/^"|"$/g, ''));
+  };
+
+  const headers = parseLine(lines[0]);
+  const rows = lines.slice(1).map(parseLine)
+    .filter(values => values.length >= headers.length)
+    .map(values => Object.fromEntries(headers.map((header, index) => [header, values[index]])));
+  return { headers, rows };
+}
+
 function parseCompleteBackup(data) {
   const backup = typeof data === 'string' ? JSON.parse(data) : data;
   const arrays = ['collection', 'card_cache', 'locations', 'compartments', 'compartment_assignments', 'decks', 'deck_cards'];
@@ -241,18 +267,38 @@ router.get('/export', async (req, res) => {
 
 router.post('/import/preview', (req, res) => {
   const { format = 'internal', data } = req.body;
-  if (format.toLowerCase() !== 'manabox' || !data) {
-    return res.status(400).json({ error: 'ManaBox text is required' });
+  if (!data) return res.status(400).json({ error: 'No import data provided' });
+
+  if (format.toLowerCase() === 'manabox') {
+    const items = parseManaboxText(data);
+    if (!items.length) return res.status(400).json({ error: 'No ManaBox cards found' });
+    const summary = items.reduce((out, item) => {
+      out.cards += item.quantity;
+      if (item.printing === 'Holofoil') out.foils += item.quantity;
+      else out.normal += item.quantity;
+      return out;
+    }, { printings: items.length, cards: 0, normal: 0, foils: 0 });
+    return res.json(summary);
   }
-  const items = parseManaboxText(data);
-  if (!items.length) return res.status(400).json({ error: 'No ManaBox cards found' });
-  const summary = items.reduce((out, item) => {
-    out.cards += item.quantity;
-    if (item.printing === 'Holofoil') out.foils += item.quantity;
-    else out.normal += item.quantity;
-    return out;
-  }, { printings: items.length, cards: 0, normal: 0, foils: 0 });
-  res.json(summary);
+
+  try {
+    const { rows } = parseCsvRows(data);
+    const items = parseThirdPartyCSV(rows, format);
+    const errors = items.flatMap((item, index) => {
+      const row = index + 2;
+      const rowErrors = [];
+      if (!item.card_id) rowErrors.push(`Row ${row}: Card ID is required.`);
+      if (!item.name) rowErrors.push(`Row ${row}: Name is required.`);
+      return rowErrors;
+    });
+    return res.json({
+      cards: items.length,
+      quantity: items.reduce((total, item) => total + item.quantity, 0),
+      errors
+    });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
 });
 // Import endpoint
 router.post('/import', async (req, res) => {
@@ -288,50 +334,10 @@ router.post('/import', async (req, res) => {
       }
       manaBoxItems = rawItems;
     } else {
-      let lines = [];
-      if (typeof data === 'string') {
-        lines = data.split('\n').map(l => l.trim()).filter(Boolean);
-      }
-      if (lines.length <= 1) {
-        return res.status(400).json({ error: 'CSV file is empty or missing headers' });
-      }
-
-      const parseCSVLine = (line) => {
-        const result = [];
-        let current = '';
-        let inQuotes = false;
-        for (let i = 0; i < line.length; i++) {
-          const char = line[i];
-          if (char === '"') {
-            inQuotes = !inQuotes;
-          } else if (char === ',' && !inQuotes) {
-            result.push(current.trim());
-            current = '';
-          } else {
-            current += char;
-          }
-        }
-        result.push(current.trim());
-        return result;
-      };
-
-      const headers = parseCSVLine(lines[0]).map(h => h.replace(/^"|"$/g, ''));
-      const parsedRows = [];
-
-      for (let i = 1; i < lines.length; i++) {
-        const values = parseCSVLine(lines[i]).map(v => v.replace(/^"|"$/g, ''));
-        if (values.length < headers.length) continue;
-
-        const rowObj = {};
-        headers.forEach((h, idx) => {
-          rowObj[h] = values[idx];
-        });
-        parsedRows.push(rowObj);
-      }
-
+      const { headers, rows } = parseCsvRows(data);
       const manaBoxHeaders = headers.map(header => header.toLowerCase());
       const isManaBoxCsv = ['name', 'set code', 'card number'].every(header => manaBoxHeaders.includes(header));
-      rawItems = parseThirdPartyCSV(parsedRows, isManaBoxCsv ? 'manabox' : format);
+      rawItems = parseThirdPartyCSV(rows, isManaBoxCsv ? 'manabox' : format);
       if (isManaBoxCsv) manaBoxItems = rawItems;
     }
 

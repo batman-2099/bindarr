@@ -69,6 +69,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
   const csvImportInput = useRef(null);
   const [importingText, setImportingText] = useState(false);
   const [manaBoxPreview, setManaBoxPreview] = useState(null);
+  const [csvPreview, setCsvPreview] = useState(null);
   const [addToArena, setAddToArena] = useState(false);
 
   // Filter states
@@ -580,16 +581,20 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
       setImportingText(true);
       try {
         const text = String(reader.result || '');
-        const listType = addToArena || /(?:^|\n)"?mtg-arena-/i.test(text) ? 'arena' : 'collection';
-        const response = await fetch('/api/import', {
+        const listType = (addToArena || /(?:^|\n)"?mtg-arena-/i.test(text)) ? 'arena' : 'collection';
+        const response = await fetch('/api/import/preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ format: 'internal', data: text, list_type: listType })
+          body: JSON.stringify({ format: 'internal', data: text })
         });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || t('settings.importFailed', { error: '' }));
-        showToast(data.message);
-        onAddSuccess();
+        const summary = await response.json().catch(() => ({}));
+        setCsvPreview({
+          ...summary,
+          errors: response.ok ? summary.errors || [] : [summary.error || t('settings.importFailed', { error: '' })],
+          text,
+          filename: file.name,
+          listType
+        });
       } catch (error) {
         console.error(error);
         showToast(error.message || t('settings.importFailed', { error: '' }));
@@ -600,6 +605,31 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
     reader.onerror = () => showToast(t('settings.errReadFile'));
     reader.readAsText(file);
     event.target.value = '';
+  };
+
+  const commitCsvImport = async () => {
+    if (!csvPreview || csvPreview.errors.length) return;
+    setImportingText(true);
+    try {
+      const response = await fetch('/api/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format: 'internal', data: csvPreview.text, list_type: csvPreview.listType })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setCsvPreview(preview => ({ ...preview, errors: [...preview.errors, data.error || t('settings.importFailed', { error: '' })] }));
+        return;
+      }
+      setCsvPreview(null);
+      showToast(data.message);
+      onAddSuccess();
+    } catch (error) {
+      console.error(error);
+      setCsvPreview(preview => ({ ...preview, errors: [...preview.errors, error.message || t('settings.importFailed', { error: '' })] }));
+    } finally {
+      setImportingText(false);
+    }
   };
 
   const commitManaBoxImport = async () => {
@@ -1137,6 +1167,45 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
               <button type="button" className="btn btn-secondary" onClick={() => setManaBoxPreview(null)} disabled={importingText}>{t('common.cancel')}</button>
               <button type="button" className="btn btn-primary" onClick={commitManaBoxImport} disabled={importingText}>{importingText ? t('settings.importing') : t('manaboxPreview.commit')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {csvPreview && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0, 0, 0, 0.78)', display: 'grid', placeItems: 'center', padding: '1rem' }}
+          onClick={() => !importingText && setCsvPreview(null)}
+        >
+          <div className="glass-panel" onClick={event => event.stopPropagation()} style={{ width: '100%', maxWidth: '520px', display: 'grid', gap: '1rem' }}>
+            <div>
+              <h2 style={{ margin: 0, color: 'var(--text-strong)', fontSize: '1.1rem' }}>{t('csvPreview.title')}</h2>
+              <p style={{ margin: '0.35rem 0 0', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>{csvPreview.filename}</p>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', fontSize: '0.8rem' }}>
+              {[
+                [t('csvPreview.cards'), csvPreview.cards || 0],
+                [t('csvPreview.copies'), csvPreview.quantity || 0],
+              ].map(([label, value]) => (
+                <div key={label} style={{ padding: '0.6rem', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', textAlign: 'center' }}>
+                  <strong style={{ display: 'block', color: 'var(--text-strong)', fontSize: '1rem' }}>{value}</strong>
+                  <span style={{ color: 'var(--text-muted)' }}>{label}</span>
+                </div>
+              ))}
+            </div>
+            {csvPreview.errors.length > 0 && (
+              <div style={{ display: 'grid', gap: '0.4rem' }}>
+                <strong style={{ color: 'var(--accent-red)', fontSize: '0.85rem' }}>{t('csvPreview.errors')}</strong>
+                <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'grid', gap: '0.35rem' }}>
+                  {csvPreview.errors.map((error, index) => (
+                    <div key={`${error}-${index}`} style={{ padding: '0.5rem 0.6rem', borderRadius: 'var(--radius-sm)', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>{error}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setCsvPreview(null)} disabled={importingText}>{t('common.cancel')}</button>
+              <button type="button" className="btn btn-primary" onClick={commitCsvImport} disabled={importingText || csvPreview.errors.length > 0}>{importingText ? t('settings.importing') : t('csvPreview.commit')}</button>
             </div>
           </div>
         </div>

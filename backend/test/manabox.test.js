@@ -123,6 +123,12 @@ async function testImportRoute() {
       list_type: 'arena',
       game: 'mtg'
     });
+    const csvPreview = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
+    await previewHandler({ body: { format: 'internal', data: bindarrCsv } }, csvPreview);
+    assert.deepStrictEqual(csvPreview.body, { cards: 3, quantity: 3, errors: [] });
+    const invalidPreview = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
+    await previewHandler({ body: { format: 'internal', data: 'Card ID,Name,Quantity\n,,1' } }, invalidPreview);
+    assert.deepStrictEqual(invalidPreview.body.errors, ['Row 2: Card ID is required.', 'Row 2: Name is required.']);
   } finally {
     scryfallApi.bulkFetchByIdentifier = originalBulkFetch;
     scryfallApi.cacheCards = originalCacheCards;

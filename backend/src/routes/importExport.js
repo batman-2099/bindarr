@@ -448,7 +448,7 @@ router.post('/import', async (req, res) => {
       count: importedCount,
       message: `Successfully imported ${importedCount} items.${unmatched}`,
       summary: {
-        added: { cards: addedItems.length, copies: copies(addedItems) },
+        added: { cards: addedItems.length, copies: copies(addedItems), items: addedItems },
         failed: { cards: failedItems.length, copies: copies(failedItems), items: failedItems }
       }
     });

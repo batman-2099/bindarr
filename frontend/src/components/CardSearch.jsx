@@ -1248,6 +1248,16 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
                 </div>
               ))}
             </div>
+            {importSummary.added.items.length > 0 && (
+              <div style={{ display: 'grid', gap: '0.4rem' }}>
+                <strong style={{ color: 'var(--accent-green)', fontSize: '0.85rem' }}>{t('importSummary.addedCards')}</strong>
+                <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'grid', gap: '0.35rem' }}>
+                  {importSummary.added.items.map((item, index) => (
+                    <div key={`${item.name}-${index}`} style={{ padding: '0.5rem 0.6rem', borderRadius: 'var(--radius-sm)', background: 'rgba(34, 197, 94, 0.1)', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>{item.quantity}× {item.name}</div>
+                  ))}
+                </div>
+              </div>
+            )}
             {importSummary.failed.items.length > 0 && (
               <div style={{ display: 'grid', gap: '0.4rem' }}>
                 <strong style={{ color: 'var(--accent-red)', fontSize: '0.85rem' }}>{t('importSummary.failedCards')}</strong>

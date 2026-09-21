@@ -848,6 +848,7 @@
   "csvPreview.destination": "Destination: {destination}",
   "importSummary.title": "Import Complete",
   "importSummary.added": "Added",
+  "importSummary.addedCards": "Cards added",
   "importSummary.failed": "Failed",
   "importSummary.cards": "cards",
   "importSummary.copies": "copies",

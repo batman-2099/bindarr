@@ -125,7 +125,15 @@ async function testImportRoute() {
     assert.strictEqual(bindarrCsvRes.statusCode, 200);
     assert.strictEqual(bindarrCsvRes.body.count, 3);
     assert.deepStrictEqual(bindarrCsvRes.body.summary, {
-      added: { cards: 3, copies: 3 },
+      added: {
+        cards: 3,
+        copies: 3,
+        items: [
+          { name: 'A-Brine Comber', quantity: 1 },
+          { name: 'A-Cobbled Lancer', quantity: 1 },
+          { name: 'A-Cosmos Charger', quantity: 1 }
+        ]
+      },
       failed: { cards: 0, copies: 0, items: [] }
     });
     assert.deepStrictEqual(await db.get(
@@ -174,7 +182,7 @@ async function testImportRoute() {
       user: { id: 1 }
     }, partialImport);
     assert.deepStrictEqual(partialImport.body.summary, {
-      added: { cards: 1, copies: 2 },
+      added: { cards: 1, copies: 2, items: [{ name: 'Caldera Kavu', quantity: 2 }] },
       failed: { cards: 1, copies: 1, items: [{ name: 'Not A Card', quantity: 1, set_code: 'ABC', collector_number: '1' }] }
     });
     const csvPreview = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };

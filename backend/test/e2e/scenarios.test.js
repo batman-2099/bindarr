@@ -50,7 +50,8 @@ async function runTests() {
       DB_PATH: tmpDb,
       // F6-TC5 exercises the self-registration flow, which is invite-only unless
       // explicitly enabled.
-      ALLOW_REGISTRATION: 'true'
+      ALLOW_REGISTRATION: 'true',
+      DEFAULT_ADMIN_PASSWORD: 'test-password'
     }
   });
 
@@ -119,6 +120,22 @@ async function runTests() {
       // Verify price history row exists for this card
       const priceHist = await db.all(`SELECT * FROM price_history WHERE card_id = ?`, [cards[0].id]);
       assert.ok(priceHist.length > 0, 'Price history record must be written');
+
+      const wishlistRes = await fetch(`http://localhost:${port}/api/collection`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          card_id: cards[0].id,
+          quantity: 1,
+          condition: 'Near Mint',
+          printing: 'Normal',
+          language: 'English',
+          list_type: 'wishlist'
+        })
+      });
+      assert.strictEqual(wishlistRes.status, 200, 'wishlist add should succeed');
+      const wishlistEntry = await db.get(`SELECT list_type FROM collection WHERE card_id = ? ORDER BY id DESC LIMIT 1`, [cards[0].id]);
+      assert.strictEqual(wishlistEntry.list_type, 'wishlist', 'wishlist add must create a wishlist entry');
       console.log('PASS: F6-TC3');
     } catch (err) {
       console.error('FAIL: F6-TC3 -', err.message);

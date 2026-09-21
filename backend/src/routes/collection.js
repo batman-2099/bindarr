@@ -672,6 +672,9 @@ async function addCardToCollection(user, body) {
   if (!card_id) {
     throw new AddCardError(400, 'card_id is required');
   }
+  if (!['collection', 'wishlist'].includes(list_type)) {
+    throw new AddCardError(400, 'Invalid list_type');
+  }
 
   // Grading, validated here rather than at the two call sites, so the single add
   // and the bulk add cannot disagree about what a slab is.

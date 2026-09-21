@@ -490,6 +490,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedCard) return;
+    const listType = e.nativeEvent.submitter?.value || 'collection';
 
     try {
       const response = await fetch('/api/collection', {
@@ -503,6 +504,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
           language,
           purchase_price: parseFloat(purchasePrice) || 0,
           location_id: null,
+          list_type: listType,
           grader,
           grade: grade === '' ? null : parseFloat(grade),
           cert_number: certNumber.trim() || null
@@ -1052,10 +1054,12 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
                 onGrader={setGrader} onGrade={setGrade} onCertNumber={setCertNumber}
               />
 
+
               <div className="quick-add-footer" style={{ marginTop: '1.25rem', paddingTop: '1rem' }}>
                 <div className="quick-add-footer-actions">
                   <button type="button" className="btn btn-secondary" onClick={closeDrawer}>{t('common.cancel')}</button>
-                  <button type="submit" className="btn btn-primary">{t('search.addToCollection')}</button>
+                  <button type="submit" value="wishlist" className="btn btn-secondary">{t('search.addToWishlist')}</button>
+                  <button type="submit" value="collection" className="btn btn-primary">{t('search.addToCollection')}</button>
                 </div>
               </div>
             </form>

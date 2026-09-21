@@ -816,6 +816,7 @@
   "search.noFilterMatches": "No cards matched your active filters. Try clearing your selection above.",
   "search.addCardTitle": "Add Card to Collection",
   "search.addToCollection": "Add to Collection",
+  "search.addToWishlist": "Add to Wishlist",
   "search.addedToCollection": "{name} added to collection!",
   "manaboxPreview.title": "ManaBox Import Summary",
   "manaboxPreview.cards": "Cards",

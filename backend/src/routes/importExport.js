@@ -374,16 +374,17 @@ router.post('/import', async (req, res) => {
 
         if (!cardId) continue;
 
-        let cached = await db.get(`SELECT id FROM card_cache WHERE id = ?`, [cardId]);
+        const cached = await db.get(`SELECT id, game FROM card_cache WHERE id = ?`, [cardId]);
+        const game = item.game || 'mtg';
         if (!cached) {
           await db.run(
             `INSERT OR IGNORE INTO card_cache 
-             (id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url, price_trend)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             (id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url, price_trend, game)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               cardId,
               item.name || 'Imported Card',
-              item.supertype || (item.game === 'mtg' ? 'Card' : 'Pokémon'),
+              item.supertype || 'Card',
               '[]',
               JSON.stringify(item.types || []),
               item.rarity || 'Common',
@@ -391,9 +392,12 @@ router.post('/import', async (req, res) => {
               item.set_name || item.set_code || 'Imported Set',
               item.collector_number || item.number || '',
               item.image_url || '',
-              item.market_price || item.purchase_price || 0
+              item.market_price || item.purchase_price || 0,
+              game
             ]
           );
+        } else if (cached.game !== game) {
+          await db.run(`UPDATE card_cache SET game = ? WHERE id = ?`, [game, cardId]);
         }
 
         await db.run(
@@ -409,7 +413,7 @@ router.post('/import', async (req, res) => {
             item.language || 'English',
             item.purchase_price || 0,
             list_type,
-            item.game || 'mtg'
+            game
           ]
         );
         importedCount++;

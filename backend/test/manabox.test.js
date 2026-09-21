@@ -107,6 +107,7 @@ async function testImportRoute() {
     assert.strictEqual((await db.get(`SELECT list_type FROM collection WHERE card_id = ? ORDER BY id DESC LIMIT 1`, ['mtg-caldera'])).list_type, 'arena');
     const bindarrCsv = fs.readFileSync(path.join(__dirname, '..', '..', 'bindarr_mtg_import.csv'), 'utf8')
       .split(/\r?\n/).slice(0, 4).join('\n');
+    await db.run(`INSERT INTO card_cache (id, name, game) VALUES (?, ?, ?)`, ['mtg-arena-vow-ba8df259852a', 'Stale CSV card', 'pokemon']);
     const bindarrCsvRes = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
     await handler({
       body: { format: 'internal', data: bindarrCsv, list_type: 'collection' },
@@ -123,6 +124,10 @@ async function testImportRoute() {
       list_type: 'collection',
       game: 'mtg'
     });
+    assert.strictEqual((await db.get(`SELECT game FROM card_cache WHERE id = ?`, ['mtg-arena-vow-ba8df259852a'])).game, 'mtg');
+    await db.run(`UPDATE card_cache SET game = 'pokemon' WHERE id = ?`, ['mtg-arena-vow-ba8df259852a']);
+    await db.initDb();
+    assert.strictEqual((await db.get(`SELECT game FROM card_cache WHERE id = ?`, ['mtg-arena-vow-ba8df259852a'])).game, 'mtg');
     const csvPreview = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
     await previewHandler({ body: { format: 'internal', data: bindarrCsv } }, csvPreview);
     assert.deepStrictEqual(csvPreview.body, { cards: 3, quantity: 3, errors: [] });

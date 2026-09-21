@@ -396,6 +396,11 @@ async function initDb() {
   `);
 
   // --- MIGRATIONS ---
+  // Older databases defaulted card_cache.game to Pokémon. CSV imports that
+  // supplied a Magic collection row but omitted this column were persisted, then
+  // hidden by the Magic-only collection query.
+  await run(`UPDATE card_cache SET game = 'mtg' WHERE id LIKE 'mtg-%' AND game <> 'mtg'`);
+
   // When each game's price sweep last ran. Scryfall updates prices once a day,
   // so a sweep more often than that cannot return anything new — and the boot
   // sweep would otherwise re-run on every restart (constantly, under nodemon).

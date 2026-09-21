@@ -1681,7 +1681,7 @@ function DeckBuilder({ showToast }) {
                 style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}
                 title={t('deck.exportHint')}
               >
-                <Download size={14} /> Export
+                <Upload size={14} /> Export
               </button>
               <button
                 className="btn btn-secondary"
@@ -1689,7 +1689,7 @@ function DeckBuilder({ showToast }) {
                 style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}
                 title={t('deck.importHint')}
               >
-                <Upload size={14} /> Import
+                <Download size={14} /> Import
               </button>
               {/* Checkout / Return button */}
               {activeDeck.checked_out ? (

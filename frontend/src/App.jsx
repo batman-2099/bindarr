@@ -100,6 +100,7 @@ function App() {
   const [showSetup, setShowSetup] = useState(false);
   const [selectedLocationId, setSelectedLocationId] = useState(null);
   const [focusEntryId, setFocusEntryId] = useState(null);
+  const [storageViewKey, setStorageViewKey] = useState(0);
   const [selectedCardFilter, setSelectedCardFilter] = useState('');
   const [toast, setToast] = useState(null);
   const [statsTrigger, setStatsTrigger] = useState(0);
@@ -299,6 +300,7 @@ function App() {
       case 'storage':
         return (
           <LocationManager
+            key={storageViewKey}
             statsTrigger={statsTrigger}
             onUpdate={triggerRefresh}
             showToast={showToast}
@@ -362,7 +364,12 @@ function App() {
           </button>
           <button
             className={`nav-tab ${activeTab === 'storage' ? 'active' : ''}`}
-            onClick={() => goTab('storage')}
+            onClick={() => {
+              setSelectedLocationId(null);
+              setFocusEntryId(null);
+              setStorageViewKey(key => key + 1);
+              goTab('storage');
+            }}
           >
             <MapPin size={18} />
             <span>{t('nav.storage')}</span>

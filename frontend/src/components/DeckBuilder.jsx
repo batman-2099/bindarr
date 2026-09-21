@@ -6,7 +6,7 @@ import { translateJapaneseName } from '../utils/langHelper';
 import { displayName } from '../utils/languages';
 import CheckoutWizardModal from './CheckoutWizardModal';
 import { useBackGuard } from '../utils/useBackGuard';
-import { buildDeckExport, parseDeckLine } from '../utils/deckText';
+import { arenaCardKey, buildDeckExport, parseDeckLine } from '../utils/deckText';
 import { defaultGame, gameOptions, showGamePicker, isGameEnabled } from '../utils/games';
 import CardImage from './CardImage';
 import { useT } from '../utils/i18n';
@@ -680,19 +680,37 @@ function DeckBuilder({ showToast }) {
     if (!response.ok) throw new Error(t('deck.errSearch'));
     const byId = new Map();
     for (const item of await response.json()) {
-      const card = byId.get(item.card_id) || { id: item.card_id, name: item.name, printed_name: item.printed_name, owned_qty: 0 };
+      const card = byId.get(item.card_id) || {
+        id: item.card_id,
+        name: item.name,
+        printed_name: item.printed_name,
+        set_id: item.set_id,
+        number: item.number,
+        owned_qty: 0
+      };
       card.owned_qty += item.quantity || 1;
       byId.set(item.card_id, card);
     }
-    return new Map([...byId.values()].flatMap(card => [
-      [card.name.toLowerCase(), card],
-      ...(card.printed_name ? [[card.printed_name.toLowerCase(), card]] : [])
-    ]));
+    const byName = new Map();
+    const byPrinting = new Map();
+    for (const card of byId.values()) {
+      const names = [card.name, card.printed_name].filter(Boolean);
+      for (const name of names) {
+        const existing = byName.get(name.toLowerCase());
+        if (!existing || existing.owned_qty < card.owned_qty) byName.set(name.toLowerCase(), card);
+        if (card.set_id && card.number) byPrinting.set(arenaCardKey(name, card.set_id, card.number), card);
+      }
+    }
+    return { byName, byPrinting };
   };
 
-  const findImportCard = async (rawName, arenaCards) => {
-    if (arenaCards) return arenaCards.get(rawName.toLowerCase()) || null;
-    const res = await fetch(`/api/search?name=${encodeURIComponent(rawName)}&scope=collection&game=${activeDeck.game || 'mtg'}`);
+  const findImportCard = async (parsed, arenaCards) => {
+    if (arenaCards) {
+      return (parsed.setCode && parsed.number && arenaCards.byPrinting.get(arenaCardKey(parsed.name, parsed.setCode, parsed.number)))
+        || arenaCards.byName.get(parsed.name.toLowerCase())
+        || null;
+    }
+    const res = await fetch(`/api/search?name=${encodeURIComponent(parsed.name)}&scope=collection&game=${activeDeck.game || 'mtg'}`);
     if (!res.ok) return null;
     return (await res.json())[0] || null;
   };
@@ -718,7 +736,7 @@ function DeckBuilder({ showToast }) {
       const { qty, name: rawName } = parsed;
 
       try {
-        const card = await findImportCard(rawName, arenaCards);
+        const card = await findImportCard(parsed, arenaCards);
         if (card) {
           const owned = card.owned_qty || 0;
           const inDeck = activeDeck.cards.find(c => c.id === card.id)?.quantity || 0;
@@ -786,9 +804,9 @@ function DeckBuilder({ showToast }) {
       for (const line of lines) {
         const parsed = parseDeckLine(line);
         if (!parsed) continue;
-        const { qty, name: rawName } = parsed;
+        const { qty } = parsed;
         try {
-          const card = await findImportCard(rawName, arenaCards);
+          const card = await findImportCard(parsed, arenaCards);
           if (card) {
             await fetch(`/api/decks/${activeDeck.id}/cards`, {
               method: 'POST',

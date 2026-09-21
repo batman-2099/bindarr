@@ -57,14 +57,15 @@ export function buildDeckExport(cards, format = 'ptcgl') {
   return cards.map(c => cardLine(c, 'plain')).join('\n');
 }
 
-// Pull {qty, name} out of one decklist line, stripping trailing set code +
-// collector number so "4 Pikachu ex SVI 63", "4 Lightning Bolt (2X2) 117",
-// "2 Pikachu (SVI) #63" and "4 Pikachu" all yield the bare card name.
+// Pull quantity, name, and (when present) the exact Arena printing out of one
+// decklist line. Name-only input remains supported for generic decklists.
 export function parseDeckLine(line) {
   const m = String(line).trim().match(/^(\d+)x?\s+(.+)$/i);
   if (!m) return null;
   const qty = parseInt(m[1], 10);
   let name = m[2];
+  const arena = name.match(/^(.+?)\s+\(([A-Za-z0-9]{2,6})\)\s+#?(\d+[a-zA-Z]?)\s*$/);
+  const printing = arena && { setCode: arena[2].toLowerCase(), number: arena[3].toLowerCase() };
 
   // PTCGL "name SETCODE number" — anchored on BOTH so it never eats a name
   // that legitimately ends in an uppercase token ("Pikachu V", "Mewtwo GX").
@@ -72,10 +73,14 @@ export function parseDeckLine(line) {
   if (ptcgl) name = ptcgl[1];
 
   name = name
-    .replace(/\s*\([^)]*\)/g, '')          // "(SVI)" / "(2X2)"
-    .replace(/\s*#\d+[a-zA-Z]?\s*$/, '')   // "#63"
-    .replace(/\s+\d+[a-zA-Z]?$/, '')       // trailing bare collector number
+    .replace(/\s*\([^)]*\)/g, '')
+    .replace(/\s*#\d+[a-zA-Z]?\s*$/, '')
+    .replace(/\s+\d+[a-zA-Z]?$/, '')
     .trim();
 
-  return name ? { qty, name } : null;
+  return name ? { qty, name, ...printing } : null;
+}
+
+export function arenaCardKey(name, setId, number) {
+  return `${String(name).trim().toLowerCase()}\0${String(setId).replace(/^mtg-/i, '').toLowerCase()}\0${String(number).toLowerCase()}`;
 }

@@ -204,7 +204,7 @@ async function initDb() {
       ptcgo_code TEXT,
       symbol_url TEXT,
       logo_url TEXT,
-      game TEXT DEFAULT 'pokemon'
+      game TEXT DEFAULT 'mtg'
     )
   `);
 
@@ -232,7 +232,7 @@ async function initDb() {
       price_source TEXT,
       cmc REAL,
       color_identity TEXT,
-      game TEXT DEFAULT 'pokemon',
+      game TEXT DEFAULT 'mtg',
       language TEXT DEFAULT 'English',
       printed_name TEXT,
       tcgplayer_product_id INTEGER,
@@ -255,7 +255,7 @@ async function initDb() {
       favorite INTEGER DEFAULT 0,
       is_trade INTEGER DEFAULT 0,
       list_type TEXT DEFAULT 'collection',
-      game TEXT DEFAULT 'pokemon',
+      game TEXT DEFAULT 'mtg',
       added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       missing INTEGER DEFAULT 0,
       FOREIGN KEY(location_id) REFERENCES locations(id) ON DELETE SET NULL,
@@ -364,7 +364,7 @@ async function initDb() {
       description TEXT,
       checked_out INTEGER DEFAULT 0,
       checked_out_at DATETIME,
-      game TEXT DEFAULT 'pokemon',
+      game TEXT DEFAULT 'mtg',
       inventory_type TEXT DEFAULT 'collection',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE

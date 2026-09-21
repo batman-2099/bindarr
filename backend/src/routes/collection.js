@@ -112,16 +112,13 @@ function normalizeSearchParams({ name = '', number = '', set = '', q = '' }) {
 
 router.all('/search', searchLimiter, async (req, res) => {
   const query = req.method === 'POST' ? { ...req.query, ...req.body } : req.query;
-  const { name: rawName, number: rawNumber, set: rawSet, scope = 'database', game = 'pokemon', lang, prints, q, image, cropped, list_type } = query;
+  const { name: rawName, number: rawNumber, set: rawSet, scope = 'database', lang, prints, q, image, cropped, list_type } = query;
+  const game = 'mtg';
   const { name, number, set } = normalizeSearchParams({ name: rawName, number: rawNumber, set: rawSet, q });
-  // 1-based page over `limit`-sized pages. 250 is the pokemontcg.io ceiling and
-  // a sane cap on how much one Scryfall search will page through per request.
   const page = Math.max(1, parseInt(query.page, 10) || 1);
   const limit = Math.min(250, Math.max(1, parseInt(query.limit, 10) || 60));
   try {
-    // Every provider takes the same options object and ignores what does not
-    // apply to it, so there is one call here rather than a branch per provider.
-    const api = game === 'mtg' ? scryfallApi : (game === 'lorcana' ? lorcastApi : await pokemonApiFor(lang));
+    const api = scryfallApi;
     let { cards, total } = await api.searchCards({
       name, number, set, scope, userId: req.user.id, lang,
       apiKey: req.user.tcg_api_key, allPrints: prints === '1', page, limit,
@@ -220,8 +217,7 @@ router.get('/collection/cert/:certNumber', searchLimiter, async (req, res) => {
 // Not admin-only: this is what the set filter needs to stop offering sets that
 // match nothing. Read-only counts, no build controls.
 router.get('/scan-sets', async (req, res) => {
-  const { game = 'pokemon', lang } = req.query;
-  if (game !== 'mtg' && game !== 'pokemon' && game !== 'lorcana') return res.status(400).json({ error: 'Invalid game' });
+  const game = 'mtg';
   try {
     // `builtLangs` rides along because the scanner's language picker has no other
     // way to know: it offered all eleven languages, and for ten of them a Pokémon
@@ -276,8 +272,8 @@ async function pokemonBySetNumber(langName, number, setId, tcgApiKey) {
 
 router.post('/scan-match', searchLimiter, async (req, res) => {
   try {
-    const { game = 'pokemon', image, set = '', lang, cropped = false } = req.body || {};
-    if (game !== 'mtg' && game !== 'pokemon' && game !== 'lorcana') return res.status(400).json({ error: 'Invalid game' });
+    const { image, set = '', lang, cropped = false } = req.body || {};
+    const game = 'mtg';
     if (!image || typeof image !== 'string') return res.status(400).json({ error: 'Missing image' });
     const base64 = image.includes(',') ? image.slice(image.indexOf(',') + 1) : image;
     const buf = Buffer.from(base64, 'base64');
@@ -538,7 +534,7 @@ router.get('/collection', async (req, res) => {
     const isTrade = req.query.is_trade;
     const compId = req.query.compartment_id;
 
-    let filterSql = `WHERE c.user_id = ? AND c.list_type = ?`;
+    let filterSql = `WHERE c.user_id = ? AND c.list_type = ? AND cc.game = 'mtg'`;
     let filterParams = [req.user.id, listType];
 
     if (isTrade !== undefined) {
@@ -661,7 +657,7 @@ async function addCardToCollection(user, body) {
     location_id = null,
     list_type = 'collection',
     is_trade = 0,
-    game = 'pokemon',
+    game = 'mtg',
     stackable = false,
     grader = 'Raw',
     grade = null,
@@ -708,40 +704,22 @@ async function addCardToCollection(user, body) {
   }
 
   {
-    // A card matched by a set-scoped scan was cached from a TCGdex set brief:
-    // name, number and art only. Fill it in before it enters the collection, or it
-    // is stored with no price, no marketplace link and a defaulted rarity — which
-    // is what it then shows in the inspector forever.
     await cardApi.hydrate(card_id);
 
     let card = await db.get(`SELECT * FROM card_cache WHERE id = ?`, [card_id]);
     if (!card) {
       card = await cardApi.getCardById(card_id, { game, tcgApiKey: req.user.tcg_api_key });
-      if (!card) {
-        throw new AddCardError(404, `Card ID ${card_id} not found.`);
-      }
+      if (!card) throw new AddCardError(404, `Card ID ${card_id} not found.`);
     }
+    if (card.game !== 'mtg') throw new AddCardError(400, 'Only Magic: The Gathering cards are supported.');
 
-    // File the copy against the printing it actually IS. The card was picked in
-    // whatever language the search ran in, but `language` is set separately — Quick
-    // Add's dropdown, a scan the English catalog answered — so a Japanese copy
-    // routinely arrived pointing at the English row, and then showed the English
-    // name, art and price in every view. Null (never printed in that language, or a
-    // pokemontcg.io id that cannot be localized) keeps the row that was picked.
     let cardId = card_id;
     const localized = await cardApi.printingInLanguage(card, language);
     if (localized) {
       card = localized;
       cardId = localized.id;
     }
-    // A localized row can be short an English name (TCGdex publishes only one name
-    // per language). Learn it here so the collection stays searchable in English
-    // while displaying the name the card is actually printed with.
-    card = await tcgdexApi.learnEnglishName(card);
-
-    const effectiveGame = (req.body.game && req.body.game !== 'pokemon')
-      ? req.body.game
-      : (card.game || cardApi.gameOf(cardId));
+    const effectiveGame = 'mtg';
 
     if (location_id) {
       const loc = await db.get(`SELECT id FROM locations WHERE id = ? AND user_id = ?`, [location_id, req.user.id]);

@@ -13,7 +13,7 @@ import { useT } from '../utils/i18n';
 import MtgDeckImport from './MtgDeckImport';
 
 // Basic Energy (Pokémon) & Basic Lands (MTG) are exempt from the "max 4 of a card" deck rule.
-const isBasicEnergyOrLand = (card, game = 'pokemon') => {
+const isBasicEnergyOrLand = (card, game = 'mtg') => {
   if (!card) return false;
   if (game === 'mtg' || card.game === 'mtg') {
     const subs = card.subtypes || [];
@@ -280,7 +280,7 @@ function DeckBuilder({ showToast }) {
         const deckMeta = decks.find(d => d.id === deckId);
         setActiveDeck({ ...data, checked_out: deckMeta?.checked_out || 0, checked_out_at: deckMeta?.checked_out_at || null });
         // Default the card search to this deck's game.
-        setDeckSearchGame(data.game || 'pokemon');
+        setDeckSearchGame(data.game || 'mtg');
         setViewMode('detail');
       }
     } catch (err) {
@@ -676,7 +676,7 @@ function DeckBuilder({ showToast }) {
   };
 
   const loadArenaImportCards = async () => {
-    const response = await fetch(`/api/collection?game=${activeDeck.game || 'pokemon'}&list_type=arena`);
+    const response = await fetch(`/api/collection?game=${activeDeck.game || 'mtg'}&list_type=arena`);
     if (!response.ok) throw new Error(t('deck.errSearch'));
     const byId = new Map();
     for (const item of await response.json()) {
@@ -692,7 +692,7 @@ function DeckBuilder({ showToast }) {
 
   const findImportCard = async (rawName, arenaCards) => {
     if (arenaCards) return arenaCards.get(rawName.toLowerCase()) || null;
-    const res = await fetch(`/api/search?name=${encodeURIComponent(rawName)}&scope=collection&game=${activeDeck.game || 'pokemon'}`);
+    const res = await fetch(`/api/search?name=${encodeURIComponent(rawName)}&scope=collection&game=${activeDeck.game || 'mtg'}`);
     if (!res.ok) return null;
     return (await res.json())[0] || null;
   };
@@ -815,7 +815,7 @@ function DeckBuilder({ showToast }) {
   };
 
   // The game the active deck is built for (legacy decks default to Pokémon).
-  const deckGame = activeDeck?.game || 'pokemon';
+  const deckGame = activeDeck?.game || 'mtg';
 
   // MTG card-type buckets, read off the parsed type line stored in subtypes.
   const MTG_MAIN_TYPES = ['Creature', 'Planeswalker', 'Instant', 'Sorcery', 'Enchantment', 'Artifact', 'Battle', 'Land'];

@@ -455,29 +455,6 @@ function AdminPanel({ user, onUpdateUser, showToast }) {
                 disabled={settingsLoading}
               />
             </div>
-            {/* Which Pokémon API this install speaks to. It has always been a column
-                in app_settings and a branch in utils/pokemonProvider, with no way
-                to set it — so every install ran on pokemontcg.io whether or not it
-                suited them. The two are not interchangeable: they number the same
-                sets differently, so switching re-syncs the set table and rebuilds
-                the TCGplayer product map behind it. */}
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label htmlFor="admin-pokemon-provider">{t('admin.pokemonProvider')}</label>
-              <select
-                id="admin-pokemon-provider"
-                className="select-control"
-                value={pokemonProvider}
-                onChange={(e) => setPokemonProvider(e.target.value)}
-                disabled={settingsLoading}
-              >
-                <option value="pokemontcg">{t('admin.providerPokemontcg')}</option>
-                <option value="tcgdex">{t('admin.providerTcgdex')}</option>
-                <option value="pokemontcgapi">pokemontcgapi.com</option>
-              </select>
-              <p style={{ margin: '0.4rem 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                {t(pokemonProvider === 'pokemontcgapi' ? 'admin.pokemontcgapiHint' : 'admin.pokemonProviderHint')}
-              </p>
-            </div>
             {/* How often prices are refreshed automatically.
                 Every provider here is free except one: the optional
                 pokemontcgapi.com provider charges credits per card refreshed, so

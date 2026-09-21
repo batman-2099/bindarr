@@ -37,7 +37,7 @@ router.get('/', async (req, res) => {
       FROM decks d
       LEFT JOIN deck_cards dc ON d.id = dc.deck_id
       LEFT JOIN card_cache cc ON dc.card_id = cc.id
-      WHERE d.user_id = ?
+      WHERE d.user_id = ? AND d.game = 'mtg'
       GROUP BY d.id
       ORDER BY d.created_at DESC
     `;
@@ -54,7 +54,7 @@ router.post('/', async (req, res) => {
   const { 
     name, 
     description = '', 
-    game = 'pokemon',
+    game = 'mtg',
     format = 'Standard',
     category = 'Competitive',
     accent_color = '#eab308',
@@ -68,7 +68,7 @@ router.post('/', async (req, res) => {
   if (!name) {
     return res.status(400).json({ error: 'Deck name is required' });
   }
-  const deckGame = ['pokemon', 'mtg', 'lorcana'].includes(game) ? game : 'pokemon';
+  const deckGame = 'mtg';
   const targetSizeNum = parseInt(target_size, 10) || 60;
   const inventoryType = inventory_type === 'arena' ? 'arena' : 'collection';
 
@@ -158,7 +158,7 @@ router.post('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const deck = await db.get(`SELECT * FROM decks WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    const deck = await db.get(`SELECT * FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`, [id, req.user.id]);
     if (!deck) {
       return res.status(404).json({ error: 'Deck not found' });
     }
@@ -205,7 +205,7 @@ router.get('/:id', async (req, res) => {
 router.get('/:id/locations', async (req, res) => {
   const { id } = req.params;
   try {
-    const deck = await db.get(`SELECT id, inventory_type FROM decks WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    const deck = await db.get(`SELECT id, inventory_type FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`, [id, req.user.id]);
     if (!deck) return res.status(404).json({ error: 'Deck not found' });
     if (deck.inventory_type === 'arena') return res.status(400).json({ error: 'Arena decks have no physical card locations' });
 
@@ -293,7 +293,7 @@ router.put('/:id', async (req, res) => {
   }
 
   try {
-    const deck = await db.get(`SELECT inventory_type, checked_out FROM decks WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    const deck = await db.get(`SELECT inventory_type, checked_out FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`, [id, req.user.id]);
     if (!deck) return res.status(404).json({ error: 'Deck not found or unauthorized' });
     const inventoryType = inventory_type === undefined ? deck.inventory_type : inventory_type;
     if (!['collection', 'arena'].includes(inventoryType)) return res.status(400).json({ error: 'Invalid deck inventory type' });
@@ -338,7 +338,7 @@ router.post('/:id/duplicate', async (req, res) => {
   try {
     const deck = await db.get(
       `SELECT name, description, game, format, category, accent_color, target_size, inventory_type
-       FROM decks WHERE id = ? AND user_id = ?`,
+       FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`,
       [id, req.user.id]
     );
     if (!deck) return res.status(404).json({ error: 'Deck not found or unauthorized' });
@@ -369,7 +369,7 @@ router.delete('/:id', async (req, res) => {
   const { id } = req.params;
   try {
     // Verify ownership
-    const deck = await db.get(`SELECT id FROM decks WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    const deck = await db.get(`SELECT id FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`, [id, req.user.id]);
     if (!deck) {
       return res.status(404).json({ error: 'Deck not found or unauthorized' });
     }
@@ -396,7 +396,7 @@ router.post('/:id/cards', async (req, res) => {
 
   try {
     // Verify deck ownership
-    const deck = await db.get(`SELECT id FROM decks WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    const deck = await db.get(`SELECT id FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`, [id, req.user.id]);
     if (!deck) {
       return res.status(404).json({ error: 'Deck not found or unauthorized' });
     }
@@ -446,7 +446,7 @@ router.put('/:id/cards/:card_id/pulled', async (req, res) => {
   if (typeof pulled !== 'boolean') return res.status(400).json({ error: 'pulled must be a boolean' });
 
   try {
-    const deck = await db.get(`SELECT id FROM decks WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    const deck = await db.get(`SELECT id FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`, [id, req.user.id]);
     if (!deck) return res.status(404).json({ error: 'Deck not found or unauthorized' });
 
     const result = await db.run(
@@ -466,7 +466,7 @@ router.delete('/:id/cards/:card_id', async (req, res) => {
   const { id, card_id } = req.params;
   try {
     // Verify deck ownership
-    const deck = await db.get(`SELECT id FROM decks WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    const deck = await db.get(`SELECT id FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`, [id, req.user.id]);
     if (!deck) {
       return res.status(404).json({ error: 'Deck not found or unauthorized' });
     }
@@ -483,7 +483,7 @@ router.delete('/:id/cards/:card_id', async (req, res) => {
 router.put('/:id/checkout', async (req, res) => {
   const { id } = req.params;
   try {
-    const deck = await db.get(`SELECT id, name, inventory_type FROM decks WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    const deck = await db.get(`SELECT id, name, inventory_type FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`, [id, req.user.id]);
     if (!deck) {
       return res.status(404).json({ error: 'Deck not found or unauthorized' });
     }
@@ -531,7 +531,7 @@ router.put('/:id/checkout', async (req, res) => {
 router.put('/:id/return', async (req, res) => {
   const { id } = req.params;
   try {
-    const deck = await db.get(`SELECT id FROM decks WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    const deck = await db.get(`SELECT id FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`, [id, req.user.id]);
     if (!deck) {
       return res.status(404).json({ error: 'Deck not found or unauthorized' });
     }

@@ -13,32 +13,7 @@ const helmet = require('helmet');
 const compression = require('compression');
 const path = require('path');
 const db = require('./db');
-const tcgApi = require('./tcgApi');
 const scryfallApi = require('./scryfallApi');
-const lorcastApi = require('./lorcastApi');
-
-// Which module owns the Pokémon `sets` table. Asked per call rather than resolved
-// once: the provider is a setting an admin can change while the server is up, and
-// the weekly refresh has to follow it without a restart.
-const pokemonSetSource = async () =>
-  require('./utils/pokemonProvider').apiFor('English');
-
-// Say the provider deprecation out loud at boot, to the installs it applies to.
-//
-// It is written down everywhere already — README, .env.example, the Admin
-// provider hint — and none of that reaches the person who set this up two years
-// ago and has not opened Settings since. The startup log is what a self-hoster
-// actually reads, and it is where they will be looking the morning it breaks.
-//
-// The decision lives in utils/pokemonProvider with the rest of the provider
-// policy; this only prints it.
-async function warnIfProviderSunsetting() {
-  try {
-    const provider = require('./utils/pokemonProvider');
-    const notice = provider.sunsetNotice(await provider.configured());
-    if (notice) console.warn(notice);
-  } catch { /* a boot-time notice must never be the thing that stops the boot */ }
-}
 
 const authRoutes = require('./routes/auth');
 const sharedRoutes = require('./routes/shared');
@@ -134,7 +109,7 @@ app.use(helmet({
       // break scanning the moment that flips.
       scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
       connectSrc: ["'self'"],
-      imgSrc: ["'self'", 'data:', 'blob:', 'https://images.pokemontcg.io', 'https://cards.scryfall.io', 'https://c1.scryfall.com', 'https://img.scryfall.com', 'https://assets.tcgdex.net', 'https://cards.lorcast.io', 'https://media.rarebit.app'],
+      imgSrc: ["'self'", 'data:', 'blob:', 'https://cards.scryfall.io', 'https://c1.scryfall.com', 'https://img.scryfall.com'],
       // index.html loads Antonio, Outfit and Plus Jakarta Sans from Google Fonts,
       // which is two separate origins: the stylesheet comes from fonts.googleapis
       // .com and the .woff2 files it then references come from fonts.gstatic.com.
@@ -252,21 +227,8 @@ db.initDb()
     const splitCount = await splitStackedEntries(db);
     if (splitCount > 0) console.log(`Split ${splitCount} stacked collection copies into individual rows.`);
 
-    // Sync sets on startup (both games). WHICH Pokémon provider fills the `sets`
-    // table follows the same setting the cards do — this used to be pokemontcg.io
-    // unconditionally, so a TCGdex install browsed a set list numbered by a
-    // provider none of its cards came from.
-    await (await pokemonSetSource()).fetchAndCacheSets();
+    // Magic set data comes from Scryfall.
     await scryfallApi.fetchAndCacheSets();
-    await lorcastApi.fetchAndCacheSets();
-
-    // pokemontcg.io has an end date, and static documentation does not reach
-    // someone who set this up two years ago and has not opened Settings since.
-    // The startup log is the surface self-hosters actually read, so say it there
-    // — once per boot, only to the installs it applies to, and only until the
-    // date passes, after which it is no longer a warning but a description of
-    // why things stopped working, which the provider's own errors will cover.
-    await warnIfProviderSunsetting();
 
     // Load sets into compartmentSort memory cache
     const { loadSetsCache } = require('./utils/compartmentSort');
@@ -279,7 +241,7 @@ db.initDb()
     // pays the load itself.
     try {
       const cvScan = require('./cvScan');
-      const warm = ['mtg', 'pokemon', 'lorcana'].filter(g => cvScan.isBuilt(g));
+      const warm = ['mtg'].filter(g => cvScan.isBuilt(g));
       for (const g of warm) {
         cvScan.load(g).catch(err => console.warn(`cvScan ${g} warm-up failed:`, err.message));
       }
@@ -296,9 +258,7 @@ db.initDb()
     // weekly is plenty — prices are on their own schedule below.
     setInterval(async () => {
       try {
-        await (await pokemonSetSource()).fetchAndCacheSets(true);
         await scryfallApi.fetchAndCacheSets(true);
-        await lorcastApi.fetchAndCacheSets(true);
         await loadSetsCache(db);
         await autoUpdateCatalogs();
       } catch (err) {
@@ -322,19 +282,7 @@ db.initDb()
     // refresh silently becomes every other day. An hourly tick that refuses in
     // one indexed read costs nothing and has no such edge.
     setInterval(() => {
-      tcgApi.updateCollectionPrices();
       scryfallApi.updateCollectionPrices();
-      lorcastApi.updateCollectionPrices();
-      // Non-English Pokémon cards: their ids 404 on pokemontcg.io, so tcgApi's
-      // sweep skips them and this is their only price refresh. No-op until the
-      // user actually owns one.
-      require('./tcgdexApi').updateCollectionPrices();
-      require('./pokemontcgapi').updateCollectionPrices();
-      // TCGCSV runs LAST of the Pokémon sweeps on purpose. It writes the same
-      // columns as the other two and is the better source — TCGplayer market
-      // prices in USD, and 97% coverage against TCGdex's 8% — so it should have
-      // the final say on any card it can place.
-      require('./tcgcsvApi').updateCollectionPrices();
     }, 1000 * 60 * 60);
 
     // Shortly after startup, catch up if the last sweep was over a day ago.
@@ -342,12 +290,7 @@ db.initDb()
     // nodemon meant a full sweep on every code edit — for data that cannot have
     // changed since the last one.
     setTimeout(() => {
-      tcgApi.updateCollectionPrices();
       scryfallApi.updateCollectionPrices();
-      lorcastApi.updateCollectionPrices();
-      require('./tcgdexApi').updateCollectionPrices();
-      require('./pokemontcgapi').updateCollectionPrices();
-      require('./tcgcsvApi').updateCollectionPrices();
     }, 30000);
 
     // Periodically purge expired sessions so the table doesn't grow unbounded

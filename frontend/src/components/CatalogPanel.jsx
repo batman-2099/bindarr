@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Database, Play, Square, RefreshCw, Check, AlertTriangle, Cpu, Download, ListFilter, Languages, Zap } from 'lucide-react';
+import { Database, Play, Square, RefreshCw, Check, AlertTriangle, Cpu, Download, ListFilter, Zap } from 'lucide-react';
 import SetTree from './SetTree';
 import { useT } from '../utils/i18n';
 
@@ -17,7 +17,7 @@ import { useT } from '../utils/i18n';
 // a side effect of building a scan index, so a set nobody indexed simply was not
 // in the database — which is why Pokemon sat at 35% of the real card pool while
 // looking, from the old panel, entirely built.
-const GAME_LABEL = { mtg: 'Magic: The Gathering', pokemon: 'Pokémon', lorcana: 'Disney Lorcana' };
+const GAME_LABEL = { mtg: 'Magic: The Gathering' };
 const POLL_MS = 1000;
 
 // The house style, so this panel reads as part of Admin rather than its own app.
@@ -117,14 +117,12 @@ function EngineCard({ engine, onDownload, busy }) {
 // Step two, and the answer for most installs: a published catalog is one download
 // away from a working scanner, against the hours a local build takes. The
 // tradeoffs are real and stated, but they are stated in a panel that is OPEN.
-function ReadyMadeCard({ engine, onDownload, busy, enginePresent, productMap, onBuildMap }) {
+function ReadyMadeCard({ engine, onDownload, busy, enginePresent }) {
   const { t } = useT();
   if (!engine) return null;
-  const cats = engine.catalogs || [];
+  const cats = (engine.catalogs || []).filter(c => c.game === 'mtg');
   if (!cats.length) return null;
   const have = cats.filter(c => c.present).length;
-  const mapJob = productMap?.progress;
-  const mapRows = productMap?.rows || 0;
 
   return (
     <Step
@@ -145,10 +143,7 @@ function ReadyMadeCard({ engine, onDownload, busy, enginePresent, productMap, on
           card_cache: two tables a fresh install has never filled, so every scan
           matched and then resolved to nothing. The product map is what closes that
           gap, and it downloads with the catalog. */}
-      <p style={HINT}>
-        <strong style={{ color: 'var(--text-strong)' }}>Magic</strong> {t('catalog.magicVsPokemon').split('Magic')[1]?.split('Pokémon')[0]?.trim()}
-        {' '}<strong style={{ color: 'var(--text-strong)' }}>Pokémon</strong>{t('catalog.magicVsPokemon').split('Pokémon')[1]}
-      </p>
+      <p style={HINT}>The Magic catalog uses Scryfall card IDs, so a scan can fetch and cache a matching printing directly.</p>
       <div className="collection-table-wrapper" style={{ overflowX: 'auto' }}>
         <table className="collection-table">
           <thead>
@@ -187,38 +182,6 @@ function ReadyMadeCard({ engine, onDownload, busy, enginePresent, productMap, on
         </p>
       )}
 
-      {/* The Pokémon catalog's other half, and stated as such rather than as a
-          separate feature: on its own it is the difference between a scan that
-          names a card and one that names nothing. */}
-      <div style={{ ...INNER, gap: '0.5rem' }}>
-        <div style={ROW}>
-          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-strong)' }}>
-            {t('catalog.productMapTitle')}
-            <span style={{ fontWeight: 500, color: mapRows ? 'var(--type-grass)' : 'var(--text-secondary)' }}>
-              {' · '}{mapJob ? t('catalog.productMapBuilding') : mapRows ? t('catalog.productMapMapped', { count: num(mapRows) }) : t('catalog.productMapNotBuilt')}
-            </span>
-          </span>
-          <button type="button" className="btn btn-secondary btn-sm" disabled={!!mapJob}
-            onClick={onBuildMap} style={BTN}>
-            <RefreshCw size={14} /> {mapJob ? t('catalog.btnBuilding') : mapRows ? t('catalog.btnRefresh') : t('catalog.btnBuild')}
-          </button>
-        </div>
-        <p style={NOTE}>
-          {t('catalog.productMapDesc')}
-        </p>
-        {mapJob && (
-          <>
-            <div style={{ ...ROW, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-              <span>{mapJob.phase === 'groups' ? t('catalog.listingSets') : mapJob.message || t('catalog.readingSets')}</span>
-              <span>{t('catalog.productMapCardsCount', { done: mapJob.done, total: mapJob.total || '?', cards: num(mapJob.rows) })}</span>
-            </div>
-            <Bar value={pct(mapJob.done, mapJob.total) ?? 0} tone="var(--accent-blue, #60a5fa)" />
-          </>
-        )}
-        {!mapJob && productMap?.last?.phase === 'error' && (
-          <p style={{ ...NOTE, color: 'var(--accent-red)' }}>{t('catalog.lastBuildFailed', { message: productMap.last.message })}</p>
-        )}
-      </div>
     </Step>
   );
 }
@@ -337,118 +300,6 @@ function BuildPicker({ game, lang, disabled, onBuild, showToast, label }) {
 
 // Other languages — only the ones that exist to download, with the numbers.
 //
-// Pokémon only, and the copy says why: Magic IS printed in every language on this
-// list and Scryfall serves all of them, but a non-English MTG catalog would be a
-// copy of the English one. The scanner matches ARTWORK, and a localized Magic
-// printing is the same set with the same illustration — so the English catalog
-// already identifies a Japanese card and the scan result is re-expressed by set and number
-// (cvScan.loadAll). Japanese Pokémon is the opposite case: whole sets that never
-// released in English, which nothing in the English catalog can match.
-//
-// The list is fetched once, on open. /api/admin/catalogs is polled every second
-// during a build and this costs a provider set list per language, so the two are
-// deliberately separate endpoints.
-function OtherLanguages({ disabled, onBuild, showToast }) {
-  const { t } = useT();
-  const [open, setOpen] = useState(false);
-  const [langs, setLangs] = useState(null);
-  const [error, setError] = useState(null);
-  const [pick, setPick] = useState(null);
-
-  useEffect(() => {
-    if (!open || langs) return;
-    fetch('/api/admin/catalogs/languages?game=pokemon')
-      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
-      .then(j => setLangs(j.languages || []))
-      .catch(e => { setError(e.message); showToast?.(t('catalog.errListLangs')); });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
-  return (
-    <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary style={{ cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-secondary)', padding: '0.4rem 0', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-        <Languages size={15} /> {t('catalog.otherLanguages')}
-      </summary>
-      <div style={{ ...INNER, marginTop: '0.5rem' }}>
-        <p style={HINT}>
-          {t('catalog.otherLangsDesc')}
-        </p>
-        {error && <p style={{ ...NOTE, color: 'var(--accent-red)' }}>{t('catalog.errLanguageList', { error })}</p>}
-        {!langs && !error && <p style={HINT}>{t('catalog.askingProvider')}</p>}
-        {!!langs?.length && (
-          <>
-            <div className="collection-table-wrapper" style={{ overflowX: 'auto' }}>
-              <table className="collection-table">
-                <thead>
-                  <tr>
-                    <th>{t('prefs.language')}</th>
-                    <th>{t('catalog.thCardsIndexable')}</th>
-                    <th className="hide-mobile">{t('catalog.thSets')}</th>
-                    <th>{t('catalog.thCatalog')}</th>
-                    <th style={{ textAlign: 'right' }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {langs.map(l => (
-                    <tr key={l.lang} style={pick === l.lang ? { background: 'rgba(255,71,71,0.06)' } : undefined}>
-                      <td style={{ fontWeight: 600, color: 'var(--text-strong)' }}>{l.lang}</td>
-                      {/* withArt, not cached: a card with no artwork can never be
-                          embedded, so it is not a card we can index. */}
-                      <td>
-                        {num(l.withArt)} of {num(l.claimed)}
-                        {l.claimed ? <span style={{ color: 'var(--text-muted)' }}> · {pct(l.withArt, l.claimed)}%</span> : null}
-                      </td>
-                      <td className="hide-mobile">{num(l.sets)}</td>
-                      <td style={{ color: l.built ? 'var(--type-grass)' : 'var(--text-secondary)' }}>
-                        {l.built ? t('catalog.nIndexed', { count: num(l.built.rows) }) : t('catalog.productMapNotBuilt')}
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <button type="button" className="btn btn-secondary btn-sm" disabled={disabled}
-                          onClick={() => setPick(p => p === l.lang ? null : l.lang)}
-                          style={{ ...BTN, marginLeft: 'auto' }}>
-                          {pick === l.lang ? t('catalog.selected') : t('catalog.select')}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p style={NOTE}>
-              {t('catalog.cardsIndexableDesc')}
-            </p>
-            {pick && (
-              <div style={{ ...ROW, borderTop: '1px solid var(--border-glass)', paddingTop: '0.75rem' }}>
-                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-strong)' }}>
-                  Pokémon · {pick}
-                </span>
-                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                  {/* Keyed so switching language resets the set list rather than
-                      showing the previous language's sets. */}
-                  <BuildPicker
-                    key={pick}
-                    game="pokemon"
-                    lang={pick}
-                    disabled={disabled}
-                    onBuild={(sets) => onBuild('pokemon', pick, sets)}
-                    showToast={showToast}
-                  />
-                  <button type="button" className="btn btn-secondary btn-sm" disabled={disabled}
-                    onClick={() => onBuild('pokemon', pick)} style={BTN}>
-                    <Play size={14} /> {t('catalog.buildEverySet')}
-                  </button>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-        {langs && !langs.length && !error && (
-          <p style={HINT}>{t('catalog.noOtherLanguages')}</p>
-        )}
-      </div>
-    </details>
-  );
-}
 
 export default function CatalogPanel({ showToast }) {
   const { t } = useT();
@@ -588,7 +439,7 @@ export default function CatalogPanel({ showToast }) {
   // install merely holds a card or two of are not rows at all any more — they were
   // fifteen near-empty entries invented by one imported card each, and the ones
   // worth building now live in OtherLanguages with their real numbers.
-  const rows = catalogs.filter(c => !!c.built || c.lang === 'English');
+  const rows = catalogs.filter(c => c.game === 'mtg' && (!!c.built || c.lang === 'English'));
 
   // One collapsed line per catalog. The summary carries everything needed to decide
   // whether to open it — state, counts, and any warning — because a row that hides
@@ -777,7 +628,6 @@ export default function CatalogPanel({ showToast }) {
 
         {rows.map(renderRow)}
 
-        <OtherLanguages disabled={!!running} onBuild={build} showToast={showToast} />
       </Step>
     </div>
   );

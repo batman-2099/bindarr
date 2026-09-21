@@ -43,8 +43,6 @@ ENV PORT=3001
 # unless SSL_CERT_PATH/SSL_KEY_PATH point at a real one. Set HTTPS_PORT="" to
 # serve plain HTTP only.
 ENV HTTPS_PORT=3443
-# Upgrades from an image that used pokemon_cards.db keep their data: the app
-# renames the old file (and its WAL sidecars) into place on first start.
 ENV DB_PATH=/app/database/bindarr.db
 # Scan models and catalogs live on the persisted volume, both so a build has a
 # writable target under the non-root `node` user and so an image update does not

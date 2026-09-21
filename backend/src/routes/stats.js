@@ -7,10 +7,9 @@ const router = express.Router();
 // 7. Get Collection Statistics & Analytics
 router.get('/stats', async (req, res) => {
   try {
-    // Optional per-game view (e.g. only Pokémon or only MTG). Absent = all games.
-    const { game, inventory = 'all' } = req.query;
-    const gameFilter = game ? ` AND cc.game = ?` : '';
-    const statsParams = game ? [req.user.id, game] : [req.user.id];
+    const { inventory = 'all' } = req.query;
+    const gameFilter = ` AND cc.game = 'mtg'`;
+    const statsParams = [req.user.id];
     const listFilter = inventory === 'collection' ? ` AND c.list_type = 'collection'`
       : inventory === 'arena' ? ` AND c.list_type = 'arena'`
         : ` AND c.list_type IN ('collection', 'arena')`;
@@ -293,9 +292,9 @@ router.get('/stats', async (req, res) => {
 // 7b. Get Collection Net Worth Timeline History
 router.get('/stats/history', async (req, res) => {
   try {
-    const { period = '30d', game, inventory = 'all' } = req.query;
-    const gameFilter = game ? ` AND cc.game = ?` : '';
-    const params = game ? [req.user.id, game] : [req.user.id];
+    const { period = '30d', inventory = 'all' } = req.query;
+    const gameFilter = ` AND cc.game = 'mtg'`;
+    const params = [req.user.id];
     const listFilter = inventory === 'collection' ? ` AND c.list_type = 'collection'`
       : inventory === 'arena' ? ` AND c.list_type = 'arena'`
         : ` AND c.list_type IN ('collection', 'arena')`;
@@ -413,9 +412,8 @@ router.get('/stats/history', async (req, res) => {
 // and does not expire, so an external tracker keeps working without a login.
 router.get('/stats/networth', async (req, res) => {
   try {
-    const { game } = req.query;
-    const gameFilter = game ? ` AND cc.game = ?` : '';
-    const params = game ? [req.user.id, game] : [req.user.id];
+    const gameFilter = ` AND cc.game = 'mtg'`;
+    const params = [req.user.id];
 
     const rows = await db.all(`
       SELECT c.quantity, c.purchase_price, c.printing, c.market_value, cc.game, cc.price_currency,

@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import {
-  Cpu, Download, Check, X, Layers, KeyRound, MapPin, Trash2, Pencil,
+  Cpu, Download, Check, X, MapPin, Trash2, Pencil,
   ArrowLeft, ArrowRight, Camera, Database, Swords, LayoutDashboard, Settings as SettingsIcon,
   Languages,
 } from 'lucide-react';
-import { GAMES, enabledGames, setGameEnabled, defaultGame, gameLabel } from '../utils/games';
+import { gameLabel } from '../utils/games';
 import { containerTypeKey } from '../utils/cardOptions';
 import { LOCALES, localeName, useT } from '../utils/i18n';
 
@@ -34,7 +34,7 @@ import { LOCALES, localeName, useT } from '../utils/i18n';
 // The three container types a first-run admin is most likely to own. The rest are
 // in Storage's own create form, which also asks about layout and sorting.
 const NEW_LOCATION_TYPES = ['Binder', 'Box', 'Deck Box'];
-const STEPS = ['language', 'cards', 'scanning', 'keys', 'storage', 'tour'];
+const STEPS = ['language', 'scanning', 'storage', 'tour'];
 
 const markComplete = () => fetch('/api/settings', {
   method: 'PUT',
@@ -42,7 +42,7 @@ const markComplete = () => fetch('/api/settings', {
   body: JSON.stringify({ setup_complete: true }),
 });
 
-export default function SetupWizard({ user, onUpdateUser, onClose, showToast }) {
+export default function SetupWizard({ user, onClose, showToast }) {
   const { t, locale, setLocale } = useT();
   const [step, setStep] = useState(0);
 
@@ -50,15 +50,6 @@ export default function SetupWizard({ user, onUpdateUser, onClose, showToast }) 
   const [engine, setEngine] = useState(null);
   const [catalogs, setCatalogs] = useState([]);
 
-  // Step 1: which cards this collector keeps
-  const [shownGames, setShownGames] = useState(() => enabledGames());
-  const [defaultGameValue, setDefaultGameValue] = useState(() => defaultGame());
-
-  // Step 3: optional provider keys
-  const [tcgKey, setTcgKey] = useState(user?.tcg_api_key || '');
-  const [psaToken, setPsaToken] = useState(user?.psa_api_token || '');
-  const [gradedKey, setGradedKey] = useState(user?.graded_price_api_key || '');
-  const [savingKeys, setSavingKeys] = useState(false);
 
   // Step 4: storage
   const [locations, setLocations] = useState([]);
@@ -118,21 +109,6 @@ export default function SetupWizard({ user, onUpdateUser, onClose, showToast }) 
     } catch (e) { showToast?.(e.message); }
   };
 
-  const saveKeys = async () => {
-    setSavingKeys(true);
-    try {
-      const r = await fetch('/api/auth/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tcg_api_key: tcgKey, psa_api_token: psaToken, graded_price_api_key: gradedKey }),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error || t('setup.keys.errSave'));
-      onUpdateUser?.(j.user);
-      showToast?.(t('setup.keys.saved'));
-    } catch (e) { showToast?.(e.message); }
-    finally { setSavingKeys(false); }
-  };
 
   const addLocation = async () => {
     const name = newName.trim();
@@ -196,10 +172,6 @@ export default function SetupWizard({ user, onUpdateUser, onClose, showToast }) 
     padding: '0.5rem 0.7rem', borderRadius: 'var(--radius-sm)',
     border: '1px solid var(--border-glass)', background: 'var(--surface-1)',
   };
-  const link = { color: 'var(--accent-red)', textDecoration: 'underline' };
-  const A = ({ href, children }) => (
-    <a href={href} target="_blank" rel="noreferrer noopener" style={link}>{children}</a>
-  );
 
   const Heading = ({ icon, title, sub }) => (
     <div>
@@ -260,7 +232,7 @@ export default function SetupWizard({ user, onUpdateUser, onClose, showToast }) 
   const language = (
     <>
       <Heading
-        icon={<Layers size={18} />}
+        icon={<Database size={18} />}
         title={t('setup.language.title', { name: user?.username || t('setup.language.fallbackName') })}
         sub={t('setup.language.sub')}
       />
@@ -285,55 +257,6 @@ export default function SetupWizard({ user, onUpdateUser, onClose, showToast }) 
     </>
   );
 
-  const cardsStep = (
-    <>
-      <Heading
-        icon={<Layers size={18} />}
-        title={t('setup.cards.title')}
-        sub={t('setup.cards.sub')}
-      />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        {GAMES.map(({ value, label: cardName }) => {
-          const on = shownGames.includes(value);
-          const isLast = on && shownGames.length === 1;
-          return (
-            <label key={value} style={{
-              display: 'flex', alignItems: 'center', gap: '0.6rem', margin: 0,
-              background: 'var(--surface-1)', padding: '0.6rem 0.8rem',
-              borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)',
-              cursor: isLast ? 'not-allowed' : 'pointer', opacity: isLast ? 0.7 : 1,
-            }}>
-              <input
-                type="checkbox" checked={on} disabled={isLast}
-                onChange={(e) => {
-                  if (!setGameEnabled(value, e.target.checked)) return;
-                  setShownGames(enabledGames());
-                  setDefaultGameValue(defaultGame());
-                }}
-                style={{ width: 16, height: 16, accentColor: 'var(--accent-red)' }}
-              />
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-strong)', fontWeight: 600 }}>{cardName}</span>
-            </label>
-          );
-        })}
-      </div>
-      <div>
-        <div style={{ ...label, marginBottom: '0.3rem' }}>{t('setup.cards.openOn')}</div>
-        <select
-          className="select-control" style={input} value={defaultGameValue}
-          disabled={shownGames.length === 1}
-          onChange={(e) => { setDefaultGameValue(e.target.value); localStorage.setItem('default_game', e.target.value); }}
-        >
-          {GAMES.filter(g => shownGames.includes(g.value)).map(g => (
-            <option key={g.value} value={g.value}>{g.label}</option>
-          ))}
-        </select>
-        <p style={{ ...body, fontSize: '0.74rem', marginTop: '0.35rem' }}>
-          {t('setup.cards.openOnHint')}
-        </p>
-      </div>
-    </>
-  );
 
   const scanning = (
     <>
@@ -372,7 +295,7 @@ export default function SetupWizard({ user, onUpdateUser, onClose, showToast }) 
           {t('setup.scan.catalogBody')}
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-          {(engine?.catalogs || []).map(c => (
+          {(engine?.catalogs || []).filter(c => c.game === 'mtg').map(c => (
             <div key={c.name}>
               <div style={row}>
                 <span style={{ fontSize: '0.76rem', color: 'var(--text-strong)' }}>
@@ -395,21 +318,6 @@ export default function SetupWizard({ user, onUpdateUser, onClose, showToast }) 
               <Failure what={`catalog:${c.game}`} />
             </div>
           ))}
-          {shownGames.includes('lorcana') && (
-            <div style={{ ...row, opacity: 0.9, background: 'rgba(255,255,255,0.03)' }}>
-              <div style={{ minWidth: 0 }}>
-                <span style={{ fontSize: '0.76rem', color: 'var(--text-strong)' }}>
-                  {gameLabel('lorcana')}
-                </span>
-                <p style={{ ...body, fontSize: '0.72rem', marginTop: '0.15rem' }}>
-                  {t('setup.scan.lorcanaLocalNote')}
-                </p>
-              </div>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', flexShrink: 0, fontStyle: 'italic' }}>
-                {t('setup.scan.buildLocally')}
-              </span>
-            </div>
-          )}
         </div>
         {!modelsReady && (
           <p style={{ fontSize: '0.72rem', color: 'var(--accent-yellow)', margin: '0.4rem 0 0' }}>
@@ -424,42 +332,6 @@ export default function SetupWizard({ user, onUpdateUser, onClose, showToast }) 
     </>
   );
 
-  const keys = (
-    <>
-      <Heading
-        icon={<KeyRound size={18} />}
-        title={t('setup.keys.title')}
-        sub={t('setup.keys.sub')}
-      />
-      <div>
-        <div style={label}>{t('setup.keys.tcgTitle')}</div>
-        <p style={{ ...body, fontSize: '0.74rem', margin: '0.2rem 0 0.35rem' }}>
-          {t('setup.keys.tcgBody', { from: 1000, to: 20000 })}
-          {' '}<A href="https://dev.pokemontcg.io/">dev.pokemontcg.io</A>
-        </p>
-        <input type="password" value={tcgKey} onChange={(e) => setTcgKey(e.target.value)} style={input} placeholder={t('setup.keys.pasteKey')} />
-      </div>
-      <div>
-        <div style={label}>{t('setup.keys.psaTitle')}</div>
-        <p style={{ ...body, fontSize: '0.74rem', margin: '0.2rem 0 0.35rem' }}>
-          {t('setup.keys.psaBody')}
-          {' '}<A href="https://www.psacard.com/publicapi/documentation">psacard.com</A>
-        </p>
-        <input type="password" value={psaToken} onChange={(e) => setPsaToken(e.target.value)} style={input} placeholder={t('setup.keys.pasteToken')} />
-      </div>
-      <div>
-        <div style={label}>{t('setup.keys.gradedTitle')}</div>
-        <p style={{ ...body, fontSize: '0.74rem', margin: '0.2rem 0 0.35rem' }}>
-          {t('setup.keys.gradedBody')}
-          {' '}<A href="https://www.pokemonpricetracker.com/">pokemonpricetracker.com</A>
-        </p>
-        <input type="password" value={gradedKey} onChange={(e) => setGradedKey(e.target.value)} style={input} placeholder={t('setup.keys.pasteKey')} />
-      </div>
-      <button className="btn btn-primary btn-sm" onClick={saveKeys} disabled={savingKeys} style={{ alignSelf: 'flex-start' }}>
-        {savingKeys ? t('setup.keys.saving') : t('setup.keys.save')}
-      </button>
-    </>
-  );
 
   const storage = (
     <>
@@ -562,7 +434,7 @@ export default function SetupWizard({ user, onUpdateUser, onClose, showToast }) 
     </>
   );
 
-  const content = [language, cardsStep, scanning, keys, storage, tour][step];
+  const content = [language, scanning, storage, tour][step];
   const last = step === STEPS.length - 1;
 
   return (

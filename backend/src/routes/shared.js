@@ -43,7 +43,7 @@ router.get('/:share_token/containers/:id', async (req, res) => {
              cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.price_1st_edition
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
-      WHERE c.location_id = ? AND c.user_id = ? AND c.list_type = 'collection'
+      WHERE c.location_id = ? AND c.user_id = ? AND c.list_type = 'collection' AND cc.game = 'mtg'
       ORDER BY c.position ASC, c.id ASC
     `, [location.id, owner.id]);
 
@@ -72,7 +72,7 @@ router.get('/:share_token', async (req, res) => {
       return res.status(404).json({ error: 'This card collection is private or does not exist.' });
     }
 
-    let filterSql = `WHERE c.user_id = ?`;
+    let filterSql = `WHERE c.user_id = ? AND cc.game = 'mtg'`;
     let filterParams = [owner.id];
 
     if (listType === 'wishlist') {

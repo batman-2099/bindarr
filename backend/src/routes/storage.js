@@ -72,10 +72,10 @@ router.get('/locations', async (req, res) => {
 });
 
 const RULE_TYPES = ['any', 'alphabetical_range', 'specific_sets', 'compound'];
-const GAME_RESTRICTIONS = ['any', 'pokemon', 'mtg'];
+const GAME_RESTRICTIONS = ['mtg'];
 
 router.post('/locations', async (req, res) => {
-  const { name, type, sort_order = 'name-asc', foil_sorting = 'normals_first', rule_type = 'any', rule_config, compartmentPlan, game = 'any' } = req.body;
+  const { name, type, sort_order = 'name-asc', foil_sorting = 'normals_first', rule_type = 'any', rule_config, compartmentPlan, game = 'mtg' } = req.body;
 
   if (!name || !type) {
     return res.status(400).json({ error: 'name and type are required' });

@@ -269,7 +269,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
                               locationFilter.some(f => f === 'unassigned' ? !item.location_id : item.location_id == f);
       // "All games" still means only the games the user has chosen to see: a hidden
       // game's cards stay in the collection (and in exports) but are out of view.
-      const itemGame = item.game || 'pokemon';
+      const itemGame = item.game || 'mtg';
       const matchesGame = gameFilter === '' ? isGameEnabled(itemGame) : itemGame === gameFilter;
       const matchesRarity = rarityFilter.length === 0 ? true : rarityFilter.includes(item.rarity);
       const matchesCondition = conditionFilter.length === 0 ? true : conditionFilter.includes(item.condition);

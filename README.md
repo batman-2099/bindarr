@@ -4,7 +4,7 @@
 
 # Bindarr
 
-**Self-hosted collection, storage, and deck manager for Pokémon, Magic: The Gathering, and Disney Lorcana.**
+**Self-hosted collection, storage, and deck manager for Magic: The Gathering.**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/thenotoriousJeremy/bindarr/docker-build.yml?branch=main&label=CI&logo=github)](https://github.com/thenotoriousJeremy/bindarr/actions/workflows/docker-build.yml)
 [![Docker image](https://img.shields.io/badge/ghcr.io-bindarr-2496ED?logo=docker&logoColor=white)](https://github.com/thenotoriousJeremy/bindarr/pkgs/container/bindarr)
@@ -20,7 +20,7 @@ The [live demo](https://thenotoriousjeremy.github.io/bindarr/) uses sample data.
 
 ## Highlights
 
-- Search, browse, scan, and catalog cards across Pokémon, Magic, and Lorcana.
+- Search, browse, scan, and catalog Magic: The Gathering cards through Scryfall.
 - Track physical copies, digital **Arena** copies, and wishlist entries separately.
 - Store physical cards in binders, boxes, rows, pages, slots, and an Unassigned Pile.
 - Build decks from the correct inventory, import decklists, find cards by storage position, and check physical decks out for play.
@@ -169,7 +169,6 @@ All settings are optional. The canonical, current list is [`.env.example`](.env.
 | `HTTPS_PORT` | Built-in HTTPS port; set empty for HTTP-only operation. |
 | `SSL_CERT_PATH` / `SSL_KEY_PATH` | Trusted TLS certificate and key. |
 | `ALLOW_REGISTRATION` | Set `true` to allow public self-registration. |
-| `POKEMONTCGAPI_KEY` | Optional server-side key for the pokemontcgapi.com provider. |
 | `CV_MODEL_DIR` | Persistent location for scan models and catalogs. |
 | `BACKUP_INTERVAL_HOURS` / `BACKUP_KEEP_LAST` | Automatic SQLite snapshot schedule and retention. |
 
@@ -181,12 +180,9 @@ Releases include self-contained server binaries for Windows, Linux, and Apple Si
 
 Release artifacts also include an Android APK; iOS is distributed through TestFlight. Mobile clients connect to your Bindarr server rather than storing a separate collection.
 
-## Providers, pricing, and languages
+## Magic data, pricing, and languages
 
-Select the Pokémon provider under **Admin → Instance Settings**. New installations use TCGdex without a key; optional provider credentials and behavior are documented in [`.env.example`](.env.example) and [PROJECT.md](PROJECT.md).
-
-Bindarr stores the card's printing and language, not merely a translated card name. It supports English, Brazilian Portuguese, French, German, Italian, Japanese, Korean, Russian, Simplified Chinese, Traditional Chinese, and Spanish UI translations. Card-language coverage depends on the selected game provider.
-
+Bindarr uses Scryfall for Magic cards, sets, artwork, printings, and prices. It stores the exact printing and language, not merely a translated card name. The interface supports English, Brazilian Portuguese, French, German, Italian, Japanese, Korean, Russian, Simplified Chinese, Traditional Chinese, and Spanish.
 Prices come from the provider associated with the printing, primarily Scryfall, TCGplayer, and Cardmarket. Bindarr does not convert currencies: mixed-currency totals are explicitly reported as mixed. A graded copy can use its own per-copy value, which replaces the raw card market price in totals and exports.
 
 ## API access

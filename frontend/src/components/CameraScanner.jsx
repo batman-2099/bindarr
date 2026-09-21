@@ -226,7 +226,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const [scanGame, setScanGameState] = useState(() => {
     const saved = localStorage.getItem('scanner_game');
     if (saved && isGameEnabled(saved)) return saved;
-    return defaultGame() || 'pokemon';
+    return defaultGame() || 'mtg';
   });
   const setScanGame = (g) => {
     setScanGameState(g);
@@ -249,7 +249,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // than a global search.
   const [scanSetCodes, setScanSetCodesState] = useState(() => {
     const savedGame = localStorage.getItem('scanner_game');
-    const g = (savedGame && isGameEnabled(savedGame)) ? savedGame : (defaultGame() || 'pokemon');
+    const g = (savedGame && isGameEnabled(savedGame)) ? savedGame : (defaultGame() || 'mtg');
     const l = localStorage.getItem('scanner_lang') || 'en';
     return (localStorage.getItem(setsKey(g, l)) || '').split(',').map(s => s.trim()).filter(Boolean);
   });

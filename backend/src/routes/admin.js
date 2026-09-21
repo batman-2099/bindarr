@@ -288,7 +288,7 @@ router.delete('/users/:id', async (req, res) => {
 
 // --- Set-index build management ---
 
-const isGame = (g) => g === 'mtg' || g === 'pokemon' || g === 'lorcana';
+const isGame = (g) => g === 'mtg';
 
 // List persisted builds plus any in-flight/recent build progress.
 // --- Catalogs -------------------------------------------------------------
@@ -318,7 +318,7 @@ router.get('/catalogs', async (req, res) => {
 // when the user opens the language section.
 router.get('/catalogs/languages', async (req, res) => {
   try {
-    res.json({ languages: await catalog.listLanguages(String(req.query.game || 'pokemon')) });
+    res.json({ languages: await catalog.listLanguages('mtg') });
   } catch (e) {
     console.error('listLanguages failed:', e.message);
     res.status(500).json({ error: 'Could not list languages' });
@@ -330,9 +330,9 @@ router.post('/catalogs/build', (req, res) => {
   // which is minutes instead of hours. Omit it for the whole game. A scoped build
   // MERGES into the existing catalog (catalog.js embedPhase), so building one set
   // never discards the sets built before it.
-  const { game, lang, skipCache, sets } = req.body || {};
+  const { lang, skipCache, sets } = req.body || {};
   try {
-    res.json({ progress: catalog.start(game, lang, { skipCache: !!skipCache, sets: Array.isArray(sets) ? sets : [] }) });
+    res.json({ progress: catalog.start('mtg', lang, { skipCache: !!skipCache, sets: Array.isArray(sets) ? sets : [] }) });
   } catch (e) {
     // "already running" is a conflict, not a server fault — the UI shows the
     // running build rather than an error.

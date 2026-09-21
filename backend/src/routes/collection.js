@@ -905,27 +905,6 @@ router.post('/collection/bulk-add', async (req, res) => {
   });
 });
 
-// MTGJSON's deck cards carry the exact Scryfall printing id. Combine repeated
-// printings before resolving so one deck never asks Scryfall for the same card
-// twice, while preserving the deck's copy count.
-function deckCardRows(deck) {
-  const rows = new Map();
-  for (const section of ['commander', 'mainBoard', 'sideBoard']) {
-    for (const card of deck[section] || []) {
-      const id = card.identifiers?.scryfallId;
-      const set_id = card.setCode;
-      const number = card.number;
-      if (!id && !(set_id && number)) continue;
-      const printing = card.isFoil ? 'Holofoil' : 'Normal';
-      const language = card.language || 'English';
-      const key = `${id || `${set_id}|${number}`}|${printing}|${language}`;
-      const row = rows.get(key) || { id, set_id, number, name: card.name, printing, language, quantity: 0 };
-      row.quantity += Math.max(1, parseInt(card.count, 10) || 1);
-      rows.set(key, row);
-    }
-  }
-  return [...rows.values()];
-}
 
 function deckDetails(deck) {
   const groups = { creatures: new Map(), spells: new Map(), lands: new Map() };
@@ -972,7 +951,7 @@ router.post('/mtg-decks/:fileName/import', searchLimiter, async (req, res) => {
     const deck = await mtgjsonApi.getDeck(req.params.fileName);
     if (!deck) return res.status(404).json({ error: 'MTGJSON deck not found' });
 
-    const rows = deckCardRows(deck);
+    const rows = mtgjsonApi.deckCardRows(deck);
     if (!rows.length) return res.status(422).json({ error: 'This MTGJSON deck has no importable cards' });
     const total = rows.reduce((sum, row) => sum + row.quantity, 0);
     const { cards, pairs } = await scryfallApi.bulkFetchByIdentifier(rows);

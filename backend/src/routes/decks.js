@@ -6,6 +6,7 @@ const { compartmentLabel } = require('../utils/compartmentSort');
 const { validateDeckAddition } = require('../utils/deckRules');
 const scryfallApi = require('../scryfallApi');
 const { parseManaboxText } = require('../utils/csvMappers');
+const mtgjsonApi = require('../mtgjsonApi');
 
 const router = express.Router();
 
@@ -58,7 +59,8 @@ router.post('/', async (req, res) => {
     accent_color = '#eab308',
     target_size = 60,
     decklist_text = '',
-    decklist_format = 'plain'
+    decklist_format = 'plain',
+    precon_file = ''
   } = req.body;
   
   if (!name) {
@@ -68,6 +70,19 @@ router.post('/', async (req, res) => {
   const targetSizeNum = parseInt(target_size, 10) || 60;
 
   try {
+    let preconPairs = null;
+    if (precon_file) {
+      if (deckGame !== 'mtg') return res.status(400).json({ error: 'Precon decks are only available for Magic' });
+      const precon = await mtgjsonApi.getDeck(precon_file);
+      if (!precon) return res.status(404).json({ error: 'MTGJSON deck not found' });
+      const rows = mtgjsonApi.deckCardRows(precon);
+      if (!rows.length) return res.status(422).json({ error: 'This MTGJSON deck has no importable cards' });
+      const { cards, pairs } = await scryfallApi.bulkFetchByIdentifier(rows);
+      if (!pairs.length) return res.status(422).json({ error: 'No MTGJSON cards matched Scryfall' });
+      await scryfallApi.cacheCards(cards);
+      preconPairs = pairs;
+    }
+
     const result = await db.run(
       `INSERT INTO decks (name, description, game, format, category, accent_color, target_size, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [name, description, deckGame, format, category, accent_color, targetSizeNum, req.user.id]
@@ -77,7 +92,15 @@ router.post('/', async (req, res) => {
     // Optional decklist import. ManaBox identifies a printing by set and
     // collector number, so resolve those identifiers in batches instead of
     // guessing from a card name shared by many printings.
-    if (decklist_text && typeof decklist_text === 'string') {
+    if (preconPairs) {
+      for (const { row, card } of preconPairs) {
+        await db.run(
+          `INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, ?, ?)
+           ON CONFLICT(deck_id, card_id) DO UPDATE SET quantity = quantity + EXCLUDED.quantity`,
+          [newDeckId, card.id, row.quantity]
+        );
+      }
+    } else if (decklist_text && typeof decklist_text === 'string') {
       if (decklist_format === 'manabox' && deckGame === 'mtg') {
         const items = parseManaboxText(decklist_text);
         const { cards, pairs } = await scryfallApi.bulkFetchByIdentifier(items.map(item => ({

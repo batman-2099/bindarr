@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { BookOpen, List, Plus, Search } from 'lucide-react';
 import { useT } from '../utils/i18n';
 
-export default function MtgDeckImport({ onAddSuccess, showToast }) {
+export default function MtgDeckImport({ onAddSuccess, showToast, onChoose }) {
   const { t } = useT();
   const [query, setQuery] = useState('');
   const [decks, setDecks] = useState([]);
@@ -13,7 +13,7 @@ export default function MtgDeckImport({ onAddSuccess, showToast }) {
   const [detailsLoading, setDetailsLoading] = useState(null);
 
   const search = async (event) => {
-    event.preventDefault();
+    event?.preventDefault();
     const q = query.trim();
     setDecks([]);
     setSearched(false);
@@ -78,19 +78,25 @@ export default function MtgDeckImport({ onAddSuccess, showToast }) {
         <h2 style={{ fontSize: '1.15rem', margin: 0, color: 'var(--text-strong)' }}>{t('mtgDeck.title')}</h2>
       </div>
       <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', lineHeight: 1.5, marginBottom: '1rem' }}>{t('mtgDeck.hint')}</p>
-      <form onSubmit={search} style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
         <input
           type="search"
           className="input-control"
           value={query}
           onChange={event => { setQuery(event.target.value); setSearched(false); }}
+          onKeyDown={event => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              search();
+            }
+          }}
           placeholder={t('mtgDeck.placeholder')}
           style={{ flex: 1, minWidth: '180px' }}
         />
-        <button type="submit" className="btn btn-primary" disabled={loading || query.trim().length < 2} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+        <button type="button" className="btn btn-primary" onClick={search} disabled={loading || query.trim().length < 2} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           <Search size={16} /> {loading ? t('common.loading') : t('mtgDeck.search')}
         </button>
-      </form>
+      </div>
       {decks.length > 0 && (
         <div style={{ display: 'grid', gap: '0.6rem', marginTop: '1rem' }}>
           {decks.map(deck => {
@@ -106,7 +112,7 @@ export default function MtgDeckImport({ onAddSuccess, showToast }) {
                     <button type="button" className="btn btn-primary" disabled={detailsLoading === deck.fileName} onClick={() => showDetails(deck)} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', whiteSpace: 'nowrap' }}>
                       <List size={15} /> {detailsLoading === deck.fileName ? t('common.loading') : detail ? t('mtgDeck.hideDetails') : t('mtgDeck.details')}
                     </button>
-                    <button type="button" className="btn btn-primary" disabled={adding === deck.fileName} onClick={() => addDeck(deck)} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', whiteSpace: 'nowrap' }}>
+                    <button type="button" className="btn btn-primary" disabled={adding === deck.fileName} onClick={() => onChoose ? onChoose(deck) : addDeck(deck)} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', whiteSpace: 'nowrap' }}>
                       <Plus size={15} /> {adding === deck.fileName ? t('mtgDeck.adding') : t('mtgDeck.add')}
                     </button>
                   </div>

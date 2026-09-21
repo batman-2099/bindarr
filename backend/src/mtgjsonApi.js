@@ -37,9 +37,28 @@ async function getDeck(fileName) {
   return response.data?.data || null;
 }
 
+function deckCardRows(deck) {
+  const rows = new Map();
+  for (const section of ['commander', 'mainBoard', 'sideBoard']) {
+    for (const card of deck[section] || []) {
+      const id = card.identifiers?.scryfallId;
+      const set_id = card.setCode;
+      const number = card.number;
+      if (!id && !(set_id && number)) continue;
+      const printing = card.isFoil ? 'Holofoil' : 'Normal';
+      const language = card.language || 'English';
+      const key = `${id || `${set_id}|${number}`}|${printing}|${language}`;
+      const row = rows.get(key) || { id, set_id, number, name: card.name, printing, language, quantity: 0 };
+      row.quantity += Math.max(1, parseInt(card.count, 10) || 1);
+      rows.set(key, row);
+    }
+  }
+  return [...rows.values()];
+}
+
 function resetDeckListCache() {
   deckList = undefined;
   deckListExpiresAt = 0;
 }
 
-module.exports = { client, searchDecks, getDeck, resetDeckListCache };
+module.exports = { client, searchDecks, getDeck, deckCardRows, resetDeckListCache };

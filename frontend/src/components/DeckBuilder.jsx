@@ -10,6 +10,7 @@ import { buildDeckExport, parseDeckLine } from '../utils/deckText';
 import { defaultGame, gameOptions, showGamePicker, isGameEnabled } from '../utils/games';
 import CardImage from './CardImage';
 import { useT } from '../utils/i18n';
+import MtgDeckImport from './MtgDeckImport';
 
 // Basic Energy (Pokémon) & Basic Lands (MTG) are exempt from the "max 4 of a card" deck rule.
 const isBasicEnergyOrLand = (card, game = 'pokemon') => {
@@ -107,6 +108,8 @@ function DeckBuilder({ showToast }) {
   const [newDeckImportText, setNewDeckImportText] = useState('');
   const [newDeckImportFormat, setNewDeckImportFormat] = useState('plain');
   const [showImportDecklistArea, setShowImportDecklistArea] = useState(false);
+  const [newDeckPreconFile, setNewDeckPreconFile] = useState('');
+  const [showPreconPicker, setShowPreconPicker] = useState(false);
   const [deckDraft, setDeckDraft] = useState(null);
   
   // Card Search States inside editor
@@ -195,7 +198,8 @@ function DeckBuilder({ showToast }) {
           accent_color: newDeckAccentColor,
           target_size: newDeckTargetSize,
           decklist_text: newDeckImportText,
-          decklist_format: newDeckImportFormat
+          decklist_format: newDeckImportFormat,
+          precon_file: newDeckPreconFile
         })
       });
 
@@ -210,8 +214,9 @@ function DeckBuilder({ showToast }) {
         setNewDeckTargetSize(newDeckDefaults(defaultGame()).targetSize);
         setNewDeckImportText('');
         setNewDeckImportFormat('plain');
+        setNewDeckPreconFile('');
+        setShowPreconPicker(false);
         setShowImportDecklistArea(false);
-        setShowCreateModal(false);
         fetchDecks();
       } else {
         showToast(t('deck.errCreate'));
@@ -229,7 +234,7 @@ function DeckBuilder({ showToast }) {
     reader.onload = () => {
       setNewDeckImportText(String(reader.result || ''));
       setNewDeckImportFormat('manabox');
-      if (!newDeckName.trim()) setNewDeckName(file.name.replace(/\.txt$/i, ''));
+      setNewDeckPreconFile('');
     };
     reader.onerror = () => showToast(t('settings.errReadFile'));
     reader.readAsText(file);
@@ -2003,7 +2008,7 @@ function DeckBuilder({ showToast }) {
       {/* A. Create Deck Modal */}
       {showCreateModal && (
         <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}>
-          <div className="glass-panel" style={{ maxWidth: '480px', width: '100%', maxHeight: '90vh', overflowY: 'auto', overscrollBehavior: 'contain', padding: '1.75rem', position: 'relative', border: '1px solid rgba(255,255,255,0.15)' }}>
+          <div className="glass-panel" style={{ maxWidth: '760px', width: '100%', maxHeight: '90vh', overflowY: 'auto', overscrollBehavior: 'contain', padding: '1.75rem', position: 'relative', border: '1px solid rgba(255,255,255,0.15)' }}>
             <button className="btn btn-secondary btn-icon-only" onClick={() => setShowCreateModal(false)} style={{ position: 'absolute', top: '1rem', right: '1rem', borderRadius: '50%' }}>
               <X size={16} />
             </button>
@@ -2030,6 +2035,7 @@ function DeckBuilder({ showToast }) {
                         setNewDeckGame('pokemon');
                         setNewDeckFormat('Standard');
                         setNewDeckTargetSize(60);
+                        setNewDeckPreconFile('');
                       }}
                       style={{
                         padding: '0.75rem',
@@ -2082,6 +2088,7 @@ function DeckBuilder({ showToast }) {
                         setNewDeckGame('lorcana');
                         setNewDeckFormat('Core (Constructed)');
                         setNewDeckTargetSize(60);
+                        setNewDeckPreconFile('');
                       }}
                       style={{
                         padding: '0.75rem',
@@ -2224,6 +2231,45 @@ function DeckBuilder({ showToast }) {
                 />
               </div>
 
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowPreconPicker(!showPreconPicker)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--accent-yellow)',
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: 0
+                  }}
+                >
+                  <FileText size={14} />
+                  {t('mtgDeck.title')}
+                </button>
+                {showPreconPicker && (
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <MtgDeckImport
+                      showToast={showToast}
+                      onChoose={(deck) => {
+                        setNewDeckPreconFile(deck.fileName);
+                        setNewDeckName(deck.name);
+                        setNewDeckGame('mtg');
+                        setNewDeckFormat('Commander / EDH');
+                        setNewDeckTargetSize(100);
+                        setNewDeckImportText('');
+                        setShowImportDecklistArea(false);
+                        setShowPreconPicker(false);
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+
               {/* Quick Decklist Importer Toggle */}
               <div>
                 <button
@@ -2255,6 +2301,7 @@ function DeckBuilder({ showToast }) {
                         onChange={(e) => {
                           const format = e.target.value;
                           setNewDeckImportFormat(format);
+                          setNewDeckPreconFile('');
                           if (format === 'manabox') {
                             setNewDeckGame('mtg');
                             setNewDeckFormat('Commander / EDH');
@@ -2278,7 +2325,10 @@ function DeckBuilder({ showToast }) {
                       style={{ minHeight: '90px', fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre' }}
                       placeholder={t('deck.pasteDecklistPlaceholder')}
                       value={newDeckImportText}
-                      onChange={(e) => setNewDeckImportText(e.target.value)}
+                      onChange={(e) => {
+                        setNewDeckImportText(e.target.value);
+                        setNewDeckPreconFile('');
+                      }}
                     />
                     <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.2rem' }}>
                       {t('deck.importOnCreateHint')}

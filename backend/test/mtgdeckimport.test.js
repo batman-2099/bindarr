@@ -11,6 +11,7 @@ const db = require('../src/db');
 const scryfallApi = require('../src/scryfallApi');
 const mtgjsonApi = require('../src/mtgjsonApi');
 const collectionRouter = require('../src/routes/collection');
+const decksRouter = require('../src/routes/decks');
 
 const routeHandler = (path, method) => {
   const route = collectionRouter.stack.find(layer => layer.route?.path === path && layer.route.methods[method]);
@@ -20,6 +21,10 @@ const routeHandler = (path, method) => {
 const searchDecks = routeHandler('/mtg-decks', 'get');
 const getDeckDetails = routeHandler('/mtg-decks/:fileName', 'get');
 const importDeck = routeHandler('/mtg-decks/:fileName/import', 'post');
+const createDeck = (() => {
+  const route = decksRouter.stack.find(layer => layer.route?.path === '/' && layer.route.methods.post);
+  return route.route.stack.at(-1).handle;
+})();
 
 function response() {
   return {
@@ -91,6 +96,18 @@ async function testMtgDeckImport() {
     assert.strictEqual(unpackedRes.statusCode, 200);
     assert.strictEqual(unpackedRes.body.location_id, null);
     assert.strictEqual((await db.get(`SELECT COUNT(*) AS count FROM locations WHERE user_id = 1 AND name = 'Example Deck'`)).count, 1);
+    const createRes = response();
+    await createDeck({
+      body: { name: 'Selected Precon', game: 'mtg', precon_file: 'ExampleDeck_TST' },
+      user: { id: 1 }
+    }, createRes);
+    assert.strictEqual(createRes.statusCode, 201);
+    assert.strictEqual((await db.get('SELECT game FROM decks WHERE id = ?', [createRes.body.id])).game, 'mtg');
+    assert.deepStrictEqual(
+      await db.get('SELECT COUNT(*) AS types, SUM(quantity) AS copies FROM deck_cards WHERE deck_id = ?', [createRes.body.id]),
+      { types: 3, copies: 5 },
+      'creating from an MTGJSON precon must retain commander, main-board, and sideboard quantities'
+    );
   } finally {
     mtgjsonApi.client.get = originalGet;
     mtgjsonApi.resetDeckListCache();

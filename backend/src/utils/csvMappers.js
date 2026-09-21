@@ -58,8 +58,25 @@ const STRATEGIES = {
     game: 'mtg'
   })
 };
+function mappedCsvRow(row, mapping) {
+  const value = field => mapping[field] ? row[mapping[field]] : '';
+  const printing = value('printing');
+  return {
+    name: value('name'),
+    set_code: value('set_code'),
+    collector_number: value('collector_number'),
+    card_id: value('card_id'),
+    quantity: parseInt(value('quantity'), 10) || 1,
+    condition: CONDITION_MAP[value('condition').toLowerCase()] || 'Near Mint',
+    printing: /^(true|1|foil|holofoil)$/i.test(printing) ? 'Holofoil' : printing || 'Normal',
+    language: value('language') || 'English',
+    purchase_price: parseFloat(value('purchase_price')) || 0,
+    game: 'mtg'
+  };
+}
 
-function parseThirdPartyCSV(rows, formatType = 'tcgplayer') {
+function parseThirdPartyCSV(rows, formatType = 'tcgplayer', mapping) {
+  if (mapping && Object.values(mapping).some(Boolean)) return rows.map(row => mappedCsvRow(row, mapping));
   const formatKey = (formatType || 'internal').toLowerCase();
   const strategy = STRATEGIES[formatKey] || STRATEGIES.internal;
   return rows.map(strategy);

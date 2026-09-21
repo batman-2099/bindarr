@@ -273,7 +273,7 @@ router.get('/export', async (req, res) => {
 
 
 router.post('/import/preview', (req, res) => {
-  const { format = 'internal', data } = req.body;
+  const { format = 'internal', data, mapping } = req.body;
   if (!data) return res.status(400).json({ error: 'No import data provided' });
 
   if (format.toLowerCase() === 'manabox') {
@@ -290,12 +290,13 @@ router.post('/import/preview', (req, res) => {
 
   try {
     const { headers, rows } = parseCsvRows(data);
-    const items = parseThirdPartyCSV(rows, csvFormat(headers, format));
+    const items = parseThirdPartyCSV(rows, csvFormat(headers, format), mapping);
     const errors = items.flatMap((item, index) => {
       const row = index + 2;
       return item.name ? [] : [`Row ${row}: Name is required.`];
     });
     return res.json({
+      headers,
       cards: items.length,
       quantity: items.reduce((total, item) => total + item.quantity, 0),
       errors
@@ -306,7 +307,7 @@ router.post('/import/preview', (req, res) => {
 });
 // Import endpoint
 router.post('/import', async (req, res) => {
-  const { format = 'internal', data, list_type = 'collection' } = req.body;
+  const { format = 'internal', data, list_type = 'collection', mapping } = req.body;
   if (!data) {
     return res.status(400).json({ error: 'No data provided' });
   }
@@ -340,7 +341,7 @@ router.post('/import', async (req, res) => {
     } else {
       const { headers, rows } = parseCsvRows(data);
       const parsedFormat = csvFormat(headers, format);
-      rawItems = parseThirdPartyCSV(rows, parsedFormat);
+      rawItems = parseThirdPartyCSV(rows, parsedFormat, mapping);
       if (parsedFormat === 'manabox') manaBoxItems = rawItems;
     }
 

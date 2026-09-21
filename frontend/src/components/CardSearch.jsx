@@ -21,6 +21,23 @@ const SEARCH_ERRORS = {
   'rate-limit': { keyHint: true },
   upstream: { keyHint: false },
 };
+const CSV_FIELDS = [
+  ['name', 'csvMapping.name', ['name', 'card name', 'card']],
+  ['quantity', 'csvMapping.quantity', ['quantity', 'count', 'qty']],
+  ['set_code', 'csvMapping.setCode', ['set id', 'set code', 'set', 'edition']],
+  ['collector_number', 'csvMapping.collectorNumber', ['card number', 'collector number', 'number']],
+  ['condition', 'csvMapping.condition', ['condition']],
+  ['printing', 'csvMapping.printing', ['printing', 'foil']],
+  ['language', 'csvMapping.language', ['language']],
+  ['purchase_price', 'csvMapping.purchasePrice', ['purchase price', 'price']],
+  ['card_id', 'csvMapping.cardId', ['card id', 'id']]
+];
+
+const suggestedCsvMapping = (headers) => Object.fromEntries(CSV_FIELDS.map(([field, , names]) => [
+  field,
+  headers.find(header => names.includes(header.toLowerCase())) || ''
+]));
+
 
 function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
   const { t } = useT();
@@ -592,6 +609,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
         setCsvPreview({
           ...summary,
           errors: response.ok ? summary.errors || [] : [summary.error || t('settings.importFailed', { error: '' })],
+          mapping: suggestedCsvMapping(summary.headers || []),
           text,
           filename: file.name,
           listType
@@ -606,6 +624,29 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
     reader.onerror = () => showToast(t('settings.errReadFile'));
     reader.readAsText(file);
     event.target.value = '';
+  };
+
+  const refreshCsvPreview = async () => {
+    if (!csvPreview) return;
+    setImportingText(true);
+    try {
+      const response = await fetch('/api/import/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format: 'internal', data: csvPreview.text, mapping: csvPreview.mapping })
+      });
+      const summary = await response.json().catch(() => ({}));
+      setCsvPreview(preview => ({
+        ...preview,
+        ...summary,
+        errors: response.ok ? summary.errors || [] : [summary.error || t('settings.importFailed', { error: '' })]
+      }));
+    } catch (error) {
+      console.error(error);
+      showToast(error.message || t('settings.importFailed', { error: '' }));
+    } finally {
+      setImportingText(false);
+    }
   };
 
   const downloadFailedImport = () => {
@@ -629,7 +670,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
       const response = await fetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ format: 'internal', data: csvPreview.text, list_type: csvPreview.listType })
+        body: JSON.stringify({ format: 'internal', data: csvPreview.text, list_type: csvPreview.listType, mapping: csvPreview.mapping })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -1208,6 +1249,24 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
                   <span style={{ color: 'var(--text-muted)' }}>{label}</span>
                 </div>
               ))}
+            </div>
+            <div style={{ display: 'grid', gap: '0.5rem' }}>
+              <strong style={{ color: 'var(--text-strong)', fontSize: '0.85rem' }}>{t('csvMapping.title')}</strong>
+              <div style={{ maxHeight: '190px', overflowY: 'auto', display: 'grid', gap: '0.4rem' }}>
+                {CSV_FIELDS.map(([field, label]) => (
+                  <label key={field} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.4fr)', gap: '0.5rem', alignItems: 'center', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                    <span>{t(label)}</span>
+                    <select
+                      value={csvPreview.mapping?.[field] || ''}
+                      onChange={event => setCsvPreview(preview => ({ ...preview, errors: [], mapping: { ...preview.mapping, [field]: event.target.value } }))}
+                    >
+                      <option value="">{t('csvMapping.unused')}</option>
+                      {(csvPreview.headers || []).map(header => <option key={header} value={header}>{header}</option>)}
+                    </select>
+                  </label>
+                ))}
+              </div>
+              <button type="button" className="btn btn-secondary" onClick={refreshCsvPreview} disabled={importingText}>{t('csvMapping.refresh')}</button>
             </div>
             {csvPreview.errors.length > 0 && (
               <div style={{ display: 'grid', gap: '0.4rem' }}>

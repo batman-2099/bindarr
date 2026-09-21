@@ -158,7 +158,10 @@ async function testImportRoute() {
       .split(/\r?\n/).slice(0, 4).join('\n');
     const arenaPreview = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
     await previewHandler({ body: { format: 'internal', data: arenaCsv } }, arenaPreview);
-    assert.deepStrictEqual(arenaPreview.body, { cards: 3, quantity: 3, errors: [] });
+    assert.strictEqual(arenaPreview.body.cards, 3);
+    assert.strictEqual(arenaPreview.body.quantity, 3);
+    assert.deepStrictEqual(arenaPreview.body.errors, []);
+    assert.deepStrictEqual(arenaPreview.body.headers, ['Count', 'Name', 'Edition', 'Collector Number', 'Condition', 'Language', 'Foil', 'Tag']);
     const arenaImport = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
     await handler({ body: { format: 'internal', data: arenaCsv, list_type: 'arena' }, user: { id: 1 } }, arenaImport);
     assert.strictEqual(arenaImport.body.count, 3);
@@ -168,6 +171,24 @@ async function testImportRoute() {
       ['A-Cosmos Charger', 'KHM', '']
     ]);
     assert.strictEqual((await db.get(`SELECT list_type FROM collection WHERE card_id = ? ORDER BY id DESC LIMIT 1`, ['mtg-a-brine-comber'])).list_type, 'arena');
+    const mappedCsv = 'Copies,Title,Expansion,No.,Finish\n2,Caldera Kavu,PLS,58,Foil';
+    const mapping = { quantity: 'Copies', name: 'Title', set_code: 'Expansion', collector_number: 'No.', printing: 'Finish' };
+    const mappedPreview = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
+    await previewHandler({ body: { format: 'internal', data: mappedCsv, mapping } }, mappedPreview);
+    assert.deepStrictEqual(mappedPreview.body, {
+      headers: ['Copies', 'Title', 'Expansion', 'No.', 'Finish'],
+      cards: 1,
+      quantity: 2,
+      errors: []
+    });
+    const mappedImport = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+    await handler({ body: { format: 'internal', data: mappedCsv, mapping }, user: { id: 1 } }, mappedImport);
+    assert.deepStrictEqual(mappedImport.body.summary.added, {
+      cards: 1,
+      copies: 2,
+      items: [{ name: 'Caldera Kavu', quantity: 2 }]
+    });
+    assert.deepStrictEqual(bulkCalls.at(-1).map(row => [row.name, row.set_id, row.number, row.printing]), [['Caldera Kavu', 'PLS', '58', 'Holofoil']]);
     scryfallApi.bulkFetchByIdentifier = async rows => {
       const card = resolvedCard(rows[0]);
       return {
@@ -187,7 +208,9 @@ async function testImportRoute() {
     });
     const csvPreview = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
     await previewHandler({ body: { format: 'internal', data: bindarrCsv } }, csvPreview);
-    assert.deepStrictEqual(csvPreview.body, { cards: 3, quantity: 3, errors: [] });
+    assert.strictEqual(csvPreview.body.cards, 3);
+    assert.strictEqual(csvPreview.body.quantity, 3);
+    assert.deepStrictEqual(csvPreview.body.errors, []);
     const invalidPreview = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
     await previewHandler({ body: { format: 'internal', data: 'Card ID,Name,Quantity\n,,1' } }, invalidPreview);
     assert.deepStrictEqual(invalidPreview.body.errors, ['Row 2: Name is required.']);

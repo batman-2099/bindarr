@@ -845,6 +845,7 @@
   "csvPreview.copies": "Copies",
   "csvPreview.errors": "Errors",
   "csvPreview.commit": "Import CSV",
+  "csvPreview.destination": "Destination: {destination}",
   "manaboxPreview.commit": "Commit import",
   "search.addedCards.one": "Added {count} card.",
   "search.addedCards.other": "Added {count} cards.",

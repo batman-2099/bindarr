@@ -581,7 +581,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
       setImportingText(true);
       try {
         const text = String(reader.result || '');
-        const listType = (addToArena || /(?:^|\n)"?mtg-arena-/i.test(text)) ? 'arena' : 'collection';
+        const listType = addToArena ? 'arena' : 'collection';
         const response = await fetch('/api/import/preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1181,6 +1181,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
             <div>
               <h2 style={{ margin: 0, color: 'var(--text-strong)', fontSize: '1.1rem' }}>{t('csvPreview.title')}</h2>
               <p style={{ margin: '0.35rem 0 0', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>{csvPreview.filename}</p>
+              <p style={{ margin: '0.2rem 0 0', color: 'var(--text-muted)', fontSize: '0.75rem' }}>{t('csvPreview.destination', { destination: t(csvPreview.listType === 'arena' ? 'collection.arena' : 'search.addToCollection') })}</p>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', fontSize: '0.8rem' }}>
               {[

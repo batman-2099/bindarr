@@ -109,7 +109,7 @@ async function testImportRoute() {
       .split(/\r?\n/).slice(0, 4).join('\n');
     const bindarrCsvRes = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
     await handler({
-      body: { format: 'internal', data: bindarrCsv, list_type: 'arena' },
+      body: { format: 'internal', data: bindarrCsv, list_type: 'collection' },
       user: { id: 1 }
     }, bindarrCsvRes);
     assert.strictEqual(bindarrCsvRes.statusCode, 200);
@@ -120,7 +120,7 @@ async function testImportRoute() {
     ), {
       card_id: 'mtg-arena-vow-ba8df259852a',
       quantity: 1,
-      list_type: 'arena',
+      list_type: 'collection',
       game: 'mtg'
     });
     const csvPreview = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };

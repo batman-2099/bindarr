@@ -82,6 +82,21 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   const [allCards, setAllCards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [setsList, setSetsList] = useState([]);
+  const [showGallery, setShowGallery] = useState(true);
+  const [gallerySearch, setGallerySearch] = useState('');
+  const [gallerySort, setGallerySort] = useState('name-asc');
+  const galleryCovers = useMemo(() => {
+    const covers = new Map();
+    for (const card of allCards) {
+      if (card.location_id && card.image_url && !covers.has(card.location_id)) covers.set(card.location_id, card);
+    }
+    return covers;
+  }, [allCards]);
+  const galleryLocations = useMemo(() => locations
+    .filter(location => `${location.name} ${location.type}`.toLowerCase().includes(gallerySearch.toLowerCase()))
+    .sort((a, b) => gallerySort === 'qty-desc'
+      ? (b.total_cards || 0) - (a.total_cards || 0) || a.name.localeCompare(b.name)
+      : a.name.localeCompare(b.name)), [locations, gallerySearch, gallerySort]);
 
   useEffect(() => {
     fetch('/api/sets')
@@ -366,6 +381,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
 
   useEffect(() => {
     if (selectedLocationId) {
+      setShowGallery(false);
       setActiveLocationId(selectedLocationId === 'unsorted' || selectedLocationId === 'unassigned' ? null : selectedLocationId);
       setSelectedLocationId(null);
     }
@@ -384,6 +400,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
     // once the target location's compartments finish loading.
     const firstForThisFocus = focusNavRef.current !== focusEntryId;
     if (firstForThisFocus) {
+      setShowGallery(false);
       focusNavRef.current = focusEntryId;
       if (targetCard.location_id) {
         setActiveLocationId(targetCard.location_id);
@@ -417,12 +434,8 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   }, [focusEntryId, allCards, compartments]);
 
   useEffect(() => {
-    // If the storage tab is opened without a specific container URL (selectedLocationId is falsy),
-    // and there are locations available, auto-select the first one.
-    if (!selectedLocationId && !activeLocationId && !focusEntryId && locations.length > 0) {
-      setActiveLocationId(locations[0].id);
-    }
-  }, [locations, selectedLocationId, activeLocationId, focusEntryId]);
+    if (activeLocationId) setShowGallery(false);
+  }, [activeLocationId]);
 
   const unsortedCollection = useMemo(() => allCards.filter(card => !card.location_id), [allCards]);
 
@@ -1130,6 +1143,45 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
 
   if (loading) return <div className="spinner" />;
 
+  if (showGallery) return (
+    <section>
+      <header style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+        <h2 style={{ margin: 0 }}>{t('nav.storage')}</h2>
+        <input className="input-control" aria-label={t('shared.search')} placeholder={t('loc.searchPlaceholder')} value={gallerySearch} onChange={e => setGallerySearch(e.target.value)} style={{ flex: '1 1 200px' }} />
+        <select className="select-control" aria-label={t('collection.sortBy')} value={gallerySort} onChange={e => setGallerySort(e.target.value)} style={{ width: 'auto' }}>
+          <option value="name-asc">{t('collection.sort.name-asc')}</option>
+          <option value="qty-desc">{t('collection.sort.qty-desc')}</option>
+        </select>
+        <span style={{ color: 'var(--text-secondary)' }}>{galleryLocations.length} / {locations.length}</span>
+      </header>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(220px, 100%), 1fr))', gap: '1.25rem' }}>
+        <button className="glass-panel" onClick={() => setShowCreate(true)} style={{ minHeight: '190px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', color: 'var(--accent-yellow)', cursor: 'pointer' }}>
+          <Plus size={64} />
+          <strong>{t('loc.createContainer')}</strong>
+        </button>
+        {galleryLocations.map(location => (
+          <button key={location.id} className="glass-panel" onClick={() => setActiveLocationId(location.id)} style={{ padding: 0, overflow: 'hidden', textAlign: 'left', color: 'var(--text-strong)', cursor: 'pointer' }}>
+            <div style={{ height: '155px', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {galleryCovers.has(location.id)
+                ? <CardImage card={galleryCovers.get(location.id)} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 25%' }} />
+                : <Layers size={56} style={{ color: 'var(--text-muted)' }} />}
+            </div>
+            <div style={{ padding: '0.75rem 1rem' }}>
+              <strong style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>{!!location.locked && <Lock size={14} />}{location.name}</strong>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{location.type} · {location.total_cards || 0} {t('collection.cardUnit', { count: location.total_cards || 0 })}</span>
+            </div>
+          </button>
+        ))}
+      </div>
+      <footer style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
+        <button className="btn btn-secondary" onClick={() => setShowGallery(false)}>{t('bulk.unassignedPile')}</button>
+        <button className="btn btn-secondary" onClick={() => containerImportInput.current?.click()}><Upload size={16} /> {t('loc.importContainer')}</button>
+        <input ref={containerImportInput} type="file" accept=".txt,text/plain" onChange={handleContainerImportFile} style={{ display: 'none' }} />
+      </footer>
+      {showCreate && <CreateContainerModal onClose={() => setShowCreate(false)} onCreate={handleCreateLocation} setsList={setsList} filterFieldOptions={filterFieldOptions} />}
+    </section>
+  );
+
   return (
     <DndContext
       sensors={dndSensors}
@@ -1295,6 +1347,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
       <div className="glass-panel" style={{ padding: '0.9rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button className="btn btn-secondary" onClick={() => { storage.exitSelectMode(); setActiveLocationId(null); setShowGallery(true); }} title={t('nav.storage')} aria-label={t('nav.storage')}><LayoutGrid size={16} /></button>
             <select
               className="select-control"
               value={activeLocationId || ''}

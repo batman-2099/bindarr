@@ -82,6 +82,12 @@ assert.strictEqual(
   'Forest printings with the same name remain distinct'
 );
 
+const arenaForests = new Map(parsedArenaLines
+  .filter(card => card.name === 'Forest')
+  .map(card => [arenaCardKey(card.name, card.setCode, card.number), card.number]));
+assert.strictEqual(arenaForests.get(arenaCardKey('Forest', 'AFR', '278')), '278');
+assert.strictEqual(arenaForests.get(arenaCardKey('Forest', 'AFR', '279')), '279');
+
 console.log('deckText self-check passed');
 
 // buylist: only shortfall vs owned, TCGplayer mass-entry lines

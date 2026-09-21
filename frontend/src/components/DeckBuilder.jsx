@@ -706,9 +706,10 @@ function DeckBuilder({ showToast }) {
 
   const findImportCard = async (parsed, arenaCards) => {
     if (arenaCards) {
-      return (parsed.setCode && parsed.number && arenaCards.byPrinting.get(arenaCardKey(parsed.name, parsed.setCode, parsed.number)))
-        || arenaCards.byName.get(parsed.name.toLowerCase())
-        || null;
+      if (parsed.setCode && parsed.number) {
+        return arenaCards.byPrinting.get(arenaCardKey(parsed.name, parsed.setCode, parsed.number)) || null;
+      }
+      return arenaCards.byName.get(parsed.name.toLowerCase()) || null;
     }
     const res = await fetch(`/api/search?name=${encodeURIComponent(parsed.name)}&scope=collection&game=${activeDeck.game || 'mtg'}`);
     if (!res.ok) return null;
@@ -733,7 +734,8 @@ function DeckBuilder({ showToast }) {
     for (const line of lines) {
       const parsed = parseDeckLine(line);
       if (!parsed) continue;
-      const { qty, name: rawName } = parsed;
+      const { qty, name: rawName, setCode, number } = parsed;
+      const displayName = setCode && number ? `${rawName} (${setCode.toUpperCase()}) ${number}` : rawName;
 
       try {
         const card = await findImportCard(parsed, arenaCards);
@@ -741,7 +743,7 @@ function DeckBuilder({ showToast }) {
           const owned = card.owned_qty || 0;
           const inDeck = activeDeck.cards.find(c => c.id === card.id)?.quantity || 0;
           results.push({
-            rawName,
+            rawName: displayName,
             requestedQty: qty,
             ownedQty: owned,
             inDeckQty: inDeck,
@@ -750,7 +752,7 @@ function DeckBuilder({ showToast }) {
           });
         } else {
           results.push({
-            rawName,
+            rawName: displayName,
             requestedQty: qty,
             ownedQty: 0,
             inDeckQty: 0,

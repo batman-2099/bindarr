@@ -1,127 +1,115 @@
 <div align="center">
 
-<img src="frontend/public/logo.svg" width="120" height="120" alt="" />
+<img src="frontend/public/logo.svg" width="120" height="120" alt="Bindarr" />
 
 # Bindarr
 
-**Self-hosted collection manager for Pokémon, Magic: The Gathering, and Disney Lorcana cards.**
-
-Identify cards with your phone camera, track prices, record which binder page and slot each card lives in, and pull decks back out again.
+**Self-hosted collection, storage, and deck manager for Pokémon, Magic: The Gathering, and Disney Lorcana.**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/thenotoriousJeremy/bindarr/docker-build.yml?branch=main&label=CI&logo=github)](https://github.com/thenotoriousJeremy/bindarr/actions/workflows/docker-build.yml)
 [![Docker image](https://img.shields.io/badge/ghcr.io-bindarr-2496ED?logo=docker&logoColor=white)](https://github.com/thenotoriousJeremy/bindarr/pkgs/container/bindarr)
 [![License: MIT](https://img.shields.io/github/license/thenotoriousJeremy/bindarr?color=blue)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/thenotoriousJeremy/bindarr?style=flat&logo=github)](https://github.com/thenotoriousJeremy/bindarr/stargazers)
-[![Issues](https://img.shields.io/github/issues/thenotoriousJeremy/bindarr)](https://github.com/thenotoriousJeremy/bindarr/issues)
 
-[Live demo](https://thenotoriousjeremy.github.io/bindarr/) · [Install](#install) · [Features](#features) · [How it works](PROJECT.md) · [Report a bug](https://github.com/thenotoriousJeremy/bindarr/issues/new)
+[Live demo](https://thenotoriousjeremy.github.io/bindarr/) · [Install](#install) · [Workflows](#workflows) · [Architecture](PROJECT.md) · [Report a bug](https://github.com/thenotoriousJeremy/bindarr/issues/new)
 
 </div>
 
----
+Bindarr keeps the card, its printing, its condition, its value, and—when it is physical—its exact storage position together. It is a React SPA backed by Express and one SQLite database; Docker persists the database, backups, scan models, and scan catalogs in one volume.
 
-https://github.com/user-attachments/assets/4ee6c23f-a024-499b-9fc3-3d144c42ba61
+The [live demo](https://thenotoriousjeremy.github.io/bindarr/) uses sample data. Changes are not saved there, and camera scanning requires a server installation.
 
-Try it without installing anything at **[thenotoriousjeremy.github.io/bindarr](https://thenotoriousjeremy.github.io/bindarr/)**. The demo runs the real frontend against sample data, so edits aren't saved and scanning is off (it needs a server).
+## Highlights
 
----
+- Search, browse, scan, and catalog cards across Pokémon, Magic, and Lorcana.
+- Track physical copies, digital **Arena** copies, and wishlist entries separately.
+- Store physical cards in binders, boxes, rows, pages, slots, and an Unassigned Pile.
+- Build decks from the correct inventory, import decklists, find cards by storage position, and check physical decks out for play.
+- Track values, price history, graded slabs, missing copies, and checked-out copies.
+- Import ManaBox exports and MTGJSON preconstructed decks; export CSV, JSON, decklists, and complete backups.
+- Run a private multi-user installation with roles, invite-only registration by default, API keys, and optional public shares.
 
-## Features
+## Recent changes
 
-- **Camera scanning** — photograph a card and the server identifies it from the image alone. Works for Magic, Pokémon, and Lorcana.
-- **Collection and inventory** — search or browse a whole set with multi-select; pin a set and add by collector number one keystroke at a time. Stack duplicate rows or split them by condition and printing, filter out cards allocated to checked-out decks, mark copies missing without losing their location, and duplicate a raw copy from its inspector.
-- **Physical location tracking** — binders by page and slot (1–9), boxes by row and divider. Drag cards between pockets, file them by tapping on a phone, or move a multi-selection between containers. If Auto-file or guided filing runs out of space, it asks before adding matching pages or rows and continuing.
-- **Storage list tools** — switch between physical layout and scalable image-list views; list views support search, filters, storage/name/value/set/type/rarity sorting, duplicate stacking, card-count badges, and clear In Play/Missing states.
-- **Deck Builder & checkout** — build decks, edit their properties, view and sort cards by physical location, then check a deck out with a pull checklist. Copies remain at their recorded location and show which checked-out deck has them in play; pulled state persists until return.
-- **Imports** — preview and import ManaBox `.txt` collection exports, import ManaBox decklists or storage containers, and add an MTGJSON preconstructed Magic deck to your collection with an optional Deck Box.
-- **Complete portable backups** — export and restore collection cards, cached card data, containers and layouts, and decks from one Bindarr JSON file.
-- **Dashboard** — collection value, 7/30-day trends, rarity and type breakdowns, set completion.
-- **Graded slabs** — record grader, grade and cert number per copy (PSA cert lookup fills them in), and give a slab its own value instead of the raw card's price.
-- **Cards in 11 languages** — search, scan and record Japanese, Korean, Chinese, German, French, Spanish, Italian, Portuguese and Russian printings. A copy references the printing it actually is, so it shows the name and artwork on the card while staying searchable by its English name.
-- **Exports and API** — CSV (TCGplayer-compatible) or JSON, plus a read-only API key for reading net worth from elsewhere.
-- **Multi-user** — session-token auth, admin panel for users and roles, optional public share links.
-- **11 UI languages**, community-translated.
+### Arena inventory and decks
 
-Architecture, the scan pipeline, and the data model are in [PROJECT.md](PROJECT.md).
+- **Arena** is a first-class digital inventory beside Physical Collection and Wishlist.
+- Add cards directly to Arena, import ManaBox collection entries into Arena, and filter Dashboard statistics by All Cards, Physical, or Arena.
+- Create a **Physical** or **Arena** deck. Arena decks only accept cards owned in Arena; physical decks use physical collection cards.
+- **Edit Properties** can switch a deck between Physical and Arena when every card exists in the destination inventory and the deck is not checked out.
+- Arena decklist imports search Arena inventory instead of physical cards.
+- Arena decks cannot be checked out because they have no physical pull list.
 
-## Collection, storage, and deck workflows
+### Deck Builder improvements
 
-### ManaBox imports
+- Deck lists identify the deck type in a dedicated **Deck Type** column.
+- **Duplicate deck** copies the deck metadata and card quantities into a new `<name> (Copy)` deck without copying checkout state.
+- Physical deck cards can sort by container, page or row, and slot. Checkout creates a pull checklist and preserves the card's stored position.
+- Cards already allocated to another checked-out deck show their unavailable quantity and deck name.
 
-**Collection:** Open **Add Cards**, select the upload button, then choose a
-ManaBox `.txt` export. Bindarr previews its card, normal, foil, and distinct
-printing counts before you commit. It resolves printings by set and collector
-number, so normal and foil copies of the same card remain separate.
+### Collection and storage improvements
 
-**Decks:** Open **Deck Builder → Create Deck → + Quick Import Decklist**, choose
-**ManaBox text export**, then select the `.txt` export. Bindarr reads the
-filename as the deck name, uses MTG Commander defaults, and resolves each
-printing by its ManaBox set and collector number.
+- Collection has Collection, Unassigned Pile, Wishlist, and Arena views.
+- Mark a card or multi-selection Missing/Found without losing its last known location.
+- Move selected cards between containers, return them to Unsorted, or auto-file them. When a container is full, Bindarr can add matching pages or rows after confirmation.
+- Storage supports physical layout and image-list views, with search, filters, sorting, duplicate stacking, and 60%–250% image scaling.
 
-**Storage containers:** In the Storage view, select the upload button beside
-**Create Container**, then choose a ManaBox `.txt` export. Bindarr creates a
-**Box** named from the file (`Black Box.txt` becomes `Black Box`) and files
-matching **Unsorted cards you already own** into its first row. It never adds
-new collection cards during a container import; cards absent from Unsorted are
-reported as not found.
+## Workflows
 
-### Magic preconstructed decks
+### Add physical, Arena, or wishlist cards
 
-Open **Add Cards → Precon Deck**, search the MTGJSON deck catalog, and use
-**Details** to inspect its creatures, spells, and lands. **Add Full Deck**
-resolves every printing through Scryfall and adds the cards to your collection.
-Choose the optional Deck Box prompt to file the imported cards straight into a
-new container sized for the deck.
+Open **Add Cards**, search by name, set, or collector number, then add the selected printing to Collection, Wishlist, or Arena. Rapid Add supports one-keystroke collector-number entry when a set is pinned. The card inspector can change condition, language, value, graded-slab details, storage placement, and duplicate an eligible raw physical copy.
 
-### Deck Builder
+### Import ManaBox collection exports
 
-Open a deck and select **Edit Properties** to change its name, description,
-format, category, accent color, target size, and deck type. A deck's game stays
-fixed. You can switch Physical and Arena only when every deck card is available
-in the destination inventory and the deck is not checked out.
+In **Add Cards**, select **Choose .txt file** and choose a ManaBox export. Bindarr previews normal, foil, and distinct-printing counts, then resolves each printing by set and collector number. Choose Arena before importing when the export represents your digital inventory.
 
-Physical deck cards can show their storage container, page or row, and slot;
-sort by location to collect them in physical order. **Check Out for Play** opens
-a pull checklist grouped by container and compartment. Checkout reserves only
-the copies allocated to that deck, preserves their storage locations, and
-persists each pulled card until it is returned. Arena decks can only use cards
-from Arena inventory and cannot be checked out.
+### Create and import decks
 
-Cards that cannot currently be used have a red warning. The label shows the
-missing copy count and, when another checked-out deck holds the copy, that
-deck's name — for example, `1 unavailable — Goblin Stampede`.
+1. Open **Deck Builder → Create Deck**.
+2. Choose the game and **Physical** or **Arena** inventory.
+3. Build from owned cards, import a text decklist, or—for Magic—select a preconstructed deck from MTGJSON.
 
-### Storage and inventory
+Decklist import accepts plain lines and MTG Arena-style lines such as `4 Llanowar Elves (FDN) 227`. Arena imports resolve only against Arena cards. Imports add only cards you own in the deck's inventory.
 
-Containers support physical layout and image-list views. In image-list view,
-use the plus and minus controls to scale card images from 60% to 250%, then
-search, filter, and sort the open container. List cards can be stacked like
-the Collection view, with optional condition and printing splits; the count is
-shown on the card.
+Use **Duplicate deck** for a new deck with the same card list. Use **Edit Properties** to adjust metadata or change its deck type after inventory validation.
 
-Cards allocated to a checked-out deck display an outlined **In Play** badge
-with its quantity; hover it for the deck name. Use the In Play/Not In Play
-filters to find them. Mark individual or selected cards **Missing** or
-**Found** without moving them, and use multi-select to file chosen cards into
-another container or return them to Unsorted. **Settings → Preferences** also
-remembers your default Collection, Storage, and Deck Builder view, plus grid
-card scale.
+### Check out a physical deck
 
-### Complete backups
+Open a Physical deck and choose **Check Out for Play**. Bindarr creates a pull list grouped by container and compartment, reserves the copies used by that deck, and keeps their stored locations intact. Mark each card pulled while gathering it, then return the deck to release the reservation. Arena decks are digital and therefore have no checkout flow.
 
-In **Settings → Collection Backup & Data Options**, choose **Export Complete
-Backup** for a portable Bindarr JSON archive. It preserves collection rows,
-cached card data, storage containers and layouts, and decks. Import that same
-file from the panel to restore it into the current account after confirmation;
-restore replaces that account's collection cards, storage, and decks.
+### Import a Magic preconstructed deck
 
----
+Open **Add Cards → Precon Deck**, search MTGJSON by name, set code, or type, inspect the details, and choose **Add Full Deck**. Bindarr resolves exact Scryfall printings and can create a correctly sized Deck Box for the imported physical cards.
+
+### Import a ManaBox storage container
+
+In **Storage**, choose the upload action beside **Create Container** and select a ManaBox `.txt` export. Bindarr creates a Box named after the file and files matching cards already in Unsorted into its first row. It never creates missing collection cards during this workflow.
+
+### Back up or move an account
+
+In **Settings → Collection Backup & Data Options**, select **Export Complete Backup**. The JSON archive contains collection entries, cached card metadata, containers and layouts, and decks. Restoring a complete backup replaces the current account's collection, storage, and decks after confirmation.
+
+## Card scanning
+
+Scanning matches card artwork from the camera image; it does not use OCR. It needs both models and a catalog.
+
+1. Fetch models after deployment:
+
+   ```bash
+   docker exec bindarr node scripts/fetch-models.mjs
+   ```
+
+   From source, run the same command in `backend/`.
+
+2. Build a game/language catalog under **Admin → Catalogs**. A catalog downloads card data and fingerprints card artwork. It can take hours for a large catalog; stopping and resuming retains completed work.
+
+Scanning from a phone requires HTTPS. Use the built-in HTTPS port or terminate TLS with a reverse proxy. The detailed pipeline and its limitations are in [PROJECT.md](PROJECT.md#image-identification-pipeline).
 
 ## Install
 
-### Docker (recommended)
+### Docker
 
-No clone, no build. Create a `docker-compose.yml`:
+Create `docker-compose.yml`:
 
 ```yaml
 services:
@@ -130,15 +118,12 @@ services:
     container_name: bindarr
     restart: unless-stopped
     ports:
-      - "3001:3001"   # HTTP  — point a reverse proxy here
-      - "3443:3443"   # HTTPS — use this directly if you have no proxy (scanning needs it)
-    environment: {}
-      # All optional — see the table below.
-      # - POKEMON_TCG_API_KEY=       # only if you already have one; pokemontcg.io is deprecated (see below)
-      # - POKEMONTCGAPI_KEY=         # only for the optional pokemontcgapi.com provider (see below)
-      # - PUBLIC_BASE_URL=
-      # - DEFAULT_ADMIN_PASSWORD=
-      # - TRUST_PROXY=1
+      - "3001:3001" # HTTP: localhost or behind a TLS proxy
+      - "3443:3443" # HTTPS: direct phone/camera access
+    environment:
+      # DEFAULT_ADMIN_PASSWORD: change-me
+      # PUBLIC_BASE_URL: https://cards.example.com
+      # TRUST_PROXY: "1"
     volumes:
       - bindarr-data:/app/database
 
@@ -152,289 +137,107 @@ Start it:
 docker compose up -d
 ```
 
-Open `http://localhost:3001`. The first visit asks you to set a password for the
-`admin` account and creates it right there — no password is ever written to the
-logs. (If you set `DEFAULT_ADMIN_PASSWORD` instead, that same `admin` account is
-created at startup and the first visit is a normal login screen.)
+Open `http://localhost:3001`. Without `DEFAULT_ADMIN_PASSWORD`, the first browser visit creates the owner account. With it set, startup creates the `admin` account and the first visit is a regular login.
 
-You can change the password later in Settings. Everything (database, backups, scan models and catalogs, TLS cert) lives in the `bindarr-data` volume.
-
-Update with `docker compose pull && docker compose up -d`. Your volume is untouched.
-
-To build from source instead, clone the repo and run `docker compose up -d` — the bundled [`docker-compose.yml`](docker-compose.yml) uses `build:` rather than `image:`.
-
-#### Which port to use
-
-Both ports serve the same app and the same database. Only the transport differs.
-
-| Port | Use it when |
-| --- | --- |
-| `3001` (HTTP) | You have a reverse proxy (Caddy, NPM, Traefik, Tailscale Serve) terminating TLS in front, or you're on the host itself at `http://localhost:3001`. |
-| `3443` (HTTPS) | You have no proxy and want to reach Bindarr from a phone. **Card scanning only works here** — browsers refuse camera access over plain HTTP to anything but `localhost`. |
-
-Publish only the one you use. Behind a proxy, drop the `3443` line and set `TRUST_PROXY=1`.
-
-The HTTPS certificate is self-signed and generated on first start into the volume, so your browser warns once per device (**Advanced → Proceed**; iOS Safari: **Show Details → Visit this website**). Mount a real certificate and set `SSL_CERT_PATH` + `SSL_KEY_PATH` to skip the warning.
-
-#### Image tags
-
-| Tag | Points at |
-| --- | --- |
-| `latest` | newest release — use this |
-| `1.8`, `1.8.5` | a specific release, if you want to control upgrades |
-| `edge` | newest `main` commit, including unreleased work |
-| `sha-<short>` | one exact commit |
-
-#### Environment variables
-
-All optional.
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `PORT` | `3001` | HTTP port. |
-| `HTTPS_PORT` | `3443` in the image | HTTPS port. Set to `""` for HTTP only. |
-| `SSL_CERT_PATH` / `SSL_KEY_PATH` | — | Your own certificate instead of the generated self-signed one. |
-| `DB_PATH` | `/app/database/bindarr.db` | SQLite file location. |
-| `DEFAULT_ADMIN_PASSWORD` | — | Create the `admin` account with this password at startup instead of letting the first browser visit create the owner account. Only applied while the `users` table is empty — changing it later does nothing to an existing account. |
-| `POKEMON_TCG_API_KEY` | — | **Only for installs still on the pokemontcg.io provider.** Raises its rate limit from 1,000 to 20,000 requests/day. pokemontcg.io is deprecated: [new registrations are closed](https://dev.pokemontcg.io/) and existing keys stop working on **1 March 2027**. New installs default to TCGdex, which needs no key — leave this unset. |
-| `POKEMONTCGAPI_KEY` | unset | Server-side key for the optional [pokemontcgapi.com provider](#pokemon-data-providers). Setting a key alone does not enable it. |
-| `PUBLIC_BASE_URL` | — | External URL behind a proxy, e.g. `https://cards.example.com`. Used for share links and auto-allowed as a CORS origin, so proxied logins work with just this. Also editable in the Admin panel. |
-| `CORS_ORIGIN` | — | Extra allowed origins, comma-separated. Localhost and private-LAN origins are always allowed. |
-| `ALLOW_REGISTRATION` | unset | `true` allows self-registration. Unset means invite-only: admins create accounts. |
-| `OIDC_ENABLED` | `false` | Set to `true` to enable OpenID Connect / SSO login (Authelia, Authentik, Keycloak, etc.). |
-| `OIDC_ISSUER_URL` | — | Base URL of the OIDC provider (e.g. `https://auth.example.com`). **Must be `https`** — `http` is accepted only for `localhost`/`127.0.0.1`. Bindarr accepts the ID token on the strength of the TLS connection it arrives over rather than verifying its signature (permitted for the authorization-code flow by [OIDC Core §3.1.3.7](https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation)), so plain HTTP would leave the identity unauthenticated. The discovery document's own `issuer` must also match this value. |
-| `OIDC_CLIENT_ID` | — | OIDC OAuth2 client ID. |
-| `OIDC_CLIENT_SECRET` | — | OIDC OAuth2 client secret. |
-| `OIDC_PROVIDER_NAME` | `Single Sign-On` | Display name shown on the login button (e.g. `Authelia`, `Authentik`, `Keycloak`). |
-| `OIDC_USER_CLAIM` | `preferred_username` | Identity claim to map to the Bindarr username. |
-| `OIDC_AUTO_PROVISION` | `true` | Automatically create a Bindarr member account on first successful SSO login. |
-| `OIDC_ALLOW_USERNAME_LINK` | `false` | Let an SSO identity attach itself to an **existing** Bindarr account that has the same username. Needed to move accounts created before SSO onto it. **Only turn this on if your users cannot choose their own username at the identity provider** — if they can, someone setting theirs to `admin` takes the owner account on their first login. With it off, an SSO login whose username is already taken is refused rather than silently given a second, empty account. |
-| `OIDC_TOKEN_ENDPOINT_AUTH_METHOD` | `client_secret_basic` | Token endpoint client authentication method. Set to client_secret_basic or client_secret_post. |
-| `TRUST_PROXY` | — | Number of proxy hops (usually `1`) when a reverse proxy terminates TLS, so rate limiting sees the real client IP. |
-| `CV_MODEL_DIR` | `/app/database/models` in the image | Where the scan models and catalogs live. Must be on persistent storage, or an image update discards every catalog you built. |
-| `CV_SCAN_GAP` | `0.10` | How far a match must stand above its runner-ups before it counts as an answer rather than "this card is not in the catalog". Lower accepts more guesses. |
-| `BACKUP_INTERVAL_HOURS` | `24` | Automatic database snapshot interval. `0` disables. |
-| `BACKUP_KEEP_LAST` | `10` | How many snapshots to retain. |
-
-`GET /api/health` returns `200 {"status":"ok"}` with no auth and backs the image's `HEALTHCHECK`.
-
-### Prebuilt server binary
-
-If you'd rather not run Docker, every release ships a self-contained server. Download it from the [latest release](https://github.com/thenotoriousJeremy/bindarr/releases/latest), unpack, run, then open `http://localhost:3001`.
-
-| OS | File | Run |
-|----|------|-----|
-| Windows | `Bindarr-Server-windows-x64.zip` | unzip, double-click `bindarr-server.exe` |
-| Linux | `Bindarr-Server-linux-x64.tar.gz` | `tar xzf`, then `chmod +x bindarr-server && ./bindarr-server` |
-| macOS (Apple Silicon) | `Bindarr-Server-macos-arm64.tar.gz` | `tar xzf`, then `chmod +x bindarr-server && ./bindarr-server` |
-
-The first visit in a browser asks you to create the owner account. The SQLite file is created next to the binary. To set variables from the table above, create `app/backend/.env` before the first run — HTTPS is off by default here, so add `HTTPS_PORT=3443` if you want to scan from a phone.
-
-### Mobile apps
-
-`Bindarr-Android.apk` is attached to each release (allow "install from unknown sources"). iOS goes out through TestFlight. Both talk to a Bindarr server, so install one of the above first and point the app at it.
-
----
-
-## Pokémon data providers
-
-Choose the Pokémon provider under **Admin → Instance Settings**. New installs
-still use TCGdex, and upgrades keep the provider already configured.
-
-| Provider | Printings served | Key |
-| --- | --- | --- |
-| TCGdex | All existing Pokémon language choices, subject to its catalogue coverage | None |
-| pokemontcg.io (deprecated) | English; other languages use TCGdex | Optional `POKEMON_TCG_API_KEY`. Registrations are closed and keys stop working on 1 March 2027; an install still on it gets a warning in the server log at every boot |
-| pokemontcgapi.com (optional) | English, Japanese and Simplified Chinese; other languages use TCGdex | Required `POKEMONTCGAPI_KEY` |
-
-To enable pokemontcgapi.com, set `POKEMONTCGAPI_KEY` in the **backend server's**
-environment and restart it, then select **pokemontcgapi.com** and save in the
-Admin panel. For Docker, add `POKEMONTCGAPI_KEY: ${POKEMONTCGAPI_KEY}` under the
-service's `environment` mapping. This key is separate from the pokemontcg.io key
-in personal Settings and is never returned to the browser. Setting the key alone leaves the
-provider disabled.
-
-The optional provider supports set browsing, name and collector-number searches,
-card lookup, artwork, and caching cards for local scan catalogs. Japanese and
-Simplified Chinese searches use their own physical release lines, not translated
-Western sets. The API can fall back to English names, and Chinese printed names
-are not currently supplied. Traditional Chinese and all other existing language
-choices continue through TCGdex.
-
-Prices prefer an ungraded Cardmarket quote in EUR, then TCGplayer in USD, for the
-printing's language. Printing-specific columns always use the same source and
-currency as the representative price. The inspector names the source; there is
-no currency conversion. Unavailable or plan-withheld prices remain absent,
-including the currently unpriced Simplified Chinese catalogue. TCGCSV continues
-to price existing providers' cards, but does not overwrite these quotes.
-
-Requests use up to 250 cards per page, cursor pagination, a persistent response
-cache and conditional ETag requests. Normalized cards also live in `card_cache`.
-
-The API meters credits, and prices are what cost them: a 250-card page is one
-credit without prices and about forty with them (measured 10 Sep 2026). So
-browsing and searching fetch names and artwork only, and a card is priced at the
-two moments the app shows a value: when it enters your collection (two credits for
-that card) and in the automatic refresh of owned or decked cards (batched, about
-one credit per six cards). That refresh only asks about cards whose stored price
-is older than three days, and it runs as often as **Admin → Instance Settings →
-Refresh prices** says: daily by default, down to every 30 days or never (see
-[How often prices refresh](#how-often-prices-refresh)). Search results therefore
-show no price until a card is added. A full catalogue build of a language costs roughly one credit per 250
-cards (Japanese, the largest release line, is under 100 credits), so check the
-account's quota before building a whole language. An outage serves matching
-cached cards or reports an error; it does not silently switch ID namespaces.
-
-Switching provider keeps existing collection entries and their IDs. Existing scan
-catalogs remain usable; rebuild the relevant language catalog to include the new
-provider's cards. This is an alternative an admin can select when another provider
-is unavailable, not automatic failover or a migration of existing cards.
-
-API contract and coverage: [documentation](https://pokemontcgapi.com/docs),
-[OpenAPI](https://pokemontcgapi.com/openapi.json),
-[regional coverage](https://pokemontcgapi.com/coverage).
-
-## Card scanning
-
-Scanning is image-only — no OCR, no typing. Two things have to be in place, and
-neither ships inside the app:
-
-**1. The models.** Two small neural networks (~9.6 MB together) find the card in
-the frame and turn its artwork into a fingerprint. They are AGPL-3.0 while Bindarr
-is MIT, so they are fetched deliberately rather than bundled:
+The persistent volume contains the SQLite database, automatic backups, TLS certificate, scan models, and catalogs. Upgrade safely with:
 
 ```bash
-docker exec bindarr node scripts/fetch-models.mjs
+docker compose pull && docker compose up -d
 ```
 
-(Running from source or the prebuilt binary: `node scripts/fetch-models.mjs` in
-`backend/`.) Restart afterwards. Until they are there, the server says so at
-startup and scanning returns a clear error instead of guesses.
+The repository's [`docker-compose.yml`](docker-compose.yml) builds from local source instead of pulling the image.
 
-**2. A catalog.** The fingerprint has to be compared against something. Build one
-per game and language from **Admin → Catalogs**: it downloads that game's card
-list and fingerprints every card's artwork — hours for a full English game, and
-about 5 MB of output per 10,000 cards. Progress is live, stopping keeps what it
-has, and resuming reuses it. `--catalogs` on the fetch command above grabs
-prebuilt English Magic and Pokémon catalogs instead, which answer immediately but
-only resolve cards your install has already seen.
+### HTTP, HTTPS, and reverse proxies
 
-Scanning is then the same whether or not you tell it which set you are feeding.
-Naming the set just restricts the comparison to that set's cards, which is faster
-and more accurate, and needs no preparation.
-
-Coverage is only as good as the card data available for a language: the panel shows
-what a catalog holds against what the provider claims exists, e.g. *3,297 of
-16,192* for Japanese Pokémon, where the upstream data simply stops. A card outside
-the catalog is reported as missing rather than guessed at, with the nearest matches
-offered underneath.
-
-The pipeline, its accuracy numbers, and the measurement harness are documented in
-[PROJECT.md](PROJECT.md#image-identification-pipeline).
-
----
-
-## Card values
-
-Every price source Bindarr talks to — TCGplayer, Scryfall, Cardmarket — quotes the **raw** card. A PSA 10 sells for a multiple of that, so a graded copy needs its own number, and each copy can carry one: open the card, edit it, and set **Value for this copy**. That value replaces the market price everywhere — net worth, set totals, sorting by price, exports. Clear the field to go back to the card's own price.
-
-For Pokémon slabs it can also be fetched. Put a [PokemonPriceTracker](https://www.pokemonpricetracker.com/api) key in **Settings → API Keys** and a **Fetch graded price** button appears on graded copies. It fills in what that card sells for on eBay at that grade — PSA, BGS or CGC, half grades included — and says how many sales the figure rests on. If the grade has no recorded sales it tells you which grades do, rather than guessing.
-
-One card per press, never a background sweep: each lookup spends 2 of the free tier's 100 daily credits, and a sweep over a collection would spend a week's worth on one boot. Magic slabs have no source, so they stay hand-entered.
-
-### Cards in other languages
-
-Which marketplace can price a printing depends on where it is sold, so the source follows the card:
-
-| Card | Priced from |
+| Port | Use |
 | --- | --- |
-| Magic, any language | Scryfall — TCGplayer's USD price, or Cardmarket's EUR one when TCGplayer has no listing (most non-English printings) |
-| Pokémon via pokemontcgapi.com | Cardmarket EUR when available, otherwise TCGplayer USD, for the printing's language |
-| Pokémon via existing providers, English or Japanese | TCGplayer, via TCGCSV, in USD |
-| Pokémon via existing providers, other languages | the **English** printing's TCGplayer price, labelled as such — TCGplayer runs no German, Korean or Chinese catalogue |
+| `3001` | Localhost or a reverse proxy that terminates TLS. |
+| `3443` | Direct HTTPS access, including camera use from a phone. |
 
-Prices are stored in the currency they were quoted in and never converted — an exchange rate is a live number Bindarr has no source for — so each card shows its own symbol (`$4.50`, `€4.50`) and the card inspector names the marketplace. Collection totals sum the currencies as-is; `currencies` in the API response says when a total is mixed.
+The built-in HTTPS certificate is self-signed and generated inside the persistent volume. Browsers require one explicit acceptance per device. Mount a trusted certificate and set `SSL_CERT_PATH` and `SSL_KEY_PATH` to replace it. When a reverse proxy terminates TLS, set `TRUST_PROXY=1` and usually publish only port `3001`.
 
-A price only exists once something fetched it. The Pokémon price sweep covers the sets you own cards from, so browsing a set you own nothing in shows `0.00` until a card from it lands in your collection.
+### Configuration
 
-### How often prices refresh
+All settings are optional. The canonical, current list is [`.env.example`](.env.example).
 
-Owned and decked cards have their prices re-fetched automatically, and only where the stored price has aged past three days — a sweep never re-asks about a card it refreshed yesterday. **Admin → Instance Settings → Refresh prices** sets how often that runs: daily (the default), every 3 days, weekly, every 30 days, or never.
+| Variable | Purpose |
+| --- | --- |
+| `DB_PATH` | SQLite database path. Docker defaults to `/app/database/bindarr.db`. |
+| `DEFAULT_ADMIN_PASSWORD` | Bootstrap `admin` password when no users exist. It never changes an existing account. |
+| `PUBLIC_BASE_URL` | External URL used for share links and allowed as a CORS origin. |
+| `TRUST_PROXY` | Reverse-proxy hop count, commonly `1`. |
+| `HTTPS_PORT` | Built-in HTTPS port; set empty for HTTP-only operation. |
+| `SSL_CERT_PATH` / `SSL_KEY_PATH` | Trusted TLS certificate and key. |
+| `ALLOW_REGISTRATION` | Set `true` to allow public self-registration. |
+| `POKEMONTCGAPI_KEY` | Optional server-side key for the pokemontcgapi.com provider. |
+| `CV_MODEL_DIR` | Persistent location for scan models and catalogs. |
+| `BACKUP_INTERVAL_HOURS` / `BACKUP_KEEP_LAST` | Automatic SQLite snapshot schedule and retention. |
 
-Daily is what the free providers publish, so leave it there unless you have a reason. Turn it down if you are on a provider that charges per card refreshed, or if you have a very large collection and only look at its value occasionally. **Never** stops automatic refreshes entirely; prices already stored stay as they are.
+`GET /api/health` is unauthenticated and returns `{"status":"ok"}`.
+
+### Prebuilt server and mobile apps
+
+Releases include self-contained server binaries for Windows, Linux, and Apple Silicon macOS. Download them from the [latest release](https://github.com/thenotoriousJeremy/bindarr/releases/latest), unpack, run, and open `http://localhost:3001`.
+
+Release artifacts also include an Android APK; iOS is distributed through TestFlight. Mobile clients connect to your Bindarr server rather than storing a separate collection.
+
+## Providers, pricing, and languages
+
+Select the Pokémon provider under **Admin → Instance Settings**. New installations use TCGdex without a key; optional provider credentials and behavior are documented in [`.env.example`](.env.example) and [PROJECT.md](PROJECT.md).
+
+Bindarr stores the card's printing and language, not merely a translated card name. It supports English, Brazilian Portuguese, French, German, Italian, Japanese, Korean, Russian, Simplified Chinese, Traditional Chinese, and Spanish UI translations. Card-language coverage depends on the selected game provider.
+
+Prices come from the provider associated with the printing, primarily Scryfall, TCGplayer, and Cardmarket. Bindarr does not convert currencies: mixed-currency totals are explicitly reported as mixed. A graded copy can use its own per-copy value, which replaces the raw card market price in totals and exports.
 
 ## API access
 
-For reading your collection from somewhere else — a finance tracker, a dashboard widget, a script — generate a key under **Settings → API Keys** and send it as a Bearer token:
+Create a read-only API key in **Settings → API Keys**, then pass it as a Bearer token:
 
 ```bash
 curl -H "Authorization: Bearer <key>" http://localhost:3001/api/stats/networth
 ```
 
-```json
-{ "totalValue": 4210.55, "totalSpent": 2980.00, "gain": 1230.55, "gainPct": 41.3,
-  "totalCards": 812, "uniqueEntries": 604,
-  "byGame": { "pokemon": { "cards": 500, "value": 3100.20 }, "mtg": { "cards": 312, "value": 1110.35 } },
-  "currencies": ["USD"], "asOf": "2026-08-17T17:55:40.898Z" }
-```
+API keys only authorize `GET` requests and cannot access admin endpoints. Useful endpoints include:
 
-The key never expires and is **read-only**: any request that is not a GET is refused, and admin endpoints are refused outright. Add `?game=pokemon` to scope the figures. `/api/stats` returns the full dashboard payload if you want the breakdowns too, and `/api/collection` returns every card. More than one entry in `currencies` means providers quoted in different currencies and the total sums them as-is.
-
-Revoking is one click in the same panel; anything using the old key stops immediately.
-
-## Arranging a binder
-
-A container set to **Custom** order files by hand rather than by a sort scheme. Drag a card from the Unsorted queue into a pocket to file it, drag a filed card to another pocket to move it (drop it on an occupied pocket and the two swap), and drag one back to the Unsorted queue to take it out of the binder.
-
-Dragging is mouse-only — on a phone a drag would fight the page-swipe, so touch files by tapping instead: turn on **Arrange**, tap the card, tap the pocket. Both routes go through the same placement rules, so a locked or full container refuses either way.
-
-## Backup and restore
-
-Everything is in one SQLite file (`DB_PATH`, in the `bindarr-data` volume under Docker).
-
-Bindarr snapshots the database itself every 24 hours into a `backups/` folder beside it, keeping the last 10. That runs while the server is live and needs no downtime.
-
-For an off-box copy, stop the container first so the WAL is checkpointed:
-
-```bash
-docker run --rm -v bindarr-data:/data -v "$PWD":/backup alpine cp /data/bindarr.db /backup/
-```
-
-Restore by dropping the file back into the volume with the container stopped. Individual users can also export and re-import their own collection as CSV or JSON from the app.
-
-**Lost the admin password?** There's no self-service reset, and `DEFAULT_ADMIN_PASSWORD` will not change an existing account — it is only used when no accounts exist. Delete the database file to start fresh and create the owner account again.
-
-> **Upgrading from before v1.5.0:** the database file was renamed `pokemon_cards.db` → `bindarr.db`. First start renames it automatically, sidecars included. Old `pokemon_cards.*.bak` backups still restore.
-
----
+- `GET /api/stats/networth` — collection value and per-game totals.
+- `GET /api/stats` — dashboard breakdowns and trends.
+- `GET /api/collection` — owned collection entries.
+- `GET /api/health` — unauthenticated service health.
 
 ## Development
 
-Node 18+ and npm 9+.
+Node 18+ and npm 9+ are required; Node 20 matches the server/container environment.
 
 ```bash
 npm run install:all
 npm run dev
 ```
 
-Frontend at `https://localhost:5173` (self-signed HTTPS, so the camera works), backend at `http://localhost:3001`.
+Development frontend: `https://localhost:5173`.
 
-To test scanning from a phone, put it on the same Wi-Fi and open `https://<your-computer-ip>:5173`, then accept the certificate warning (**Advanced → Proceed**).
+Development backend: `http://localhost:3001`.
 
-Tests: `npm test`. Frontend lint (matches CI, fails on any warning): `cd frontend && npm run lint`. Code layout and conventions: [PROJECT.md](PROJECT.md).
+Run the full test set:
 
----
+```bash
+npm test
+```
+
+Frontend quality gates:
+
+```bash
+cd frontend
+npm run lint
+npm run check:locales
+npm run build
+```
+
+Repository architecture, route ordering, database conventions, and contributor guidance are in [PROJECT.md](PROJECT.md) and [AGENTS.md](AGENTS.md).
 
 ## Translating
 
-Bindarr speaks English, Brazilian Portuguese, French, German, Italian, Japanese, Korean, Russian, Simplified Chinese, Traditional Chinese and Spanish. More are welcome, and it doesn't require writing code: copy [`frontend/src/locales/en.json`](frontend/src/locales/en.json), translate the text after each `:`, open a pull request. Partial files are fine — anything missing falls back to English key by key.
-
-Details, including placeholder and plural rules, in [docs/TRANSLATING.md](docs/TRANSLATING.md).
-
-This is the language of the *app*. The language a card was printed in is a separate per-card field.
-
----
+Copy [`frontend/src/locales/en.json`](frontend/src/locales/en.json), translate the values, and open a pull request. Partial locales are valid because missing keys fall back to English. Preserve placeholders and plural forms. See [docs/TRANSLATING.md](docs/TRANSLATING.md) for details.
 
 ## License
 
-[MIT](LICENSE).
+[MIT](LICENSE)

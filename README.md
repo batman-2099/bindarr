@@ -89,6 +89,8 @@ Open **Add Cards → Precon Deck**, search MTGJSON by name, set code, or type, i
 
 In **Storage**, choose the upload action beside **Create Container** and select a ManaBox `.txt` export. Bindarr creates a Box named after the file and files matching cards already in Unsorted into its first row. It never creates missing collection cards during this workflow.
 
+To add stored cards to an existing deck, open an unlocked container, choose **Select**, select the cards, and choose a deck from **Add to Deck…** in the selection toolbar. Selected quantities are added subject to the existing deck rules; cards stay in their storage locations.
+
 ### Back up or move an account
 
 In **Settings → Collection Backup & Data Options**, select **Export Complete Backup**. The JSON archive contains collection entries, cached card metadata, containers and layouts, and decks. Restoring a complete backup replaces the current account's collection, storage, and decks after confirmation.

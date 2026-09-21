@@ -5,6 +5,7 @@ import { sortCardsByOrder } from '../utils/cardSort';
 import { getFoilOverlayClass, getPrintingBadgeLabel, getPrintingBadgeStyle } from '../utils/cardPrinting';
 import { getCardRarityBorder, getRarityBadgeStyle, getRarityBadgeLabel } from '../utils/cardRarity';
 import CardInspectorModal from './CardInspectorModal';
+import AddToDeckSelect from './AddToDeckSelect';
 import { useMultiSelect } from '../utils/useMultiSelect';
 import { isBinderType as computeIsBinder, binderSpread } from '../utils/cardOptions';
 import { displayName } from '../utils/languages';
@@ -1469,6 +1470,11 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
             <button className="btn btn-secondary" style={{ fontSize: '0.68rem', padding: '0.25rem 0.5rem' }} onClick={() => storage.setSelectedIds(new Set(cardsInActiveLocation.map(c => c.entry_id)))}>Select all ({cardsInActiveLocation.length})</button>
             <button className="btn btn-secondary" style={{ fontSize: '0.68rem', padding: '0.25rem 0.5rem' }} onClick={() => storage.setSelectedIds(new Set())}>{t('bulk.clear')}</button>
             <div style={{ width: '1px', height: '20px', background: 'var(--border-glass)' }} />
+            <AddToDeckSelect
+              onAdd={(id) => storage.runBulk('add_to_deck', id)}
+              disabled={!storage.selectedIds.size}
+              style={{ fontSize: '0.68rem', padding: '0.25rem 0.4rem', maxWidth: '160px' }}
+            />
             <select
               className="select-control"
               value={storage.bulkMoveTarget}

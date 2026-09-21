@@ -35,17 +35,18 @@ async function validateDeckAddition({ deckId, userId, cardId, newQty, dbClient }
   );
   if (!card) return { ok: false, error: 'Card not found' };
 
+  const deck = await client.get(`SELECT game, inventory_type FROM decks WHERE id = ? AND user_id = ?`, [deckId, userId]);
+  const inventoryType = deck?.inventory_type === 'arena' ? 'arena' : 'collection';
   const ownedRow = await client.get(
     `SELECT COALESCE(SUM(quantity), 0) AS owned FROM collection
-     WHERE card_id = ? AND user_id = ? AND list_type = 'collection'`, [cardId, userId]
+     WHERE card_id = ? AND user_id = ? AND list_type = ?`, [cardId, userId, inventoryType]
   );
   const owned = ownedRow ? ownedRow.owned : 0;
   if (qty > owned) {
     return { ok: false, error: `You only own ${owned} ${owned === 1 ? 'copy' : 'copies'} of ${card.name}.` };
   }
 
-  const deck = await client.get(`SELECT game FROM decks WHERE id = ? AND user_id = ?`, [deckId, userId]);
-  const game = (deck && deck.game) || card.game || 'pokemon';
+  const game = deck?.game || card.game || 'pokemon';
 
   if (!isBasicEnergyOrLand(card, game)) {
     // Copies of the same NAME already in the deck under a different card_id

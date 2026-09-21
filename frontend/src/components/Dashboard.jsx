@@ -52,6 +52,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
   // '' | 'pokemon' | 'mtg'. Collapses to the only visible game when the other is
   // hidden in Settings, so the totals never include cards the user cannot see.
   const [gameFilter, setGameFilter] = useState(() => defaultGameFilter());
+  const [inventoryFilter, setInventoryFilter] = useState('all');
   
   // Timeline Chart State
   const [historyData, setHistoryData] = useState([]);
@@ -63,19 +64,21 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
   useEffect(() => {
     fetchStats();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statsTrigger, gameFilter]);
+  }, [statsTrigger, gameFilter, inventoryFilter]);
 
   useEffect(() => {
     if (stats && stats.summary.totalCards > 0) {
       fetchTimelineHistory();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timePeriod, stats, gameFilter]);
+  }, [timePeriod, stats, gameFilter, inventoryFilter]);
 
   const fetchStats = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/stats${gameFilter ? `?game=${gameFilter}` : ''}`);
+      const params = new URLSearchParams({ inventory: inventoryFilter });
+      if (gameFilter) params.set('game', gameFilter);
+      const response = await fetch(`/api/stats?${params}`);
       if (!response.ok) {
         throw new Error(t('dash.errStats'));
       }
@@ -92,7 +95,9 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
   const fetchTimelineHistory = async () => {
     try {
       setLoadingHistory(true);
-      const response = await fetch(`/api/stats/history?period=${timePeriod}${gameFilter ? `&game=${gameFilter}` : ''}`);
+      const params = new URLSearchParams({ period: timePeriod, inventory: inventoryFilter });
+      if (gameFilter) params.set('game', gameFilter);
+      const response = await fetch(`/api/stats/history?${params}`);
       if (response.ok) {
         const data = await response.json();
         setHistoryData(data);
@@ -104,28 +109,28 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
     }
   };
 
-  const renderGameTabs = () => {
-    // One game shown: "All" and that game are the same list, so there is nothing
-    // to switch between.
-    if (!showGamePicker()) return null;
-    return (
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+  const renderFilters = () => (
+    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+      {showGamePicker() && (
         <div className="sub-nav-tabs" style={{ margin: 0 }}>
           {[['', t('dash.allGames')], ...gameOptions().map(g => [g.value, g.short])].map(([val, label]) => (
-            <button
-              key={val || 'all'}
-              type="button"
-              className={`sub-nav-tab ${gameFilter === val ? 'active' : ''}`}
-              style={{ padding: '0.35rem 0.85rem', fontSize: '0.75rem' }}
-              onClick={() => setGameFilter(val)}
-            >
+            <button key={val || 'all'} type="button" className={`sub-nav-tab ${gameFilter === val ? 'active' : ''}`}
+              style={{ padding: '0.35rem 0.85rem', fontSize: '0.75rem' }} onClick={() => setGameFilter(val)}>
               {label}
             </button>
           ))}
         </div>
+      )}
+      <div className="sub-nav-tabs" style={{ margin: 0 }}>
+        {[['all', t('dash.allCards')], ['collection', t('dash.physical')], ['arena', t('dash.arena')]].map(([value, label]) => (
+          <button key={value} type="button" className={`sub-nav-tab ${inventoryFilter === value ? 'active' : ''}`}
+            style={{ padding: '0.35rem 0.85rem', fontSize: '0.75rem' }} onClick={() => setInventoryFilter(value)}>
+            {label}
+          </button>
+        ))}
       </div>
-    );
-  };
+    </div>
+  );
 
   if (loading) {
     return <div className="spinner"></div>;
@@ -145,7 +150,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
     const gameName = isFiltered ? gameLabel(gameFilter, true) : '';
     return (
       <div>
-        {renderGameTabs()}
+        {renderFilters()}
         <div className="glass-panel" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-secondary)' }}>
           <TrendingUp size={48} style={{ color: 'var(--accent-red)', marginBottom: '1.5rem', opacity: 0.8 }} />
           <h2 style={{ color: 'var(--text-strong)', marginBottom: '0.5rem' }}>
@@ -179,7 +184,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
 
   return (
     <div>
-      {renderGameTabs()}
+      {renderFilters()}
 
       {/* Metrics Summary Grid */}
       <div className="metrics-grid">
@@ -272,17 +277,43 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
           );
         })()}
 
-        {/* Total Cards count */}
-        <div className="glass-panel metric-card accent-cards">
-          <div className="metric-header">
-            <span>{t('dash.totalCards')}</span>
-            <span className="metric-icon"><Library size={18} /></span>
+        {/* Each focused inventory view shows only its own total. */}
+        {inventoryFilter === 'all' && (
+          <div className="glass-panel metric-card accent-cards">
+            <div className="metric-header">
+              <span>{t('dash.totalCards')}</span>
+              <span className="metric-icon"><Library size={18} /></span>
+            </div>
+            <div className="metric-value">{summary.totalCards}</div>
+            <div className="metric-footer">
+              <span>{t('dash.uniqueCount', { count: summary.uniqueCards })}</span>
+            </div>
           </div>
-          <div className="metric-value">{summary.totalCards}</div>
-          <div className="metric-footer">
-            <span>{t('dash.uniqueCount', { count: summary.uniqueCards })}{summary.unsortedCount > 0 ? ` • ${t('dash.unsortedCount', { count: summary.unsortedCount })}` : ''}</span>
+        )}
+        {inventoryFilter === 'collection' && (
+          <div className="glass-panel metric-card accent-cards">
+            <div className="metric-header">
+              <span>{t('dash.physicalCards')}</span>
+              <span className="metric-icon"><Library size={18} /></span>
+            </div>
+            <div className="metric-value">{summary.physicalCards}</div>
+            <div className="metric-footer">
+              <span>{summary.unsortedCount > 0 ? t('dash.unsortedCount', { count: summary.unsortedCount }) : t('dash.physicalCards')}</span>
+            </div>
           </div>
-        </div>
+        )}
+        {inventoryFilter === 'arena' && (
+          <div className="glass-panel metric-card accent-cards">
+            <div className="metric-header">
+              <span>{t('dash.digitalCards')}</span>
+              <span className="metric-icon"><Library size={18} /></span>
+            </div>
+            <div className="metric-value">{summary.digitalCards}</div>
+            <div className="metric-footer">
+              <span>{t('collection.arena')}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Net Worth History Timeline Chart */}

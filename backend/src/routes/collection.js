@@ -25,15 +25,15 @@ const router = express.Router();
 // Stamp each result with how many copies the user already owns, so browsing a
 // set shows what is already in the binder instead of inviting duplicate adds.
 // A collection-scope search already reports owned_qty from its own join.
-async function attachOwnedQty(cards, userId) {
+async function attachOwnedQty(cards, userId, listType = 'collection') {
   if (!Array.isArray(cards) || cards.length === 0 || !userId) return;
   const ids = cards.map(c => c.id).filter(Boolean);
   if (ids.length === 0) return;
   const rows = await db.all(
     `SELECT card_id, SUM(quantity) AS qty FROM collection
-     WHERE user_id = ? AND list_type = 'collection' AND card_id IN (${ids.map(() => '?').join(',')})
+     WHERE user_id = ? AND list_type = ? AND card_id IN (${ids.map(() => '?').join(',')})
      GROUP BY card_id`,
-    [userId, ...ids]
+    [userId, listType === 'arena' ? 'arena' : 'collection', ...ids]
   );
   const owned = new Map(rows.map(r => [r.card_id, r.qty]));
   for (const c of cards) c.owned_qty = owned.get(c.id) || 0;
@@ -112,7 +112,7 @@ function normalizeSearchParams({ name = '', number = '', set = '', q = '' }) {
 
 router.all('/search', searchLimiter, async (req, res) => {
   const query = req.method === 'POST' ? { ...req.query, ...req.body } : req.query;
-  const { name: rawName, number: rawNumber, set: rawSet, scope = 'database', game = 'pokemon', lang, prints, q, image, cropped } = query;
+  const { name: rawName, number: rawNumber, set: rawSet, scope = 'database', game = 'pokemon', lang, prints, q, image, cropped, list_type } = query;
   const { name, number, set } = normalizeSearchParams({ name: rawName, number: rawNumber, set: rawSet, q });
   // 1-based page over `limit`-sized pages. 250 is the pokemontcg.io ceiling and
   // a sane cap on how much one Scryfall search will page through per request.
@@ -140,7 +140,7 @@ router.all('/search', searchLimiter, async (req, res) => {
       }
     }
 
-    await attachOwnedQty(cards, req.user.id);
+    await attachOwnedQty(cards, req.user.id, list_type);
     // Header, not the body: every existing caller expects a bare array here.
     if (total != null) {
       res.set('X-Total-Count', String(total));
@@ -672,7 +672,7 @@ async function addCardToCollection(user, body) {
   if (!card_id) {
     throw new AddCardError(400, 'card_id is required');
   }
-  if (!['collection', 'wishlist'].includes(list_type)) {
+  if (!['collection', 'wishlist', 'arena'].includes(list_type)) {
     throw new AddCardError(400, 'Invalid list_type');
   }
 
@@ -1078,7 +1078,11 @@ router.put('/collection/:id', async (req, res) => {
       updates.push('location_id = ?', 'compartment_id = ?', 'position = ?');
       params.push(finalLocationId, finalCompartmentId, finalPosition);
     }
-    if (list_type !== undefined) { updates.push('list_type = ?'); params.push(list_type); }
+    if (list_type !== undefined) {
+      if (!['collection', 'wishlist', 'arena'].includes(list_type)) return res.status(400).json({ error: 'Invalid list_type' });
+      updates.push('list_type = ?');
+      params.push(list_type);
+    }
     if (is_trade !== undefined) { updates.push('is_trade = ?'); params.push(is_trade ? 1 : 0); }
     if (favorite !== undefined) { updates.push('favorite = ?'); params.push(favorite ? 1 : 0); }
     if (game !== undefined) { updates.push('game = ?'); params.push(game); }
@@ -1356,7 +1360,7 @@ router.post('/collection/bulk', async (req, res) => {
     }
 
     if (action === 'list_type') {
-      if (!['collection', 'wishlist'].includes(value)) return res.status(400).json({ error: 'Invalid list_type' });
+      if (!['collection', 'wishlist', 'arena'].includes(value)) return res.status(400).json({ error: 'Invalid list_type' });
       const result = await db.run(`UPDATE collection SET list_type = ? WHERE id IN (${placeholders}) AND user_id = ?`, [value, ...ids, req.user.id]);
       return res.json({ message: `Moved ${result.changes} card(s) to ${value}`, affected: result.changes });
     }

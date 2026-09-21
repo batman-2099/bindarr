@@ -98,6 +98,13 @@ async function testImportRoute() {
     assert.strictEqual(csvRes.body.count, 1);
     assert.deepStrictEqual(cachedCards, [{ id: 'mtg-caldera', image_url: 'https://images.example/caldera-kavu.jpg' }]);
     assert.strictEqual((await db.get('SELECT image_url FROM card_cache WHERE id = ?', ['mtg-caldera'])).image_url, 'https://images.example/caldera-kavu.jpg');
+    const arenaRes = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+    await handler({
+      body: { format: 'manabox', data: '1 Caldera Kavu (PLS) 58', list_type: 'arena' },
+      user: { id: 1 }
+    }, arenaRes);
+    assert.strictEqual(arenaRes.statusCode, 200);
+    assert.strictEqual((await db.get(`SELECT list_type FROM collection WHERE card_id = ? ORDER BY id DESC LIMIT 1`, ['mtg-caldera'])).list_type, 'arena');
   } finally {
     scryfallApi.bulkFetchByIdentifier = originalBulkFetch;
     scryfallApi.cacheCards = originalCacheCards;

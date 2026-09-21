@@ -256,7 +256,7 @@ router.post('/import/preview', (req, res) => {
 });
 // Import endpoint
 router.post('/import', async (req, res) => {
-  const { format = 'internal', data } = req.body;
+  const { format = 'internal', data, list_type = 'collection' } = req.body;
   if (!data) {
     return res.status(400).json({ error: 'No data provided' });
   }
@@ -266,6 +266,9 @@ router.post('/import', async (req, res) => {
     let unmatchedCount = 0;
     let manaBoxItems = null;
     const formatKey = format.toLowerCase();
+    if (!['collection', 'arena'].includes(list_type)) {
+      return res.status(400).json({ error: 'Invalid list_type' });
+    }
     if (formatKey === 'backup') {
       const backup = parseCompleteBackup(data);
       const restored = await restoreCompleteBackup(backup, req.user.id);
@@ -389,8 +392,8 @@ router.post('/import', async (req, res) => {
 
         await db.run(
           `INSERT INTO collection 
-           (card_id, user_id, quantity, condition, printing, language, purchase_price, game, added_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+           (card_id, user_id, quantity, condition, printing, language, purchase_price, list_type, game, added_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
           [
             cardId,
             req.user.id,
@@ -399,6 +402,7 @@ router.post('/import', async (req, res) => {
             item.printing || 'Normal',
             item.language || 'English',
             item.purchase_price || 0,
+            list_type,
             item.game || 'pokemon'
           ]
         );

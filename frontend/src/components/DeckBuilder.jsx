@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Minus, Trash2, X, ChevronLeft, Play, BarChart2, Search, LogOut, PackageCheck, LayoutGrid, List, Download, Upload, Eye, Filter, CheckCircle, AlertTriangle, Layers, Zap, Swords, Gamepad2, SlidersHorizontal, ArrowRight, FolderPlus, FileText, MapPin } from 'lucide-react';
+import { Plus, Minus, Trash2, Copy, X, ChevronLeft, Play, BarChart2, Search, LogOut, PackageCheck, LayoutGrid, List, Download, Upload, Eye, Filter, CheckCircle, AlertTriangle, Layers, Zap, Swords, Gamepad2, SlidersHorizontal, ArrowRight, FolderPlus, FileText, MapPin } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { shuffleArray } from '../utils/shuffle';
 import { translateJapaneseName } from '../utils/langHelper';
@@ -101,6 +101,7 @@ function DeckBuilder({ showToast }) {
   const [newDeckName, setNewDeckName] = useState('');
   const [newDeckDesc, setNewDeckDesc] = useState('');
   const [newDeckGame, setNewDeckGame] = useState(() => defaultGame()); // 'pokemon' | 'mtg'
+  const [newDeckInventoryType, setNewDeckInventoryType] = useState('collection');
   const [newDeckFormat, setNewDeckFormat] = useState(() => newDeckDefaults(defaultGame()).format);
   const [newDeckCategory, setNewDeckCategory] = useState('Competitive');
   const [newDeckAccentColor, setNewDeckAccentColor] = useState('#eab308');
@@ -199,6 +200,7 @@ function DeckBuilder({ showToast }) {
           target_size: newDeckTargetSize,
           decklist_text: newDeckImportText,
           decklist_format: newDeckImportFormat,
+          inventory_type: newDeckInventoryType,
           precon_file: newDeckPreconFile
         })
       });
@@ -215,6 +217,7 @@ function DeckBuilder({ showToast }) {
         setNewDeckImportText('');
         setNewDeckImportFormat('plain');
         setNewDeckPreconFile('');
+        setNewDeckInventoryType('collection');
         setShowPreconPicker(false);
         setShowImportDecklistArea(false);
         fetchDecks();
@@ -251,9 +254,9 @@ function DeckBuilder({ showToast }) {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || t('deck.errCreateGeneric'));
-      setActiveDeck(deck => ({ ...deck, ...deckDraft, name: deckDraft.name.trim(), target_size: parseInt(deckDraft.target_size, 10) || 60 }));
       setDeckDraft(null);
-      fetchDecks();
+      await fetchDecks();
+      await loadDeckDetails(activeDeck.id);
       showToast(data.message);
     } catch (error) {
       console.error(error);
@@ -426,12 +429,27 @@ function DeckBuilder({ showToast }) {
     }
   };
 
+  const handleDuplicateDeck = async (deckId) => {
+    try {
+      const response = await fetch(`/api/decks/${deckId}/duplicate`, { method: 'POST' });
+      const data = await response.json();
+      if (!response.ok) return showToast(data.error || t('deck.errDuplicate'));
+      showToast(t('deck.duplicated'));
+      await fetchDecks();
+      loadDeckDetails(data.id);
+    } catch (err) {
+      console.error(err);
+      showToast(t('deck.errDuplicate'));
+    }
+  };
+
   const handleSearchCards = async (e, forceBrowse = false) => {
     if (e) e.preventDefault();
     try {
       setSearching(true);
-      if (forceBrowse || !searchQuery.trim()) {
-        const res = await fetch(`/api/collection?game=${deckSearchGame}`);
+      const inventoryType = activeDeck?.inventory_type === 'arena' ? 'arena' : 'collection';
+      if (forceBrowse || !searchQuery.trim() || inventoryType === 'arena') {
+        const res = await fetch(`/api/collection?game=${deckSearchGame}&list_type=${inventoryType}`);
         if (res.ok) {
           const data = await res.json();
           // /api/collection returns one row per physical entry (so N copies of
@@ -466,7 +484,8 @@ function DeckBuilder({ showToast }) {
               });
             }
           }
-          setSearchResults(Array.from(byCardId.values()));
+          const query = searchQuery.trim().toLowerCase();
+          setSearchResults(Array.from(byCardId.values()).filter(card => !query || card.name.toLowerCase().includes(query) || card.printed_name?.toLowerCase().includes(query)));
         }
       } else {
         const finalQuery = deckSearchGame === 'mtg' ? searchQuery : (translateJapaneseName(searchQuery) || searchQuery);
@@ -1185,6 +1204,18 @@ function DeckBuilder({ showToast }) {
                               {isMtg ? 'MTG' : 'Pokémon'}
                             </span>
 
+                            <span style={{
+                              fontSize: '0.6rem',
+                              fontWeight: 700,
+                              padding: '0.1rem 0.4rem',
+                              borderRadius: '4px',
+                              background: deck.inventory_type === 'arena' ? 'rgba(168,85,247,0.12)' : 'rgba(74,222,128,0.12)',
+                              color: deck.inventory_type === 'arena' ? '#c084fc' : '#4ade80',
+                              border: deck.inventory_type === 'arena' ? '1px solid rgba(168,85,247,0.25)' : '1px solid rgba(74,222,128,0.25)'
+                            }}>
+                              {deck.inventory_type === 'arena' ? t('deck.arena') : t('deck.physical')}
+                            </span>
+
                             {deck.format && (
                               <span style={{
                                 fontSize: '0.6rem',
@@ -1291,6 +1322,14 @@ function DeckBuilder({ showToast }) {
                           Open <ArrowRight size={12} />
                         </button>
 
+
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          onClick={(e) => { e.stopPropagation(); handleDuplicateDeck(deck.id); }}
+                        >
+                          <Copy size={12} /> {t('deck.duplicateDeck')}
+                        </button>
                         <button
                           className="btn btn-danger btn-icon-only"
                           style={{ padding: '0.3rem' }}
@@ -1313,6 +1352,7 @@ function DeckBuilder({ showToast }) {
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border-glass)', background: 'rgba(0,0,0,0.2)', color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('deck.colGameFormat')}</th>
+                    <th style={{ padding: '0.75rem 1rem' }}>{t('deck.inventoryType')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('deck.colNameDesc')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('filter.field.color_identity')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('deck.category')}</th>
@@ -1359,12 +1399,26 @@ function DeckBuilder({ showToast }) {
                                 {isMtg ? 'MTG' : 'Pokémon'}
                               </span>
                             </div>
+
                             {deck.format && (
                               <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600 }}>
                                 {deck.format}
                               </span>
                             )}
                           </div>
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem' }}>
+                          <span style={{
+                            fontSize: '0.6rem',
+                            fontWeight: 700,
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            background: deck.inventory_type === 'arena' ? 'rgba(168,85,247,0.12)' : 'rgba(74,222,128,0.12)',
+                            color: deck.inventory_type === 'arena' ? '#c084fc' : '#4ade80',
+                            border: deck.inventory_type === 'arena' ? '1px solid rgba(168,85,247,0.25)' : '1px solid rgba(74,222,128,0.25)'
+                          }}>
+                            {deck.inventory_type === 'arena' ? t('deck.arena') : t('deck.physical')}
+                          </span>
                         </td>
                         <td style={{ padding: '0.75rem 1rem' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1426,6 +1480,9 @@ function DeckBuilder({ showToast }) {
                             <button className="btn btn-primary" style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem' }} onClick={() => loadDeckDetails(deck.id)}>
                               {t('deck.open')}
                             </button>
+                            <button className="btn btn-secondary btn-icon-only" style={{ padding: '0.25rem' }} onClick={() => handleDuplicateDeck(deck.id)} title={t('deck.duplicateDeck')}>
+                              <Copy size={12} />
+                            </button>
                             <button className="btn btn-danger btn-icon-only" style={{ padding: '0.25rem' }} onClick={() => handleDeleteDeck(deck.id, deck.name)}>
                               <Trash2 size={12} />
                             </button>
@@ -1457,6 +1514,13 @@ function DeckBuilder({ showToast }) {
                   {t('deck.deckName')}
                   <input className="input-control" value={deckDraft.name} onChange={(event) => setDeckDraft({ ...deckDraft, name: event.target.value })} />
                 </label>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-strong)', marginBottom: '0.4rem', display: 'block' }}>{t('deck.inventoryType')}</label>
+                  <div className="sub-nav-tabs" style={{ margin: 0 }}>
+                    <button type="button" className={`sub-nav-tab ${deckDraft.inventory_type === 'collection' ? 'active' : ''}`} onClick={() => setDeckDraft({ ...deckDraft, inventory_type: 'collection' })}>{t('deck.physical')}</button>
+                    <button type="button" className={`sub-nav-tab ${deckDraft.inventory_type === 'arena' ? 'active' : ''}`} onClick={() => setDeckDraft({ ...deckDraft, inventory_type: 'arena' })}>{t('deck.arena')}</button>
+                  </div>
+                </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.75rem' }}>
                   <label className="form-group" style={{ margin: 0 }}>
                     {t('deck.format')}
@@ -1554,7 +1618,8 @@ function DeckBuilder({ showToast }) {
                   format: activeDeck.format || newDeckDefaults(activeDeck.game).format,
                   category: activeDeck.category || 'Competitive',
                   accent_color: activeDeck.accent_color || '#eab308',
-                  target_size: activeDeck.target_size || newDeckDefaults(activeDeck.game).targetSize
+                  target_size: activeDeck.target_size || newDeckDefaults(activeDeck.game).targetSize,
+                  inventory_type: activeDeck.inventory_type === 'arena' ? 'arena' : 'collection'
                 })}
                 style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}
               >
@@ -2112,6 +2177,13 @@ function DeckBuilder({ showToast }) {
               </div>
               )}
 
+              <div className="form-group">
+                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-strong)', marginBottom: '0.4rem', display: 'block' }}>{t('deck.inventoryType')}</label>
+                <div className="sub-nav-tabs" style={{ margin: 0 }}>
+                  <button type="button" className={`sub-nav-tab ${newDeckInventoryType === 'collection' ? 'active' : ''}`} onClick={() => setNewDeckInventoryType('collection')}>{t('deck.physical')}</button>
+                  <button type="button" className={`sub-nav-tab ${newDeckInventoryType === 'arena' ? 'active' : ''}`} onClick={() => setNewDeckInventoryType('arena')}>{t('deck.arena')}</button>
+                </div>
+              </div>
               {/* Format & Target Size Row */}
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.75rem' }}>
                 <div className="form-group">

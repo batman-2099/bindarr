@@ -14,6 +14,9 @@ const db = require('../src/db');
 const scryfallApi = require('../src/scryfallApi');
 const deckRouter = require('../src/routes/decks');
 const createDeck = deckRouter.stack.find(layer => layer.route?.path === '/' && layer.route.methods.post).route.stack[0].handle;
+const duplicateDeck = deckRouter.stack.find(layer => layer.route?.path === '/:id/duplicate' && layer.route.methods.post).route.stack[0].handle;
+const updateDeck = deckRouter.stack.find(layer => layer.route?.path === '/:id' && layer.route.methods.put).route.stack[0].handle;
+const { validateDeckAddition } = require('../src/utils/deckRules');
 
 async function testManaBoxDeckCreation() {
   const originalBulkFetch = scryfallApi.bulkFetchByIdentifier;
@@ -27,7 +30,9 @@ async function testManaBoxDeckCreation() {
     };
     scryfallApi.cacheCards = async cards => {
       for (const card of cards) {
-        await db.run('INSERT INTO card_cache (id, name, game) VALUES (?, ?, ?)', [card.id, card.name, card.game]);
+        const basicLand = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'].includes(card.name);
+        await db.run('INSERT INTO card_cache (id, name, game, supertype, subtypes) VALUES (?, ?, ?, ?, ?)', [card.id, card.name, card.game, basicLand ? 'Land' : null, basicLand ? JSON.stringify(['Basic', 'Land', card.name]) : null]);
+        await db.run('INSERT INTO collection (card_id, user_id, quantity, list_type) VALUES (?, ?, ?, ?)', [card.id, 1, 999, 'arena']);
       }
     };
 
@@ -37,7 +42,7 @@ async function testManaBoxDeckCreation() {
       json(body) { this.body = body; return this; }
     };
     await createDeck({
-      body: { name: "Zoraline's Last Light", game: 'mtg', decklist_format: 'manabox', decklist_text: decklist },
+      body: { name: "Zoraline's Last Light", game: 'mtg', inventory_type: 'arena', decklist_format: 'manabox', decklist_text: decklist },
       user: { id: 1 }
     }, res);
 
@@ -51,6 +56,43 @@ async function testManaBoxDeckCreation() {
     assert.strictEqual(imported.reduce((sum, card) => sum + card.quantity, 0), expected.reduce((sum, card) => sum + card.quantity, 0));
     assert.deepStrictEqual(imported.find(card => card.name === 'Zoraline, Cosmos Caller'), { name: 'Zoraline, Cosmos Caller', quantity: 1 });
     assert.deepStrictEqual(imported.find(card => card.name === 'Plains'), { name: 'Plains', quantity: 8 });
+    assert.strictEqual((await db.get('SELECT inventory_type FROM decks WHERE id = ?', [res.body.id])).inventory_type, 'arena');
+    assert.strictEqual((await validateDeckAddition({ deckId: res.body.id, userId: 1, cardId: 'mtg-test-0', newQty: 1 })).ok, true, 'Arena deck can use Arena cards');
+    assert.strictEqual((await validateDeckAddition({ deckId: res.body.id, userId: 1, cardId: 'mtg-test-0', newQty: 1000 })).ok, false, 'Arena deck cannot exceed Arena copies');
+    const duplicated = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+    await duplicateDeck({ params: { id: String(res.body.id) }, user: { id: 1 } }, duplicated);
+    assert.strictEqual(duplicated.statusCode, 201);
+    assert.deepStrictEqual(
+      await db.all(`SELECT card_id, quantity FROM deck_cards WHERE deck_id = ? ORDER BY card_id`, [duplicated.body.id]),
+      await db.all(`SELECT card_id, quantity FROM deck_cards WHERE deck_id = ? ORDER BY card_id`, [res.body.id]),
+      'duplicate preserves deck cards'
+    );
+    assert.deepStrictEqual(
+      await db.get(`SELECT name, game, inventory_type, checked_out FROM decks WHERE id = ?`, [duplicated.body.id]),
+      { name: "Zoraline's Last Light (Copy)", game: 'mtg', inventory_type: 'arena', checked_out: 0 },
+      'duplicate preserves deck metadata without checkout state'
+    );
+    const updateResponse = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+    const updateRequest = { params: { id: String(res.body.id) }, user: { id: 1 }, body: { name: "Zoraline's Last Light", inventory_type: 'collection' } };
+    await updateDeck(updateRequest, updateResponse);
+    assert.strictEqual(updateResponse.statusCode, 400, 'deck cannot switch to an inventory missing its cards');
+    await db.run(`INSERT INTO collection (card_id, user_id, quantity, list_type) SELECT card_id, user_id, quantity, 'collection' FROM collection WHERE user_id = ? AND list_type = 'arena'`, [1]);
+    updateResponse.statusCode = 200;
+    await updateDeck(updateRequest, updateResponse);
+    assert.strictEqual(updateResponse.statusCode, 200);
+    assert.strictEqual((await db.get(`SELECT inventory_type FROM decks WHERE id = ?`, [res.body.id])).inventory_type, 'collection', 'deck switches after every card is available');
+    await db.run(`DELETE FROM collection WHERE card_id = ? AND user_id = ? AND list_type = 'arena'`, ['mtg-test-0', 1]);
+    await db.run(`INSERT INTO collection (card_id, user_id, quantity, list_type) VALUES (?, ?, ?, ?)`, ['mtg-test-0', 1, 1, 'collection']);
+    const rejected = {
+      statusCode: 200,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; }
+    };
+    await createDeck({
+      body: { name: 'Arena ownership check', game: 'mtg', inventory_type: 'arena', decklist_text: '1 Zoraline, Cosmos Caller' },
+      user: { id: 1 }
+    }, rejected);
+    assert.strictEqual(rejected.statusCode, 400, 'Arena deck import rejects physical-only cards');
   } finally {
     scryfallApi.bulkFetchByIdentifier = originalBulkFetch;
     scryfallApi.cacheCards = originalCacheCards;

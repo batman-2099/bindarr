@@ -437,6 +437,11 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                   {t('inspector.wishlistItem')}
                 </span>
               )}
+              {activeCard.list_type === 'arena' && (
+                <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', padding: '0.2rem 0.5rem', borderRadius: '4px', backgroundColor: 'rgba(249, 115, 22, 0.15)', color: '#f97316', border: '1px solid rgba(249, 115, 22, 0.3)' }}>
+                  {t('inspector.arenaItem')}
+                </span>
+              )}
               {activeCard.is_trade === 1 && (
                 <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', padding: '0.2rem 0.5rem', borderRadius: '4px', backgroundColor: 'rgba(74, 222, 128, 0.15)', color: 'var(--type-grass)', border: '1px solid rgba(74, 222, 128, 0.3)' }}>
                   {t('inspector.forTrade')}
@@ -490,9 +495,9 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
 
           {mode === 'edit' ? (
             <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {listType === 'wishlist' ? (
+              {listType !== 'collection' ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(74,222,128,0.1)', padding: '0.6rem 0.9rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(74,222,128,0.2)' }}>
-                  <input type="checkbox" checked={listType === 'collection'} onChange={(e) => setListType(e.target.checked ? 'collection' : 'wishlist')} id="markOwned" style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
+                  <input type="checkbox" checked={listType === 'collection'} onChange={(e) => setListType(e.target.checked ? 'collection' : activeCard.list_type)} id="markOwned" style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
                   <label htmlFor="markOwned" style={{ cursor: 'pointer', margin: 0, fontWeight: 700, color: 'var(--type-grass)', fontSize: '0.85rem' }}>
                     {t('inspector.markObtained')}
                   </label>
@@ -695,9 +700,9 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
               </div>
 
               {/* Storage Container details (clickable to view in storage) */}
-              {activeCard.list_type !== 'wishlist' && (
+              {activeCard.list_type === 'collection' && (
                 <div 
-                  onClick={() => onViewStorage && activeCard.list_type !== 'wishlist' && onViewStorage(activeCard)}
+                  onClick={() => onViewStorage && activeCard.list_type === 'collection' && onViewStorage(activeCard)}
                   style={{
                     display: 'flex', alignItems: 'center', gap: '0.5rem',
                     background: 'rgba(255, 71, 71, 0.03)', padding: '0.65rem 0.75rem',
@@ -735,11 +740,13 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                   {t('inspector.editCard')}
                 </button>
 
-                <AddToDeckSelect
-                  onAdd={handleAddToDeck}
-                  placeholder={t('inspector.addToDeck')}
-                  style={{ fontSize: '0.8rem', padding: '0.45rem 0.5rem', maxWidth: '140px' }}
-                />
+                {activeCard.list_type === 'collection' && (
+                  <AddToDeckSelect
+                    onAdd={handleAddToDeck}
+                    placeholder={t('inspector.addToDeck')}
+                    style={{ fontSize: '0.8rem', padding: '0.45rem 0.5rem', maxWidth: '140px' }}
+                  />
+                )}
 
                 {activeCard.grader === 'Raw' && (
                   <button type="button" className="btn btn-secondary btn-icon-only" style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem' }} onClick={handleDuplicate} title={t('inspector.duplicateCard')}>
@@ -747,16 +754,16 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                   </button>
                 )}
 
-                {activeCard.list_type === 'wishlist' && (
-                  <button 
-                    className="btn btn-secondary" 
-                    style={{ backgroundColor: 'rgba(74,222,128,0.2)', color: 'var(--type-grass)', border: '1px solid rgba(74,222,128,0.3)', padding: '0 0.75rem', fontSize: '0.8rem' }} 
-                    onClick={() => handleQuickToggle('list_type', 'collection')}
-                    title={t('bulk.moveToCollection')}
-                  >
-                    {t('inspector.obtained')}
-                  </button>
-                )}
+              {activeCard.list_type !== 'collection' && (
+                <button 
+                  className="btn btn-secondary" 
+                  style={{ backgroundColor: 'rgba(74,222,128,0.2)', color: 'var(--type-grass)', border: '1px solid rgba(74,222,128,0.3)', padding: '0 0.75rem', fontSize: '0.8rem' }} 
+                  onClick={() => handleQuickToggle('list_type', 'collection')}
+                  title={t('bulk.moveToCollection')}
+                >
+                  {t('inspector.obtained')}
+                </button>
+              )}
 
                 <button
                   type="button"

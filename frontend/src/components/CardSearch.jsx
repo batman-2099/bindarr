@@ -68,6 +68,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
   const textImportInput = useRef(null);
   const [importingText, setImportingText] = useState(false);
   const [manaBoxPreview, setManaBoxPreview] = useState(null);
+  const [addToArena, setAddToArena] = useState(false);
 
   // Filter states
   const [filterRarity, setFilterRarity] = useState('');
@@ -350,8 +351,8 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
         language,
         purchase_price: parseFloat(purchasePrice) || 0,
         game,
-        location_id: null,
-        stackable: true
+        stackable: true,
+        list_type: addToArena ? 'arena' : 'collection'
       })
     });
     const data = await response.json().catch(() => ({}));
@@ -397,9 +398,11 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
       setRapidLog(prev => [{ entryId: result.id, card: hit, qty: parseInt(quantity, 10) || 1 }, ...prev].slice(0, 25));
       setRapidNumber('');
       // Keep the owned badge honest if the card is also on screen.
-      setCards(prev => prev.map(c => (c.id === hit.id
-        ? { ...c, owned_qty: (c.owned_qty || 0) + (parseInt(quantity, 10) || 1) }
-        : c)));
+      if (!addToArena) {
+        setCards(prev => prev.map(c => (c.id === hit.id
+          ? { ...c, owned_qty: (c.owned_qty || 0) + (parseInt(quantity, 10) || 1) }
+          : c)));
+      }
       onAddSuccess();
     } catch (err) {
       console.error(err);
@@ -468,6 +471,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
       setPrinting('Normal');
     }
 
+
     setIsDrawerOpen(true);
   };
 
@@ -490,7 +494,8 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedCard) return;
-    const listType = e.nativeEvent.submitter?.value || 'collection';
+    const action = e.nativeEvent.submitter?.value || 'collection';
+    const listType = addToArena && action === 'collection' ? 'arena' : action;
 
     try {
       const response = await fetch('/api/collection', {
@@ -553,8 +558,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
           body: JSON.stringify({ format: 'manabox', data: text })
         });
         const summary = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(summary.error || t('settings.importFailed', { error: '' }));
-        setManaBoxPreview({ ...summary, text, filename: file.name });
+        setManaBoxPreview({ ...summary, text, filename: file.name, listType: addToArena ? 'arena' : 'collection' });
       } catch (error) {
         console.error(error);
         showToast(error.message || t('settings.importFailed', { error: '' }));
@@ -574,7 +578,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
       const response = await fetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ format: 'manabox', data: manaBoxPreview.text })
+        body: JSON.stringify({ format: 'manabox', data: manaBoxPreview.text, list_type: manaBoxPreview.listType })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || t('settings.importFailed', { error: '' }));
@@ -705,6 +709,10 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
               {importingText ? t('settings.importing') : t('deck.chooseManaBoxFile')}
             </button>
             <input ref={textImportInput} type="file" accept=".txt,text/plain" onChange={handleManaBoxImport} style={{ display: 'none' }} />
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-secondary)', fontSize: '0.8rem', cursor: 'pointer' }}>
+              <input type="checkbox" checked={addToArena} onChange={(e) => setAddToArena(e.target.checked)} />
+              {t('search.addToArena')}
+            </label>
           </div>
         </form>
       </div>

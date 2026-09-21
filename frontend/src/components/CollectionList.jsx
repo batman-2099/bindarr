@@ -66,7 +66,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('collection_default_view') || 'gallery'); // 'gallery' or 'list'
   const [inspectorCard, setInspectorCard] = useState(null);
   const [inspectorStartEdit, setInspectorStartEdit] = useState(false);
-  const [subTab, setSubTab] = useState('collection'); // 'collection', 'unsorted', 'wishlist'
+  const [subTab, setSubTab] = useState('collection'); // 'collection', 'unsorted', 'wishlist', 'arena'
   const [showFilters, setShowFilters] = useState(false);
 
   // Search & Filter state
@@ -114,7 +114,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
     try {
       setLoading(true);
       let url = '/api/collection?list_type=collection';
-      if (subTab === 'wishlist') url = '/api/collection?list_type=wishlist';
+      if (subTab === 'wishlist' || subTab === 'arena') url = `/api/collection?list_type=${subTab}`;
       if (tradeOnly) {
         url += '&is_trade=1';
       }
@@ -360,6 +360,13 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
             style={{ fontSize: '0.85rem', padding: '0.45rem 1.25rem', borderRadius: 'var(--radius-sm)' }}
           >
             {t('collection.wishlist')}
+          </button>
+          <button
+            className={`btn ${subTab === 'arena' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setSubTab('arena')}
+            style={{ fontSize: '0.85rem', padding: '0.45rem 1.25rem', borderRadius: 'var(--radius-sm)' }}
+          >
+            {t('collection.arena')}
           </button>
         </div>
 
@@ -622,7 +629,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
                 </label>
               </div>
 
-              {subTab !== 'wishlist' && (
+              {['collection', 'unsorted'].includes(subTab) && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <input type="checkbox" id="notCheckedOutOpt" checked={notCheckedOutOnly} onChange={(e) => setNotCheckedOutOnly(e.target.checked)} style={{ width: '14px', height: '14px', cursor: 'pointer' }} />
                   <label htmlFor="notCheckedOutOpt" style={{ cursor: 'pointer', margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
@@ -659,7 +666,14 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
           <button className="btn btn-danger" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!selectedIds.size} onClick={() => runBulk('delete', null, t('bulk.confirmDelete', { count: selectedIds.size }))}>{t('bulk.delete')}</button>
           <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!selectedIds.size} onClick={() => runBulk('trade', null)}>{t('bulk.markTrade')}</button>
           <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!selectedIds.size} onClick={() => runBulk('untrade', null)}>{t('bulk.untrade')}</button>
-          <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!selectedIds.size} onClick={() => runBulk('list_type', subTab === 'wishlist' ? 'collection' : 'wishlist', null)}>{t(subTab === 'wishlist' ? 'bulk.moveToCollection' : 'bulk.moveToWishlist')}</button>
+          {subTab === 'collection' || subTab === 'unsorted' ? (
+            <>
+              <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!selectedIds.size} onClick={() => runBulk('list_type', 'wishlist', null)}>{t('bulk.moveToWishlist')}</button>
+              <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!selectedIds.size} onClick={() => runBulk('list_type', 'arena', null)}>{t('bulk.moveToArena')}</button>
+            </>
+          ) : (
+            <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!selectedIds.size} onClick={() => runBulk('list_type', 'collection', null)}>{t('bulk.moveToCollection')}</button>
+          )}
           <div style={{ width: '1px', height: '22px', background: 'var(--border-glass)' }} />
           <select className="select-control" value="" disabled={!selectedIds.size} onChange={(e) => { if (e.target.value) runBulk('condition', e.target.value); e.target.value = ''; }} style={{ fontSize: '0.72rem', maxWidth: '150px', padding: '0.3rem 0.4rem' }}>
             <option value="">{t('bulk.setCondition')}</option>

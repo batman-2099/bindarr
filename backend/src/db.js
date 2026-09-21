@@ -365,6 +365,7 @@ async function initDb() {
       checked_out INTEGER DEFAULT 0,
       checked_out_at DATETIME,
       game TEXT DEFAULT 'pokemon',
+      inventory_type TEXT DEFAULT 'collection',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
@@ -734,6 +735,9 @@ async function initDb() {
   }
 
   const decksCols = await all(`PRAGMA table_info(decks)`);
+  if (!decksCols.some(c => c.name === 'game')) {
+    await run(`ALTER TABLE decks ADD COLUMN game TEXT DEFAULT 'pokemon'`);
+  }
   if (!decksCols.some(c => c.name === 'format')) {
     await run(`ALTER TABLE decks ADD COLUMN format TEXT DEFAULT 'Standard'`);
   }
@@ -745,6 +749,9 @@ async function initDb() {
   }
   if (!decksCols.some(c => c.name === 'target_size')) {
     await run(`ALTER TABLE decks ADD COLUMN target_size INTEGER DEFAULT 60`);
+  }
+  if (!decksCols.some(c => c.name === 'inventory_type')) {
+    await run(`ALTER TABLE decks ADD COLUMN inventory_type TEXT DEFAULT 'collection'`);
   }
 
   // Lock flags: a locked compartment/location is skipped by auto-filing

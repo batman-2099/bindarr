@@ -76,14 +76,16 @@ new container sized for the deck.
 ### Deck Builder
 
 Open a deck and select **Edit Properties** to change its name, description,
-format, category, accent color, and target size. A deck's game stays fixed:
-its cards are game-scoped.
+format, category, accent color, target size, and deck type. A deck's game stays
+fixed. You can switch Physical and Arena only when every deck card is available
+in the destination inventory and the deck is not checked out.
 
-Deck cards can show their storage container, page or row, and slot; sort by
-location to collect them in physical order. **Check Out for Play** opens a
-pull checklist grouped by container and compartment. Checkout reserves only
+Physical deck cards can show their storage container, page or row, and slot;
+sort by location to collect them in physical order. **Check Out for Play** opens
+a pull checklist grouped by container and compartment. Checkout reserves only
 the copies allocated to that deck, preserves their storage locations, and
-persists each pulled card until it is returned.
+persists each pulled card until it is returned. Arena decks can only use cards
+from Arena inventory and cannot be checked out.
 
 Cards that cannot currently be used have a red warning. The label shows the
 missing copy count and, when another checked-out deck holds the copy, that

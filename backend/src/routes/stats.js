@@ -8,21 +8,24 @@ const router = express.Router();
 router.get('/stats', async (req, res) => {
   try {
     // Optional per-game view (e.g. only Pokémon or only MTG). Absent = all games.
-    const { game } = req.query;
+    const { game, inventory = 'all' } = req.query;
     const gameFilter = game ? ` AND cc.game = ?` : '';
     const statsParams = game ? [req.user.id, game] : [req.user.id];
+    const listFilter = inventory === 'collection' ? ` AND c.list_type = 'collection'`
+      : inventory === 'arena' ? ` AND c.list_type = 'arena'`
+        : ` AND c.list_type IN ('collection', 'arena')`;
 
     // Retrieve all collection items to compute statistics
     const query = `
       SELECT
-        c.quantity, c.purchase_price, c.added_at, c.printing, c.condition, c.card_id, c.market_value,
+        c.quantity, c.purchase_price, c.added_at, c.printing, c.condition, c.card_id, c.market_value, c.list_type,
         cc.types, cc.subtypes, cc.supertype, cc.game, cc.rarity, cc.set_name, cc.set_id, cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.price_1st_edition,
         cc.price_avg1, cc.price_avg7, cc.price_avg30,
         l.name as location_name
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
       LEFT JOIN locations l ON c.location_id = l.id
-      WHERE c.user_id = ?${gameFilter}
+      WHERE c.user_id = ?${listFilter}${gameFilter}
     `;
     const rows = await db.all(query, statsParams);
 
@@ -33,6 +36,8 @@ router.get('/stats', async (req, res) => {
     let unsortedCount = 0;
     let nearMintCount = 0;
     let vintageCount = 0;
+    let physicalCards = 0;
+    let digitalCards = 0;
 
     const now = Date.now();
     const oneDayMs = 24 * 60 * 60 * 1000;
@@ -58,9 +63,11 @@ router.get('/stats', async (req, res) => {
       const addedTime = row.added_at ? parseSqliteUtc(row.added_at).getTime() : now;
 
       totalCards += qty;
+      if (row.list_type === 'arena') digitalCards += qty;
+      else physicalCards += qty;
       totalValue += qty * price;
       totalSpent += qty * (row.purchase_price || 0);
-      if (!row.location_name) unsortedCount += qty;
+      if (row.list_type !== 'arena' && !row.location_name) unsortedCount += qty;
 
       if (row.condition === 'Near Mint') {
         nearMintCount += qty;
@@ -183,8 +190,7 @@ router.get('/stats', async (req, res) => {
                   FROM sets s WHERE s.id = cc.set_id) AS size
         FROM collection c
         JOIN card_cache cc ON c.card_id = cc.id
-        WHERE c.user_id = ? AND cc.set_id IN (${holes})
-        GROUP BY cc.set_id
+        WHERE c.user_id = ?${listFilter} AND cc.set_id IN (${holes})
       `, [req.user.id, ...setIds]);
 
       for (const row of rows) {
@@ -220,7 +226,7 @@ router.get('/stats', async (req, res) => {
              cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.price_1st_edition
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
-      WHERE c.user_id = ?${gameFilter}
+      WHERE c.user_id = ?${listFilter}${gameFilter}
       ORDER BY c.added_at DESC
       LIMIT 6
     `, statsParams);
@@ -236,6 +242,8 @@ router.get('/stats', async (req, res) => {
     res.json({
       summary: {
         totalCards,
+        physicalCards,
+        digitalCards,
         uniqueCards,
         totalValue: parseFloat(totalValue.toFixed(2)),
         totalSpent: parseFloat(totalSpent.toFixed(2)),
@@ -285,16 +293,19 @@ router.get('/stats', async (req, res) => {
 // 7b. Get Collection Net Worth Timeline History
 router.get('/stats/history', async (req, res) => {
   try {
-    const { period = '30d', game } = req.query;
+    const { period = '30d', game, inventory = 'all' } = req.query;
     const gameFilter = game ? ` AND cc.game = ?` : '';
     const params = game ? [req.user.id, game] : [req.user.id];
+    const listFilter = inventory === 'collection' ? ` AND c.list_type = 'collection'`
+      : inventory === 'arena' ? ` AND c.list_type = 'arena'`
+        : ` AND c.list_type IN ('collection', 'arena')`;
 
     // Retrieve all collection items to compute history
     const query = `
       SELECT c.quantity, c.added_at, c.printing, c.market_value, cc.id as card_id, cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.price_1st_edition
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
-      WHERE c.user_id = ?${gameFilter}
+      WHERE c.user_id = ?${listFilter}${gameFilter}
     `;
     const items = await db.all(query, params);
 

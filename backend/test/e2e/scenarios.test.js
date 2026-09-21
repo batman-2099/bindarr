@@ -136,6 +136,36 @@ async function runTests() {
       assert.strictEqual(wishlistRes.status, 200, 'wishlist add should succeed');
       const wishlistEntry = await db.get(`SELECT list_type FROM collection WHERE card_id = ? ORDER BY id DESC LIMIT 1`, [cards[0].id]);
       assert.strictEqual(wishlistEntry.list_type, 'wishlist', 'wishlist add must create a wishlist entry');
+
+      const arenaRes = await fetch(`http://localhost:${port}/api/collection`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          card_id: cards[0].id,
+          quantity: 1,
+          condition: 'Near Mint',
+          printing: 'Normal',
+          language: 'English',
+          list_type: 'arena'
+        })
+      });
+      assert.strictEqual(arenaRes.status, 200, 'Arena add should succeed');
+      const arenaEntry = await db.get(`SELECT list_type FROM collection WHERE card_id = ? ORDER BY id DESC LIMIT 1`, [cards[0].id]);
+      assert.strictEqual(arenaEntry.list_type, 'arena', 'Arena add must create a digital card entry');
+      const statsRes = await fetch(`http://localhost:${port}/api/stats`, { headers: authHeaders });
+      assert.strictEqual(statsRes.status, 200, 'stats should load');
+      const stats = await statsRes.json();
+      assert.strictEqual(stats.summary.physicalCards, 1, 'physical cards exclude wishlist and Arena cards');
+      assert.strictEqual(stats.summary.digitalCards, 1, 'Arena cards count as digital');
+      assert.strictEqual(stats.summary.totalCards, 2, 'owned cards include physical and digital cards only');
+      const physicalStatsRes = await fetch(`http://localhost:${port}/api/stats?inventory=collection`, { headers: authHeaders });
+      const physicalStats = await physicalStatsRes.json();
+      assert.strictEqual(physicalStats.summary.totalCards, 1, 'physical filter includes physical cards only');
+      assert.strictEqual(physicalStats.summary.digitalCards, 0, 'physical filter excludes Arena cards');
+      const arenaStatsRes = await fetch(`http://localhost:${port}/api/stats?inventory=arena`, { headers: authHeaders });
+      const arenaStats = await arenaStatsRes.json();
+      assert.strictEqual(arenaStats.summary.totalCards, 1, 'Arena filter includes digital cards only');
+      assert.strictEqual(arenaStats.summary.physicalCards, 0, 'Arena filter excludes physical cards');
       console.log('PASS: F6-TC3');
     } catch (err) {
       console.error('FAIL: F6-TC3 -', err.message);

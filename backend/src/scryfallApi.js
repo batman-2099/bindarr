@@ -300,13 +300,68 @@ const scryfallUuid = (id) => {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw) ? raw : null;
 };
 
+const rowName = row => String(row.name || '').toLowerCase();
+
+async function fetchSetScopedRows(rows) {
+  const bySet = new Map();
+  for (const row of rows) {
+    const set = String(row.set_id || '').toLowerCase();
+    if (!bySet.has(set)) bySet.set(set, new Map());
+    const names = bySet.get(set);
+    const name = rowName(row);
+    if (!names.has(name)) names.set(name, []);
+    names.get(name).push(row);
+  }
+
+  const cards = [];
+  const pairs = [];
+  for (const [set, names] of bySet) {
+    const entries = [...names.entries()];
+    for (let i = 0; i < entries.length; i += 30) {
+      const chunk = entries.slice(i, i + 30);
+      const exactNames = chunk.map(([name]) => `!"${name.replace(/"/g, '\\"')}"`).join(' or ');
+      let url = `/cards/search?q=${encodeURIComponent(`e:${set} (${exactNames})`)}`;
+      const resolved = new Set();
+      while (url) {
+        let resp;
+        try {
+          resp = await scryGet(url);
+        } catch (error) {
+          if (error.response?.status === 404) break;
+          throw error;
+        }
+        for (const raw of (resp.data && resp.data.data) || []) {
+          const norm = normalizeCard(raw);
+          const name = [norm.name, raw.name].map(value => String(value || '').toLowerCase()).find(value => names.has(value));
+          if (!name || resolved.has(name)) continue;
+          resolved.add(name);
+          cards.push(norm);
+          for (const row of names.get(name)) pairs.push({ row, card: norm });
+        }
+        url = resp.data?.has_more ? resp.data.next_page : null;
+      }
+    }
+  }
+  return { cards, pairs };
+}
+
 async function bulkFetchByIdentifier(rows) {
   const cards = [];
   const pairs = [];
   let notFound = 0;
+  const collectionRows = [];
+  const setScopedRows = [];
 
-  for (let i = 0; i < rows.length; i += COLLECTION_BATCH) {
-    const chunk = rows.slice(i, i + COLLECTION_BATCH);
+  for (const row of rows) {
+    const uuid = scryfallUuid(row.id || row.card_id);
+    const setId = row.set_id != null ? String(row.set_id).toLowerCase() : '';
+    const num = row.number != null ? String(row.number) : '';
+    if (!uuid && setId && !num) setScopedRows.push(row);
+    else collectionRows.push(row);
+  }
+
+  for (let i = 0; i < collectionRows.length; i += COLLECTION_BATCH) {
+    const chunk = collectionRows.slice(i, i + COLLECTION_BATCH);
     const byKey = new Map();
     const identifiers = [];
     for (const row of chunk) {
@@ -315,7 +370,7 @@ async function bulkFetchByIdentifier(rows) {
       const num = row.number != null ? String(row.number) : '';
       const key = uuid ? `id:${uuid.toLowerCase()}`
         : setId && num ? `sn:${setId}|${num.toLowerCase()}`
-          : `n:${String(row.name || '').toLowerCase()}`;
+          : `n:${rowName(row)}`;
       if (!byKey.has(key)) {
         byKey.set(key, []);
         identifiers.push(uuid ? { id: uuid } : setId && num
@@ -328,13 +383,18 @@ async function bulkFetchByIdentifier(rows) {
     notFound += ((resp.data && resp.data.not_found) || []).length;
     for (const raw of (resp.data && resp.data.data) || []) {
       const norm = normalizeCard(raw);
-      cards.push(norm);
       const matchingRows = byKey.get(`id:${String(raw.id).toLowerCase()}`)
         || byKey.get(`sn:${String(norm.set_id).toLowerCase()}|${String(norm.number).toLowerCase()}`)
-        || byKey.get(`n:${String(norm.name).toLowerCase()}`);
+        || byKey.get(`n:${rowName(raw)}`)
+        || byKey.get(`n:${rowName(norm)}`);
       for (const row of matchingRows || []) pairs.push({ row, card: norm });
+      if (matchingRows?.length) cards.push(norm);
     }
   }
+
+  const scoped = await fetchSetScopedRows(setScopedRows);
+  cards.push(...scoped.cards);
+  pairs.push(...scoped.pairs);
   const matchedRows = new Set(pairs.map(({ row }) => row));
   return { cards, pairs, notFound, unmatchedRows: rows.filter(row => !matchedRows.has(row)) };
 }

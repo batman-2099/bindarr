@@ -449,6 +449,7 @@
   "deck.format": "Format",
   "deck.targetSize": "Target Size",
   "deck.deckName": "Deck Name",
+  "deck.description": "Description",
   "deck.namePlaceholder": "e.g. Charizard ex Engine or Atarka Red...",
   "deck.category": "Deck Category",
   "deck.accentColor": "Vault Accent Color",

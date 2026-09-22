@@ -619,6 +619,7 @@
   "deck.createTitle": "Neues Deck erstellen",
   "deck.created": "Deck erfolgreich erstellt!",
   "deck.deckName": "Deckname",
+  "deck.description": "Beschreibung",
   "deck.decreaseQty": "Anzahl verringern",
   "deck.deleteDeck": "Deck löschen",
   "deck.deleted": "Deck gelöscht.",

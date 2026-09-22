@@ -1454,13 +1454,15 @@ function DeckBuilder({ showToast }) {
                   <tr style={{ borderBottom: '1px solid var(--border-glass)', background: 'rgba(0,0,0,0.2)', color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('deck.colGameFormat')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('deck.inventoryType')}</th>
-                    <th style={{ padding: '0.75rem 1rem' }}>{t('deck.colNameDesc')}</th>
+                    <th style={{ padding: '0.75rem 1rem' }}>{t('deck.deckName')}</th>
+                    <th style={{ padding: '0.75rem 1rem' }}>{t('deck.wins')} / {t('deck.losses')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('filter.field.color_identity')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('deck.category')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('deck.colCapacity')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('admin.colStatus')}</th>
                     <th className="hide-mobile" style={{ padding: '0.75rem 1rem' }}>{t('admin.colCreated')}</th>
                     <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>{t('admin.colActions')}</th>
+                    <th style={{ padding: '0.75rem 1rem' }}>{t('deck.description')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1525,14 +1527,9 @@ function DeckBuilder({ showToast }) {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>{deck.name}</span>
                           </div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                            {deck.description || 'No description'}
-                          </div>
-                          {isMtg && (
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px', fontVariantNumeric: 'tabular-nums' }}>
-                              {t('deck.recordSummary', { wins: deck.wins ?? 0, losses: deck.losses ?? 0 })}
-                            </div>
-                          )}
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                          {isMtg ? `${deck.wins ?? 0} / ${deck.losses ?? 0}` : '—'}
                         </td>
                         <td style={{ padding: '0.75rem 1rem' }}>
                           {isMtg && <ManaCounts deck={deck} />}
@@ -1593,6 +1590,9 @@ function DeckBuilder({ showToast }) {
                               <Trash2 size={12} />
                             </button>
                           </div>
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem', minWidth: '180px', color: 'var(--text-secondary)', overflowWrap: 'anywhere' }}>
+                          {deck.description || '—'}
                         </td>
                       </tr>
                     );

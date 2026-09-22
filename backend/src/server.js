@@ -14,6 +14,7 @@ const compression = require('compression');
 const path = require('path');
 const db = require('./db');
 const scryfallApi = require('./scryfallApi');
+const scryfallBulkSchedule = require('./scryfallBulkSchedule');
 
 const authRoutes = require('./routes/auth');
 const sharedRoutes = require('./routes/shared');
@@ -220,6 +221,8 @@ db.initDb()
   .then(async () => {
     dbReady = true;
     console.log('Database tables verified/created successfully.');
+
+    scryfallBulkSchedule.start().catch(err => console.error('Scryfall bulk scheduler failed:', err.message));
 
     // Un-stack legacy multi-quantity entries so every copy is its own row (one
     // physical card = one storage slot). No-op once migrated.

@@ -82,7 +82,7 @@ router.post('/', async (req, res) => {
       if (!precon) return res.status(404).json({ error: 'MTGJSON deck not found' });
       const rows = mtgjsonApi.deckCardRows(precon);
       if (!rows.length) return res.status(422).json({ error: 'This MTGJSON deck has no importable cards' });
-      const { cards, pairs } = await scryfallApi.bulkFetchByIdentifier(rows);
+      const { cards, pairs } = await scryfallApi.bulkFetchByIdentifier(rows, undefined, { localFirst: true });
       if (!pairs.length) return res.status(422).json({ error: 'No MTGJSON cards matched Scryfall' });
       await scryfallApi.cacheCards(cards);
       preconPairs = pairs;
@@ -129,7 +129,7 @@ router.post('/', async (req, res) => {
           ...item,
           set_id: item.set_code,
           number: item.collector_number
-        })));
+        })), undefined, { localFirst: true });
         if (pairs.length !== manaBoxItems.length) {
           const error = new Error(`Only ${pairs.length} of ${manaBoxItems.length} ManaBox cards matched Scryfall`);
           error.status = 422;

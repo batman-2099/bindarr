@@ -435,6 +435,9 @@ async function initDb() {
   if (!appSettingsCols.some(c => c.name === 'price_refresh_days')) {
     await run(`ALTER TABLE app_settings ADD COLUMN price_refresh_days INTEGER NOT NULL DEFAULT 1`);
   }
+  if (!appSettingsCols.some(c => c.name === 'scryfall_bulk_download_time')) {
+    await run(`ALTER TABLE app_settings ADD COLUMN scryfall_bulk_download_time TEXT NOT NULL DEFAULT '10:00'`);
+  }
   if (!appSettingsCols.some(c => c.name === 'lorcana_prices_swept_at')) {
     await run(`ALTER TABLE app_settings ADD COLUMN lorcana_prices_swept_at DATETIME`);
   }

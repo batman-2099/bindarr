@@ -935,7 +935,7 @@ router.post('/mtg-decks/:fileName/import', searchLimiter, async (req, res) => {
     const rows = mtgjsonApi.deckCardRows(deck);
     if (!rows.length) return res.status(422).json({ error: 'This MTGJSON deck has no importable cards' });
     const total = rows.reduce((sum, row) => sum + row.quantity, 0);
-    const { cards, pairs } = await scryfallApi.bulkFetchByIdentifier(rows);
+    const { cards, pairs } = await scryfallApi.bulkFetchByIdentifier(rows, undefined, { localFirst: true });
     await scryfallApi.cacheCards(cards);
 
     let locationId = null;

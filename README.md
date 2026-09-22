@@ -30,6 +30,11 @@ The [live demo](https://thenotoriousjeremy.github.io/bindarr/) uses sample data.
 
 ## Recent changes
 
+### Local-first Magic imports
+
+- CSV, ManaBox TXT, precon deck, and container imports consult a persistent Scryfall bulk catalog before requesting missing printings from the API.
+- Administrators choose a daily UTC refresh time in **Settings → Scryfall bulk data** (10:00 UTC by default), or force a fresh download immediately. Live import logs distinguish local matches from API fallback.
+
 ### Arena inventory and decks
 
 - **Arena** is a first-class digital inventory beside Physical Collection and Wishlist.
@@ -62,6 +67,8 @@ Open **Add Cards**, search by name, set, or collector number, then add the selec
 ### Import ManaBox collection exports
 
 In **Add Cards**, select **Choose .txt file** and choose a ManaBox export. Bindarr previews normal, foil, and distinct-printing counts, then resolves each printing by set and collector number. Choose Arena before importing when the export represents your digital inventory.
+
+CSV and ManaBox TXT imports show a live **Import activity** log with local-catalog hits and misses, API fallback counts, set codes, Scryfall rate-limit waits, caching, and save progress. The latest 200 timestamped events remain in the completion summary or failed import dialog. Save preparation is not committed until the log confirms it. Leaving the page disconnects the log but does not roll back the import; check the destination before retrying after a lost connection.
 
 ### Export the current collection view
 
@@ -195,6 +202,15 @@ Release artifacts also include an Android APK; iOS is distributed through TestFl
 ## Magic data, pricing, and languages
 
 Bindarr uses Scryfall for Magic cards, sets, artwork, printings, and prices. It stores the exact printing and language, not merely a translated card name. The interface supports English, Brazilian Portuguese, French, German, Italian, Japanese, Korean, Russian, Simplified Chinese, Traditional Chinese, and Spanish.
+
+The server checks Scryfall's `default_cards` bulk metadata daily at the UTC time configured by an administrator in **Settings → Scryfall bulk data** (10:00 UTC by default), downloading only when `updated_at` changes. The setting is saved in the application database and takes effect without a restart; the next check runs at the next occurrence of that UTC time, independent of browser or server timezone and daylight saving time. Startup warms a missing catalog in the background, but an existing catalog waits for the chosen daily time. **Download now** forces an actual download even when the snapshot is unchanged, waits for completion, and reports the catalog entry count and snapshot date. These controls affect the shared catalog for all users and are available only to administrators.
+
+The gzip JSONL download is streamed into a separate SQLite catalog at `<DB_PATH>.scryfall-bulk.sqlite` (by default `backend/database/bindarr.db.scryfall-bulk.sqlite`). Allow disk space for the catalog and a temporary replacement during updates. It is rebuildable card data, not your collection database; do not treat it as a collection backup. Successful updates replace it atomically; failed updates keep the previous catalog.
+
+Collection and Arena CSV/TXT imports, precon imports, ManaBox deck creation, and container imports look there first and send only unresolved rows to the existing Scryfall API. Importing never waits for a bulk download. A missing or unusable catalog falls back to the API, as do printings absent from the snapshot, including foreign-language UUIDs. Exact UUIDs are never replaced with another printing; ambiguous name-only matches fall back to the API.
+
+Imported prices initially reflect the catalog snapshot. Scheduled price sweeps (daily by default, respecting the configured refresh interval) and stale-cache refreshes still query the live API, never the bulk catalog.
+
 Prices come from the provider associated with the printing, primarily Scryfall, TCGplayer, and Cardmarket. Bindarr does not convert currencies: mixed-currency totals are explicitly reported as mixed. A graded copy can use its own per-copy value, which replaces the raw card market price in totals and exports.
 
 ## API access

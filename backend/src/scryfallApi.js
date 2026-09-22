@@ -6,6 +6,7 @@ const cardSearchSql = require('./utils/cardSearchSql');
 const languages = require('./utils/languages');
 const { cacheNormalizedCards } = require('./utils/cardCache');
 const { normalizeMtgColorIdentity } = require('./utils/mtgColors');
+const scryfallBulk = require('./scryfallBulk');
 
 // Scryfall needs no API key but asks callers to identify themselves and accept
 // JSON. See https://scryfall.com/docs/api. IDs from Scryfall are UUIDs / set-num
@@ -95,10 +96,13 @@ function noteRateLimit(error) {
   return true;
 }
 
-function scryGet(url, config) {
+function scryGet(url, config, onProgress) {
   const run = scryfallQueue.then(async () => {
     // Re-check after waiting: a 429 may have armed the cooldown while queued.
     for (let w = waitFor(url); w.ms > 0; w = waitFor(url)) {
+      if (cooldownUntil > Date.now()) {
+        onProgress?.({ stage: 'retry', seconds: Math.ceil((cooldownUntil - Date.now()) / 1000) });
+      }
       await new Promise(r => setTimeout(r, w.ms));
     }
     const { key } = endpointGap(url);
@@ -121,9 +125,12 @@ const COLLECTION_BATCH = 75;
 
 // POST twin of scryGet: same one global queue, same gap, same 429 cooldown, so
 // bulk lookups can never race ahead of (or pile on top of) search traffic.
-function scryPost(url, body, config) {
+function scryPost(url, body, config, onProgress) {
   const run = scryfallQueue.then(async () => {
     for (let w = waitFor(url); w.ms > 0; w = waitFor(url)) {
+      if (cooldownUntil > Date.now()) {
+        onProgress?.({ stage: 'retry', seconds: Math.ceil((cooldownUntil - Date.now()) / 1000) });
+      }
       await new Promise(r => setTimeout(r, w.ms));
     }
     const { key } = endpointGap(url);
@@ -140,11 +147,11 @@ function scryPost(url, body, config) {
   return run;
 }
 
-async function scryPostRetried(url, body, config, retries = 4) {
+async function scryPostRetried(url, body, config, retries = 4, onProgress) {
   let lastError;
   for (let i = 0; i < retries; i++) {
     try {
-      return await scryPost(url, body, config);
+      return await scryPost(url, body, config, onProgress);
     } catch (error) {
       lastError = error;
       if (error.response && error.response.status === 429 && i < retries - 1) continue;
@@ -158,11 +165,11 @@ async function scryPostRetried(url, body, config, retries = 4) {
 // has_more/next_page/total_cards can't use fetchFromScryfall, which strips to
 // .data.data). The wait itself is handled by the shared cooldown above, so a
 // retry here just re-queues behind it.
-async function scryGetRetried(url, config, retries = 4) {
+async function scryGetRetried(url, config, retries = 4, onProgress) {
   let lastError;
   for (let i = 0; i < retries; i++) {
     try {
-      return await scryGet(url, config);
+      return await scryGet(url, config, onProgress);
     } catch (error) {
       lastError = error;
       if (error.response && error.response.status === 429 && i < retries - 1) continue;
@@ -302,7 +309,7 @@ const scryfallUuid = (id) => {
 
 const rowName = row => String(row.name || '').toLowerCase();
 
-async function fetchSetScopedRows(rows) {
+async function fetchSetScopedRows(rows, onProgress) {
   const bySet = new Map();
   for (const row of rows) {
     const set = String(row.set_id || '').toLowerCase();
@@ -315,17 +322,19 @@ async function fetchSetScopedRows(rows) {
 
   const cards = [];
   const pairs = [];
+  let processed = 0;
   for (const [set, names] of bySet) {
     const entries = [...names.entries()];
     for (let i = 0; i < entries.length; i += 30) {
       const chunk = entries.slice(i, i + 30);
+      onProgress?.({ stage: 'lookup', current: processed, total: rows.length, set });
       const exactNames = chunk.map(([name]) => `!"${name.replace(/"/g, '\\"')}"`).join(' or ');
       let url = `/cards/search?q=${encodeURIComponent(`e:${set} (${exactNames})`)}`;
       const resolved = new Set();
       while (url) {
         let resp;
         try {
-          resp = await scryGetRetried(url);
+          resp = await scryGetRetried(url, undefined, undefined, onProgress);
         } catch (error) {
           if (error.response?.status === 404) break;
           throw error;
@@ -340,17 +349,44 @@ async function fetchSetScopedRows(rows) {
         }
         url = resp.data?.has_more ? resp.data.next_page : null;
       }
+      if (onProgress) {
+        processed += chunk.reduce((count, [, matchingRows]) => count + matchingRows.length, 0);
+        onProgress({ stage: 'lookup', current: processed, total: rows.length, set });
+      }
     }
   }
   return { cards, pairs };
 }
 
-async function bulkFetchByIdentifier(rows) {
+async function bulkFetchByIdentifier(rows, onProgress, { localFirst = false } = {}) {
+  // Imports may use the daily snapshot; price sweeps and stale-cache refreshes
+  // deliberately keep the API-only default.
+  if (localFirst) {
+    onProgress?.({ stage: 'local-lookup', total: rows.length });
+    const local = await scryfallBulk.resolveRows(rows);
+    const byId = new Map();
+    const pairs = local.pairs.map(({ row, raw }) => {
+      if (!byId.has(raw.id)) byId.set(raw.id, normalizeCard(raw));
+      return { row, card: byId.get(raw.id) };
+    });
+    onProgress?.({ stage: 'local-resolved', matched: pairs.length, unmatched: local.unmatchedRows.length });
+    let remote = { cards: [], pairs: [], notFound: 0, unmatchedRows: [] };
+    if (local.unmatchedRows.length) {
+      onProgress?.({ stage: 'api-fallback', total: local.unmatchedRows.length });
+      remote = await bulkFetchByIdentifier(local.unmatchedRows, onProgress && (event => {
+        if (event.stage !== 'resolved') onProgress(event);
+      }));
+    }
+    pairs.push(...remote.pairs);
+    onProgress?.({ stage: 'resolved', current: rows.length, total: rows.length, matched: pairs.length, unmatched: remote.unmatchedRows.length });
+    return { cards: [...byId.values(), ...remote.cards], pairs, notFound: remote.notFound, unmatchedRows: remote.unmatchedRows };
+  }
   const cards = [];
   const pairs = [];
   let notFound = 0;
   const collectionRows = [];
   const setScopedRows = [];
+  onProgress?.({ stage: 'lookup', current: 0, total: rows.length });
 
   for (const row of rows) {
     const uuid = scryfallUuid(row.id || row.card_id);
@@ -379,7 +415,7 @@ async function bulkFetchByIdentifier(rows) {
       byKey.get(key).push(row);
     }
 
-    const resp = await scryPostRetried('/cards/collection', { identifiers });
+    const resp = await scryPostRetried('/cards/collection', { identifiers }, undefined, undefined, onProgress);
     notFound += ((resp.data && resp.data.not_found) || []).length;
     for (const raw of (resp.data && resp.data.data) || []) {
       const norm = normalizeCard(raw);
@@ -390,13 +426,18 @@ async function bulkFetchByIdentifier(rows) {
       for (const row of matchingRows || []) pairs.push({ row, card: norm });
       if (matchingRows?.length) cards.push(norm);
     }
+    onProgress?.({ stage: 'lookup', current: i + chunk.length, total: rows.length });
   }
 
-  const scoped = await fetchSetScopedRows(setScopedRows);
+  const scoped = await fetchSetScopedRows(setScopedRows, onProgress && (event => onProgress(
+    event.stage === 'lookup' ? { ...event, current: collectionRows.length + event.current, total: rows.length } : event
+  )));
   cards.push(...scoped.cards);
   pairs.push(...scoped.pairs);
   const matchedRows = new Set(pairs.map(({ row }) => row));
-  return { cards, pairs, notFound, unmatchedRows: rows.filter(row => !matchedRows.has(row)) };
+  const unmatchedRows = rows.filter(row => !matchedRows.has(row));
+  onProgress?.({ stage: 'resolved', current: rows.length, total: rows.length, matched: matchedRows.size, unmatched: unmatchedRows.length });
+  return { cards, pairs, notFound, unmatchedRows };
 }
 
 async function fetchFromScryfall(q, lang, retries = 3) {

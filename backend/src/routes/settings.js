@@ -2,6 +2,8 @@ const express = require('express');
 const axios = require('axios');
 const db = require('../db');
 const { requireAdmin } = require('../middleware/auth');
+const scryfallBulk = require('../scryfallBulk');
+const scryfallBulkSchedule = require('../scryfallBulkSchedule');
 
 const router = express.Router();
 
@@ -61,7 +63,7 @@ router.get('/version', async (req, res) => {
 
 async function getEffectiveSettings() {
   const row = await db.get(`
-    SELECT public_base_url, pokemon_provider, price_refresh_days,
+    SELECT public_base_url, pokemon_provider, price_refresh_days, scryfall_bulk_download_time,
            scan_exclude_tokens, scan_exclude_art_cards, scan_exclude_jumpstart, scan_exclude_promos,
            scan_exclude_digital, setup_complete
     FROM app_settings WHERE id = 1
@@ -84,6 +86,7 @@ async function getEffectiveSettings() {
     public_base_url,
     pokemon_provider,
     price_refresh_days,
+    scryfall_bulk_download_time: row?.scryfall_bulk_download_time || '10:00',
     scan_exclude_tokens,
     scan_exclude_art_cards,
     scan_exclude_jumpstart,
@@ -109,6 +112,7 @@ router.put('/', requireAdmin, async (req, res) => {
     public_base_url,
     pokemon_provider,
     price_refresh_days,
+    scryfall_bulk_download_time,
     scan_exclude_tokens,
     scan_exclude_art_cards,
     scan_exclude_jumpstart,
@@ -116,6 +120,11 @@ router.put('/', requireAdmin, async (req, res) => {
     scan_exclude_digital,
     setup_complete,
   } = req.body;
+
+  if (scryfall_bulk_download_time !== undefined &&
+      (typeof scryfall_bulk_download_time !== 'string' || scryfall_bulk_download_time.length !== 5 || !/^([01]\d|2[0-3]):[0-5]\d$/.test(scryfall_bulk_download_time))) {
+    return res.status(400).json({ error: 'Scryfall bulk download time must be HH:mm in UTC (00:00–23:59).' });
+  }
 
   if (pokemon_provider !== undefined) {
     const want = ['tcgdex', 'pokemontcgapi'].includes(pokemon_provider) ? pokemon_provider : 'pokemontcg';
@@ -184,10 +193,23 @@ router.put('/', requireAdmin, async (req, res) => {
   }
 
   try {
+    if (scryfall_bulk_download_time !== undefined) {
+      await db.run('UPDATE app_settings SET scryfall_bulk_download_time = ? WHERE id = 1', [scryfall_bulk_download_time]);
+      scryfallBulkSchedule.reschedule(scryfall_bulk_download_time);
+    }
     res.json(await getEffectiveSettings());
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
+router.post('/scryfall-bulk/download', requireAdmin, async (req, res) => {
+  try {
+    res.json(await scryfallBulk.refresh({ force: true }));
+  } catch (error) {
+    console.error('Scryfall bulk download failed:', error.message);
+    res.status(502).json({ error: 'Scryfall bulk download failed. The previous catalog has been kept; try again later.' });
   }
 });
 

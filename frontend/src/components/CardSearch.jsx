@@ -12,6 +12,7 @@ import { langName, isEnglish, displayName, translatedName, setReference, setCode
 import { defaultGame, gameOptions, showGamePicker, gameLabel } from '../utils/games';
 import CardImage from './CardImage';
 import { useT } from '../utils/i18n';
+import { readImportStream } from '../utils/importStream';
 
 // Search failures worth explaining in-page rather than only as a toast. `keyHint`
 // marks the ones a user API key actually fixes; an upstream 5xx does not. Title
@@ -37,6 +38,51 @@ const suggestedCsvMapping = (headers) => Object.fromEntries(CSV_FIELDS.map(([fie
   field,
   headers.find(header => names.includes(header.toLowerCase())) || ''
 ]));
+
+function ImportLog({ entries }) {
+  const { t, locale } = useT();
+  const container = useRef(null);
+  const follow = useRef(true);
+  const attempt = useRef(null);
+  const timeFormat = useMemo(() => new Intl.DateTimeFormat(locale, { timeStyle: 'medium' }), [locale]);
+
+  useEffect(() => {
+    if (entries[0]?.stage === 'connecting' && attempt.current !== entries[0].id) {
+      attempt.current = entries[0].id;
+      follow.current = true;
+    }
+    if (follow.current && container.current) container.current.scrollTop = container.current.scrollHeight;
+  }, [entries]);
+
+  if (!entries.length) return null;
+  return (
+    <div style={{ minWidth: 0 }}>
+      <strong style={{ color: 'var(--text-strong)', fontSize: '0.85rem' }}>{t('importLog.title')}</strong>
+      <div
+        ref={container}
+        role="log"
+        aria-label={t('importLog.title')}
+        aria-live="polite"
+        aria-relevant="additions"
+        tabIndex={0}
+        onScroll={event => {
+          const node = event.currentTarget;
+          follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 24;
+        }}
+        style={{ maxHeight: 'min(200px, 30dvh)', overflowY: 'auto', overflowWrap: 'anywhere', padding: '0.6rem', marginTop: '0.4rem', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', fontSize: '0.78rem' }}
+      >
+        {entries.map(entry => (
+          <div key={entry.id} style={{ padding: '0.2rem 0', color: entry.stage === 'failed' ? 'var(--accent-red)' : 'var(--text-secondary)' }}>
+            <time dateTime={new Date(entry.time).toISOString()} style={{ color: 'var(--text-muted)' }}>{timeFormat.format(entry.time)}</time>
+            {' · '}{t(`importLog.${entry.stage}`, entry)}
+            {entry.set ? ` · ${t('importLog.set', { set: entry.set })}` : ''}
+          </div>
+        ))}
+      </div>
+      <p style={{ margin: '0.4rem 0 0', color: 'var(--text-muted)', fontSize: '0.75rem' }}>{t('importLog.disconnect')}</p>
+    </div>
+  );
+}
 
 
 function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
@@ -88,6 +134,21 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
   const [manaBoxPreview, setManaBoxPreview] = useState(null);
   const [csvPreview, setCsvPreview] = useState(null);
   const [importSummary, setImportSummary] = useState(null);
+  const [importLog, setImportLog] = useState([]);
+  const importRequest = useRef(null);
+  const importFileReader = useRef(null);
+  const importLogId = useRef(0);
+
+  useEffect(() => () => {
+    importRequest.current?.abort();
+    importFileReader.current?.abort();
+  }, []);
+
+  const appendImportLog = event => {
+    const entry = { ...event, id: ++importLogId.current, time: Date.now() };
+    // ponytail: retain only the latest 200 events, not a second full import history.
+    setImportLog(entries => [...entries.slice(-199), entry]);
+  };
   const [addToArena, setAddToArena] = useState(false);
 
   // Filter states
@@ -564,88 +625,82 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
     }
   };
 
-  const handleManaBoxImport = (event) => {
+  const handleImportFile = (event, format) => {
     const file = event.target.files[0];
-    if (!file) return;
+    if (!file || importingText) return;
     const reader = new FileReader();
+    const controller = new AbortController();
+    importFileReader.current = reader;
+    importRequest.current = controller;
+    const listType = addToArena ? 'arena' : 'collection';
+    setImportingText(true);
+    setImportLog([]);
     reader.onload = async () => {
-      setImportingText(true);
       try {
         const text = String(reader.result || '');
         const response = await fetch('/api/import/preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ format: 'manabox', data: text })
+          signal: controller.signal,
+          body: JSON.stringify({ format, data: text })
         });
         const summary = await response.json().catch(() => ({}));
-        setManaBoxPreview({ ...summary, text, filename: file.name, listType: addToArena ? 'arena' : 'collection' });
+        if (controller.signal.aborted) return;
+        const preview = { ...summary, text, filename: file.name, listType };
+        if (format === 'internal') {
+          setCsvPreview({
+            ...preview,
+            errors: response.ok ? summary.errors || [] : [summary.error || t('settings.importFailed', { error: '' })],
+            mapping: suggestedCsvMapping(summary.headers || [])
+          });
+        } else {
+          if (!response.ok) throw new Error(summary.error || t('settings.importFailed', { error: '' }));
+          setManaBoxPreview(preview);
+        }
       } catch (error) {
-        console.error(error);
-        showToast(error.message || t('settings.importFailed', { error: '' }));
+        if (!controller.signal.aborted) showToast(error.message || t('settings.importFailed', { error: '' }));
       } finally {
-        setImportingText(false);
+        if (!controller.signal.aborted) setImportingText(false);
+        if (importRequest.current === controller) importRequest.current = null;
+        if (importFileReader.current === reader) importFileReader.current = null;
       }
     };
-    reader.onerror = () => showToast(t('settings.errReadFile'));
-    reader.readAsText(file);
-    event.target.value = '';
-  };
-
-  const handleCsvImport = (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      setImportingText(true);
-      try {
-        const text = String(reader.result || '');
-        const listType = addToArena ? 'arena' : 'collection';
-        const response = await fetch('/api/import/preview', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ format: 'internal', data: text })
-        });
-        const summary = await response.json().catch(() => ({}));
-        setCsvPreview({
-          ...summary,
-          errors: response.ok ? summary.errors || [] : [summary.error || t('settings.importFailed', { error: '' })],
-          mapping: suggestedCsvMapping(summary.headers || []),
-          text,
-          filename: file.name,
-          listType
-        });
-      } catch (error) {
-        console.error(error);
-        showToast(error.message || t('settings.importFailed', { error: '' }));
-      } finally {
+    reader.onerror = () => {
+      if (!controller.signal.aborted) {
+        showToast(t('settings.errReadFile'));
         setImportingText(false);
       }
+      if (importRequest.current === controller) importRequest.current = null;
+      if (importFileReader.current === reader) importFileReader.current = null;
     };
-    reader.onerror = () => showToast(t('settings.errReadFile'));
     reader.readAsText(file);
     event.target.value = '';
   };
 
   const refreshCsvPreview = async () => {
-    if (!csvPreview) return;
+    if (!csvPreview || importingText) return;
+    const controller = new AbortController();
+    importRequest.current = controller;
     setImportingText(true);
     try {
       const response = await fetch('/api/import/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({ format: 'internal', data: csvPreview.text, mapping: csvPreview.mapping })
       });
       const summary = await response.json().catch(() => ({}));
+      if (controller.signal.aborted) return;
       setCsvPreview(preview => ({
         ...preview,
         ...summary,
         errors: response.ok ? summary.errors || [] : [summary.error || t('settings.importFailed', { error: '' })]
       }));
     } catch (error) {
-      console.error(error);
-      showToast(error.message || t('settings.importFailed', { error: '' }));
+      if (!controller.signal.aborted) showToast(error.message || t('settings.importFailed', { error: '' }));
     } finally {
-      setImportingText(false);
+      if (!controller.signal.aborted) setImportingText(false);
+      if (importRequest.current === controller) importRequest.current = null;
     }
   };
 
@@ -663,50 +718,40 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
     URL.revokeObjectURL(link.href);
   };
 
-  const commitCsvImport = async () => {
-    if (!csvPreview || csvPreview.errors.length) return;
+  const commitImport = async (format, preview) => {
+    if (!preview || importingText || (format === 'internal' && preview.errors.length)) return;
+    const controller = new AbortController();
+    importRequest.current = controller;
     setImportingText(true);
+    setImportLog([]);
+    appendImportLog({ stage: 'connecting' });
     try {
       const response = await fetch('/api/import', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ format: 'internal', data: csvPreview.text, list_type: csvPreview.listType, mapping: csvPreview.mapping })
+        headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson' },
+        signal: controller.signal,
+        body: JSON.stringify({ format, data: preview.text, list_type: preview.listType, ...(format === 'internal' ? { mapping: preview.mapping } : {}) })
       });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setCsvPreview(preview => ({ ...preview, errors: [...preview.errors, data.error || t('settings.importFailed', { error: '' })] }));
-        return;
-      }
+      const data = await readImportStream(response, event => {
+        if (!controller.signal.aborted && ['parsed', 'local-lookup', 'local-resolved', 'api-fallback', 'lookup', 'retry', 'resolved', 'caching', 'saving', 'saved'].includes(event.stage)) appendImportLog(event);
+      }, {
+        failed: t('settings.importFailed', { error: '' }),
+        incomplete: t('importLog.incomplete'),
+        invalid: t('importLog.invalid')
+      });
+      if (controller.signal.aborted) return;
+      appendImportLog({ stage: 'complete' });
       setCsvPreview(null);
-      setImportSummary({ ...data.summary, filename: csvPreview.filename });
-      onAddSuccess();
-    } catch (error) {
-      console.error(error);
-      setCsvPreview(preview => ({ ...preview, errors: [...preview.errors, error.message || t('settings.importFailed', { error: '' })] }));
-    } finally {
-      setImportingText(false);
-    }
-  };
-
-  const commitManaBoxImport = async () => {
-    if (!manaBoxPreview) return;
-    setImportingText(true);
-    try {
-      const response = await fetch('/api/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ format: 'manabox', data: manaBoxPreview.text, list_type: manaBoxPreview.listType })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || t('settings.importFailed', { error: '' }));
       setManaBoxPreview(null);
-      setImportSummary({ ...data.summary, filename: manaBoxPreview.filename });
+      setImportSummary({ ...data.summary, filename: preview.filename });
       onAddSuccess();
     } catch (error) {
-      console.error(error);
-      showToast(error.message || t('settings.importFailed', { error: '' }));
+      if (!controller.signal.aborted) {
+        appendImportLog({ stage: 'failed', error: error.message || t('settings.importFailed', { error: '' }) });
+      }
     } finally {
-      setImportingText(false);
+      if (!controller.signal.aborted) setImportingText(false);
+      if (importRequest.current === controller) importRequest.current = null;
     }
   };
 
@@ -825,12 +870,12 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
               <Upload size={18} />
               {importingText ? t('settings.importing') : t('deck.chooseManaBoxFile')}
             </button>
-            <input ref={textImportInput} type="file" accept=".txt,text/plain" onChange={handleManaBoxImport} style={{ display: 'none' }} />
+            <input ref={textImportInput} type="file" accept=".txt,text/plain" onChange={event => handleImportFile(event, 'manabox')} style={{ display: 'none' }} />
             <button type="button" className="btn btn-secondary" onClick={() => csvImportInput.current?.click()} disabled={importingText} style={{ flex: '0 1 auto' }}>
               <Upload size={18} />
               {importingText ? t('settings.importing') : t('search.chooseCsvFile')}
             </button>
-            <input ref={csvImportInput} type="file" accept=".csv,text/csv" onChange={handleCsvImport} style={{ display: 'none' }} />
+            <input ref={csvImportInput} type="file" accept=".csv,text/csv" onChange={event => handleImportFile(event, 'internal')} style={{ display: 'none' }} />
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-secondary)', fontSize: '0.8rem', cursor: 'pointer' }}>
               <input type="checkbox" checked={addToArena} onChange={(e) => setAddToArena(e.target.checked)} />
               {t('search.addToArena')}
@@ -1202,10 +1247,10 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
           style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0, 0, 0, 0.78)', display: 'grid', placeItems: 'center', padding: '1rem' }}
           onClick={() => !importingText && setManaBoxPreview(null)}
         >
-          <div className="glass-panel" onClick={event => event.stopPropagation()} style={{ width: '100%', maxWidth: '420px', display: 'grid', gap: '1rem' }}>
+          <div className="glass-panel" role="dialog" aria-modal="true" aria-label={t('manaboxPreview.title')} onClick={event => event.stopPropagation()} style={{ width: '100%', maxWidth: '420px', minWidth: 0, maxHeight: 'calc(100dvh - 2rem)', overflowY: 'auto', display: 'grid', gap: '1rem' }}>
             <div>
               <h2 style={{ margin: 0, color: 'var(--text-strong)', fontSize: '1.1rem' }}>{t('manaboxPreview.title')}</h2>
-              <p style={{ margin: '0.35rem 0 0', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>{manaBoxPreview.filename}</p>
+              <p style={{ margin: '0.35rem 0 0', color: 'var(--text-secondary)', fontSize: '0.82rem', overflowWrap: 'anywhere' }}>{manaBoxPreview.filename}</p>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', fontSize: '0.8rem' }}>
               {[
@@ -1220,9 +1265,10 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
               ))}
             </div>
             <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{t('manaboxPreview.printings', { count: manaBoxPreview.printings })}</p>
+            <ImportLog entries={importLog} />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
               <button type="button" className="btn btn-secondary" onClick={() => setManaBoxPreview(null)} disabled={importingText}>{t('common.cancel')}</button>
-              <button type="button" className="btn btn-primary" onClick={commitManaBoxImport} disabled={importingText}>{importingText ? t('settings.importing') : t('manaboxPreview.commit')}</button>
+              <button type="button" className="btn btn-primary" onClick={() => commitImport('manabox', manaBoxPreview)} disabled={importingText}>{importingText ? t('settings.importing') : t('manaboxPreview.commit')}</button>
             </div>
           </div>
         </div>
@@ -1233,10 +1279,10 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
           style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0, 0, 0, 0.78)', display: 'grid', placeItems: 'center', padding: '1rem' }}
           onClick={() => !importingText && setCsvPreview(null)}
         >
-          <div className="glass-panel" onClick={event => event.stopPropagation()} style={{ width: '100%', maxWidth: '520px', display: 'grid', gap: '1rem' }}>
+          <div className="glass-panel" role="dialog" aria-modal="true" aria-label={t('csvPreview.title')} onClick={event => event.stopPropagation()} style={{ width: '100%', maxWidth: '520px', minWidth: 0, maxHeight: 'calc(100dvh - 2rem)', overflowY: 'auto', display: 'grid', gap: '1rem' }}>
             <div>
               <h2 style={{ margin: 0, color: 'var(--text-strong)', fontSize: '1.1rem' }}>{t('csvPreview.title')}</h2>
-              <p style={{ margin: '0.35rem 0 0', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>{csvPreview.filename}</p>
+              <p style={{ margin: '0.35rem 0 0', color: 'var(--text-secondary)', fontSize: '0.82rem', overflowWrap: 'anywhere' }}>{csvPreview.filename}</p>
               <p style={{ margin: '0.2rem 0 0', color: 'var(--text-muted)', fontSize: '0.75rem' }}>{t('csvPreview.destination', { destination: t(csvPreview.listType === 'arena' ? 'collection.arena' : 'search.addToCollection') })}</p>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', fontSize: '0.8rem' }}>
@@ -1257,6 +1303,8 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
                   <label key={field} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.4fr)', gap: '0.5rem', alignItems: 'center', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
                     <span>{t(label)}</span>
                     <select
+                      disabled={importingText}
+                      style={{ minWidth: 0, width: '100%' }}
                       value={csvPreview.mapping?.[field] || ''}
                       onChange={event => setCsvPreview(preview => ({ ...preview, errors: [], mapping: { ...preview.mapping, [field]: event.target.value } }))}
                     >
@@ -1278,9 +1326,10 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
                 </div>
               </div>
             )}
+            <ImportLog entries={importLog} />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
               <button type="button" className="btn btn-secondary" onClick={() => setCsvPreview(null)} disabled={importingText}>{t('common.cancel')}</button>
-              <button type="button" className="btn btn-primary" onClick={commitCsvImport} disabled={importingText || csvPreview.errors.length > 0}>{importingText ? t('settings.importing') : t('csvPreview.commit')}</button>
+              <button type="button" className="btn btn-primary" onClick={() => commitImport('internal', csvPreview)} disabled={importingText || csvPreview.errors.length > 0}>{importingText ? t('settings.importing') : t('csvPreview.commit')}</button>
             </div>
           </div>
         </div>
@@ -1291,10 +1340,10 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
           style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0, 0, 0, 0.78)', display: 'grid', placeItems: 'center', padding: '1rem' }}
           onClick={() => setImportSummary(null)}
         >
-          <div className="glass-panel" onClick={event => event.stopPropagation()} style={{ width: '100%', maxWidth: '520px', display: 'grid', gap: '1rem' }}>
+          <div className="glass-panel" role="dialog" aria-modal="true" aria-label={t('importSummary.title')} onClick={event => event.stopPropagation()} style={{ width: '100%', maxWidth: '520px', minWidth: 0, maxHeight: 'calc(100dvh - 2rem)', overflowY: 'auto', display: 'grid', gap: '1rem' }}>
             <div>
               <h2 style={{ margin: 0, color: 'var(--text-strong)', fontSize: '1.1rem' }}>{t('importSummary.title')}</h2>
-              <p style={{ margin: '0.35rem 0 0', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>{importSummary.filename}</p>
+              <p style={{ margin: '0.35rem 0 0', color: 'var(--text-secondary)', fontSize: '0.82rem', overflowWrap: 'anywhere' }}>{importSummary.filename}</p>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', fontSize: '0.8rem' }}>
               {[
@@ -1307,6 +1356,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
                 </div>
               ))}
             </div>
+            <ImportLog entries={importLog} />
             {importSummary.added.items.length > 0 && (
               <div style={{ display: 'grid', gap: '0.4rem' }}>
                 <strong style={{ color: 'var(--accent-green)', fontSize: '0.85rem' }}>{t('importSummary.addedCards')}</strong>

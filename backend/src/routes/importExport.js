@@ -318,6 +318,34 @@ router.post('/import', async (req, res) => {
     return res.status(400).json({ error: 'No data provided' });
   }
 
+  const streaming = req.accepts(['application/json', 'application/x-ndjson']) === 'application/x-ndjson';
+  let streamStarted = false;
+  const canWrite = () => !res.destroyed && !res.writableEnded;
+  const sendEvent = event => {
+    if (!canWrite()) return;
+    if (!streamStarted) {
+      res.set({
+        'Content-Type': 'application/x-ndjson; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Accel-Buffering': 'no'
+      });
+      streamStarted = true;
+      res.flushHeaders();
+    }
+    res.write(`${JSON.stringify(event)}\n`);
+    res.flush?.();
+  };
+  const onProgress = streaming ? progress => sendEvent({ type: 'progress', ...progress }) : undefined;
+  const respond = (status, payload) => {
+    if (!canWrite()) return;
+    if (streamStarted) {
+      sendEvent(status >= 400 ? { type: 'error', ...payload } : { type: 'complete', data: payload });
+      if (canWrite()) res.end();
+      return;
+    }
+    return res.status(status).json(payload);
+  };
+
   try {
     let rawItems = [];
     let unmatchedCount = 0;
@@ -328,8 +356,11 @@ router.post('/import', async (req, res) => {
     }
     if (formatKey === 'backup') {
       const backup = parseCompleteBackup(data);
+      onProgress?.({ stage: 'parsed', total: backup.collection.length });
+      onProgress?.({ stage: 'saving', current: 0, total: backup.collection.length });
       const restored = await restoreCompleteBackup(backup, req.user.id);
-      return res.json({
+      onProgress?.({ stage: 'saved', current: restored.cards, total: restored.cards });
+      return respond(200, {
         success: true,
         ...restored,
         message: `Restored ${restored.cards} cards, ${restored.locations} containers, and ${restored.decks} decks.`
@@ -351,6 +382,11 @@ router.post('/import', async (req, res) => {
       if (parsedFormat === 'manabox') manaBoxItems = rawItems;
     }
 
+    if (!Array.isArray(rawItems)) {
+      return res.status(400).json({ error: 'Invalid data payload' });
+    }
+    onProgress?.({ stage: 'parsed', total: rawItems.length });
+
     // Resolve Magic CSV rows through the same Scryfall bulk path as ManaBox
     // text. Card IDs in exported Arena CSVs are Bindarr-local, not Scryfall
     // UUIDs, so writing them straight to card_cache made incomplete placeholder
@@ -362,31 +398,32 @@ router.post('/import', async (req, res) => {
       collector_number: item.collector_number || item.number || ''
     });
     let failedItems = [];
-    const magicItems = manaBoxItems || (formatKey === 'internal' && rawItems.filter(item => item.game === 'mtg'));
-    if (magicItems) {
+    const magicItems = manaBoxItems || (formatKey !== 'json' && rawItems.filter(item => item.game === 'mtg'));
+    if (magicItems?.length) {
       const { cards, pairs, unmatchedRows = [] } = await scryfallApi.bulkFetchByIdentifier(magicItems.map(item => ({
         ...item,
         set_id: item.set_code,
         number: item.collector_number
-      })));
+      })), onProgress, { localFirst: true });
+      onProgress?.({ stage: 'caching', total: cards.length });
       await scryfallApi.cacheCards(cards);
 
       unmatchedCount = magicItems.length - pairs.length;
       failedItems = unmatchedRows.map(failedItem);
       rawItems = pairs.map(({ row, card }) => ({ ...row, card_id: card.id }));
       if (rawItems.length === 0) {
-        return res.status(400).json({ error: 'No Magic cards matched Scryfall' });
+        return respond(400, { error: 'No Magic cards matched Scryfall' });
       }
-    }
-
-    if (!Array.isArray(rawItems)) {
-      return res.status(400).json({ error: 'Invalid data payload' });
+    } else {
+      onProgress?.({ stage: 'resolved', matched: rawItems.length, unmatched: 0 });
     }
 
     let importedCount = 0;
     let addedItems = [];
+    onProgress?.({ stage: 'saving', current: 0, total: rawItems.length });
 
     await db.withTransaction(async () => {
+      // A disconnected client stops notifications, not the atomic import.
       for (const item of rawItems) {
         let cardId = item.card_id || item.id;
         if (!cardId && item.set_code && item.collector_number) {
@@ -445,12 +482,19 @@ router.post('/import', async (req, res) => {
         );
         importedCount++;
         addedItems.push({ name: item.name || cardId, quantity: item.quantity || 1 });
+        if (importedCount % 100 === 0) {
+          onProgress?.({ stage: 'saving', current: importedCount, total: rawItems.length });
+        }
+      }
+      if (importedCount % 100 !== 0) {
+        onProgress?.({ stage: 'saving', current: importedCount, total: rawItems.length });
       }
     });
+    onProgress?.({ stage: 'saved', current: importedCount, total: importedCount });
 
     const unmatched = unmatchedCount ? ` ${unmatchedCount} unmatched Magic printings were skipped.` : '';
     const copies = items => items.reduce((total, item) => total + (Number(item.quantity) || 1), 0);
-    return res.json({
+    return respond(200, {
       success: true,
       count: importedCount,
       message: `Successfully imported ${importedCount} items.${unmatched}`,
@@ -461,7 +505,10 @@ router.post('/import', async (req, res) => {
     });
   } catch (error) {
     const status = error.message.startsWith('Invalid backup') ? 400 : 500;
-    return res.status(status).json({ error: status === 400 ? error.message : 'Import failed', message: error.message });
+    return respond(status, {
+      error: status === 400 ? error.message : 'Import failed',
+      message: streamStarted ? undefined : error.message
+    });
   }
 });
 
@@ -483,7 +530,7 @@ router.post('/import-container', async (req, res) => {
       ...item,
       set_id: item.set_code,
       number: item.collector_number
-    })));
+    })), undefined, { localFirst: true });
     if (pairs.length === 0) return res.status(400).json({ error: 'No ManaBox cards matched Scryfall' });
 
     const requested = pairs.reduce((total, { row }) => total + row.quantity, 0);

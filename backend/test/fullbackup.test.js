@@ -10,7 +10,8 @@ process.env.DEFAULT_ADMIN_PASSWORD = 'test-admin-password';
 const db = require('../src/db');
 const importExportRouter = require('../src/routes/importExport');
 const exportBackup = importExportRouter.stack.find(layer => layer.route?.path === '/export' && layer.route.methods.get).route.stack[0].handle;
-const importBackup = importExportRouter.stack.find(layer => layer.route?.path === '/import' && layer.route.methods.post).route.stack[0].handle;
+const importHandler = importExportRouter.stack.find(layer => layer.route?.path === '/import' && layer.route.methods.post).route.stack[0].handle;
+const importBackup = (req, res) => importHandler({ ...req, accepts: () => 'application/json' }, res);
 
 async function testFullBackup() {
   try {

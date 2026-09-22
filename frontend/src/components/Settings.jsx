@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ShieldAlert, Share2, Clipboard, RefreshCw, KeyRound, Check, Database, Download, Upload, Eye, EyeOff, SlidersHorizontal, Info, Bug, Lightbulb, MessagesSquare, ScrollText, Github, Languages } from 'lucide-react';
 import { CURRENCIES, getCurrency, setCurrency } from '../utils/formatPrice';
 import { LOCALES, localeName, useT } from '../utils/i18n';
@@ -22,6 +22,10 @@ function Settings({ user, onUpdateUser, showToast }) {
   const [accessKeyLoading, setAccessKeyLoading] = useState(false);
 
   const [publicBaseUrl, setPublicBaseUrl] = useState('');
+  const [bulkTime, setBulkTime] = useState('');
+  const [bulkBusy, setBulkBusy] = useState('loading');
+  const [bulkNotice, setBulkNotice] = useState(null);
+  const mountedRef = useRef(true);
 
   const [theme, setTheme] = useState(() => {
     const saved = localStorage.getItem('theme');
@@ -42,13 +46,53 @@ function Settings({ user, onUpdateUser, showToast }) {
   const [backendReachable, setBackendReachable] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
+    mountedRef.current = true;
     fetch('/api/settings')
-      .then(res => res.ok ? res.json() : null)
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
       .then(data => {
-        if (data) setPublicBaseUrl(data.public_base_url || '');
+        if (cancelled) return;
+        setPublicBaseUrl(data.public_base_url || '');
+        setBulkTime(data.scryfall_bulk_download_time || '10:00');
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setBulkNotice({ error: true, key: 'settings.bulkLoadError' });
+      })
+      .finally(() => {
+        if (!cancelled) setBulkBusy('');
+      });
+    return () => { cancelled = true; mountedRef.current = false; };
   }, []);
+
+  const handleBulkAction = async (action) => {
+    if (bulkBusy || user?.role !== 'admin') return;
+    setBulkBusy(action);
+    setBulkNotice(null);
+    try {
+      const response = await fetch(action === 'save' ? '/api/settings' : '/api/settings/scryfall-bulk/download', action === 'save' ? {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scryfall_bulk_download_time: bulkTime }),
+      } : { method: 'POST' });
+      const data = await response.json();
+      if (!mountedRef.current) return;
+      if (!response.ok) {
+        setBulkNotice({ error: true, message: data.error, key: action === 'save' ? 'admin.errSettings' : 'settings.bulkDownloadError' });
+      } else if (action === 'save') {
+        setBulkTime(data.scryfall_bulk_download_time);
+        setBulkNotice({ key: 'admin.settingsUpdated' });
+      } else {
+        setBulkNotice({ key: 'settings.bulkDownloaded', values: {
+          count: data.count.toLocaleString(locale),
+          date: new Date(data.updated_at).toLocaleString(locale, { timeZone: 'UTC', timeZoneName: 'short' }),
+        } });
+      }
+    } catch {
+      if (mountedRef.current) setBulkNotice({ error: true, key: action === 'save' ? 'admin.errSettingsGeneric' : 'settings.bulkDownloadError' });
+    } finally {
+      if (mountedRef.current) setBulkBusy('');
+    }
+  };
 
   // The build stamps its own version in, so Settings can always state what it
   // is even with the backend down. The call below only adds the SERVER's
@@ -734,6 +778,51 @@ function Settings({ user, onUpdateUser, showToast }) {
             </div>
           </div>
         </div>
+
+        {user?.role === 'admin' && (
+          <section className="glass-panel" aria-labelledby="settings-bulk-title" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.75rem' }}>
+              <Database size={20} style={{ color: 'var(--accent-red)' }} aria-hidden="true" />
+              <h3 id="settings-bulk-title" style={{ color: 'var(--text-strong)', fontSize: '1.1rem' }}>{t('settings.bulkTitle')}</h3>
+            </div>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>{t('settings.bulkHint')}</p>
+            <form onSubmit={(e) => { e.preventDefault(); handleBulkAction('save'); }} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label htmlFor="settings-bulk-time">{t('settings.bulkTime')}</label>
+                <input
+                  id="settings-bulk-time"
+                  type="time"
+                  step="60"
+                  required
+                  className="input-control"
+                  value={bulkTime}
+                  onChange={(e) => { setBulkTime(e.target.value); setBulkNotice(null); }}
+                  disabled={!!bulkBusy}
+                  aria-describedby="settings-bulk-utc"
+                  style={{ maxWidth: '15rem' }}
+                />
+                <p id="settings-bulk-utc" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0.4rem 0 0' }}>{t('settings.bulkUtcHint')}</p>
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <button type="submit" className="btn btn-primary" disabled={!!bulkBusy || !bulkTime}>
+                  {bulkBusy === 'save' && <RefreshCw size={14} className="spin-animation" aria-hidden="true" />}
+                  {t(bulkBusy === 'save' ? 'settings.bulkSaving' : 'common.save')}
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => handleBulkAction('download')} disabled={!!bulkBusy} aria-describedby="settings-bulk-force">
+                  {bulkBusy === 'download' ? <RefreshCw size={14} className="spin-animation" aria-hidden="true" /> : <Download size={14} aria-hidden="true" />}
+                  {t(bulkBusy === 'download' ? 'settings.bulkDownloading' : 'settings.bulkDownload')}
+                </button>
+              </div>
+            </form>
+            <p id="settings-bulk-force" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>{t('settings.bulkForceHint')}</p>
+            {bulkBusy === 'loading' && <p role="status" style={{ color: 'var(--text-secondary)', margin: 0 }}>{t('common.loading')}</p>}
+            {bulkNotice && (
+              <p role={bulkNotice.error ? 'alert' : 'status'} style={{ fontSize: '0.85rem', color: bulkNotice.error ? 'var(--accent-red)' : 'var(--text-strong)', margin: 0 }}>
+                {bulkNotice.message || t(bulkNotice.key, bulkNotice.values)}
+              </p>
+            )}
+          </section>
+        )}
 
         {/* Collection Backup & Data Options Panel */}
         <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>

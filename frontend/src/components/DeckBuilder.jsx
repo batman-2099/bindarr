@@ -1649,15 +1649,6 @@ function DeckBuilder({ showToast }) {
                   ) : null}
                 </h2>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{activeDeck.description || 'Custom deck build.'}</p>
-                {/commander|edh/i.test(activeDeck.format || '') && (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
-                    {t('deck.commander')}
-                    <select className="select-control" value={activeDeck.commander_card_id || ''} disabled={savingCard} onChange={e => handleCommanderChange(e.target.value)} style={{ width: 'auto', maxWidth: '100%' }}>
-                      <option value="">{t('deck.noCommander')}</option>
-                      {activeDeck.cards.map(card => <option key={card.id} value={card.id}>{card.name} ({card.set_id}) {card.number}</option>)}
-                    </select>
-                  </label>
-                )}
                 {!!activeDeck.checked_out && activeDeck.checked_out_at && (
                   <p style={{ color: '#eab308', fontSize: '0.7rem', marginTop: '2px' }}>
                     Checked out since {new Date(activeDeck.checked_out_at).toLocaleString()}
@@ -1911,6 +1902,7 @@ function DeckBuilder({ showToast }) {
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', minWidth: 0, flex: 1 }} onClick={() => setPreviewCard(card)}>
                                     <CardImage card={card} style={{ width: '32px', height: '44px', objectFit: 'cover', borderRadius: '2px', flexShrink: 0 }} />
                                     <div style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                                      {activeDeck.commander_card_id === card.id && <div style={{ background: 'var(--accent-yellow)', color: 'var(--bg-primary)', padding: '2px 6px', fontSize: '0.7rem', fontWeight: 800 }}>{t('deck.commander')}</div>}
                                       <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName(card)}</div>
                                       <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{card.set_name} • #{card.number}</div>
                                       {deckCardLocations[card.id]?.length > 0 && (
@@ -1931,6 +1923,10 @@ function DeckBuilder({ showToast }) {
                                       <input type="checkbox" checked={!!card.checked_out} disabled={savingCard} onChange={(e) => handlePulledChange(card.id, e.target.checked)} />
                                       {t('deck.pulled')}
                                     </label>
+                                    {/commander|edh/i.test(activeDeck.format || '') && <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.7rem', cursor: 'pointer' }}>
+                                      <input type="checkbox" checked={activeDeck.commander_card_id === card.id} disabled={savingCard} onChange={e => handleCommanderChange(e.target.checked ? card.id : null)} />
+                                      {t('deck.commander')}
+                                    </label>}
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: '4px', border: '1px solid var(--border-glass)' }}>
                                       <button
                                         className={`btn ${card.quantity === 1 ? 'btn-danger' : 'btn-secondary'} btn-icon-only`}
@@ -1964,6 +1960,7 @@ function DeckBuilder({ showToast }) {
                                 <div key={card.id} style={{ position: 'relative', borderRadius: '6px', overflow: 'hidden', border: card.quantity > (card.owned_qty || 0) - (card.locked_qty || 0) ? '2px solid var(--accent-red)' : '1px solid var(--border-glass)', background: card.quantity > (card.owned_qty || 0) - (card.locked_qty || 0) ? 'rgba(127,29,29,0.16)' : 'rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', transition: 'transform 0.15s' }}>
                                   <div style={{ position: 'relative', width: '100%', aspectRatio: 0.718, cursor: 'pointer' }} onClick={() => setPreviewCard(card)}>
                                     <CardImage card={card} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    {activeDeck.commander_card_id === card.id && <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, textAlign: 'center', background: 'var(--accent-yellow)', color: 'var(--bg-primary)', padding: '4px', fontSize: '0.75rem', fontWeight: 800 }}>{t('deck.commander')}</div>}
                                     <span style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(0,0,0,0.85)', color: 'var(--accent-yellow)', fontSize: '0.75rem', fontWeight: 800, padding: '1px 6px', borderRadius: '10px', border: '1px solid var(--accent-yellow)' }}>
                                       x{card.quantity}
                                     </span>
@@ -1978,11 +1975,15 @@ function DeckBuilder({ showToast }) {
                                       <MapPin size={10} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatCardLocations(deckCardLocations[card.id])}</span>
                                     </div>
                                   )}
-                                  <div style={{ padding: '4px', display: 'flex', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}>
+                                  <div style={{ padding: '4px', display: 'flex', flexWrap: 'wrap', gap: '0.35rem', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', color: card.checked_out ? 'var(--type-grass)' : 'var(--text-secondary)', fontSize: '0.65rem', fontWeight: 600 }}>
                                       <input type="checkbox" checked={!!card.checked_out} disabled={savingCard} onChange={(e) => handlePulledChange(card.id, e.target.checked)} />
                                       {t('deck.pulled')}
                                     </label>
+                                    {/commander|edh/i.test(activeDeck.format || '') && <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.65rem', cursor: 'pointer' }}>
+                                      <input type="checkbox" checked={activeDeck.commander_card_id === card.id} disabled={savingCard} onChange={e => handleCommanderChange(e.target.checked ? card.id : null)} />
+                                      {t('deck.commander')}
+                                    </label>}
                                     <div style={{ display: 'flex', gap: '2px' }}>
                                       <button className={`btn ${card.quantity === 1 ? 'btn-danger' : 'btn-secondary'} btn-icon-only`} style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} disabled={savingCard} onClick={() => handleUpdateCardQty(card.id, card.quantity - 1)} title={t(card.quantity === 1 ? 'deck.removeFromDeck' : 'deck.decreaseQty')}>
                                         {card.quantity === 1 ? <Trash2 size={10} /> : '-'}

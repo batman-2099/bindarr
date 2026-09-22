@@ -77,7 +77,7 @@ Decklist import accepts plain lines and MTG Arena-style lines such as `4 Llanowa
 
 Use **Duplicate deck** for a new deck with the same card list. Use **Edit Properties** to adjust metadata or change its deck type after inventory validation.
 
-For **Commander / EDH** decks, use the **Commander** dropdown beneath the deck description to designate one card already in the deck. Selecting another replaces the previous commander; the empty option clears it. The choice persists in duplicates and complete backups, and is cleared if that card is removed or the format changes away from Commander.
+For **Commander / EDH** decks, check **Commander** beside **Pulled** on a deck card in list or grid view. Only one card can be selected; checking another replaces the previous commander, and unchecking clears it. The selected card displays a **Commander** banner. The choice persists in duplicates and complete backups, and is cleared if that card is removed or the format changes away from Commander.
 
 ### Check out a physical deck
 

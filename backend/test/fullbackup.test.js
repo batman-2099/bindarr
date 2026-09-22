@@ -20,7 +20,7 @@ async function testFullBackup() {
     const compartment = await db.run(`INSERT INTO compartments (location_id, idx, capacity) VALUES (?, 1, 100)`, [location.lastID]);
     await db.run(`INSERT INTO compartment_assignments (compartment_id, filter_value) VALUES (?, 'mtg')`, [compartment.lastID]);
     await db.run(`INSERT INTO collection (card_id, location_id, compartment_id, position, game, user_id) VALUES ('backup-card', ?, ?, 1000, 'mtg', 1)`, [location.lastID, compartment.lastID]);
-    const deck = await db.run(`INSERT INTO decks (name, game, checked_out, user_id) VALUES ('Backup Deck', 'mtg', 1, 1)`);
+    const deck = await db.run(`INSERT INTO decks (name, game, format, commander_card_id, checked_out, user_id) VALUES ('Backup Deck', 'mtg', 'Commander / EDH', 'backup-card', 1, 1)`);
     await db.run(`INSERT INTO deck_cards (deck_id, card_id, quantity, checked_out) VALUES (?, 'backup-card', 2, 1)`, [deck.lastID]);
 
     const res = {
@@ -38,6 +38,7 @@ async function testFullBackup() {
     assert.ok(res.body.compartments.some(row => row.id === compartment.lastID && row.idx === 1 && row.capacity === 100));
     assert.ok(res.body.compartment_assignments.some(row => row.compartment_id === compartment.lastID && row.filter_value === 'mtg'));
     assert.deepStrictEqual(res.body.decks.map(deck => [deck.name, deck.checked_out]), [['Backup Deck', 1]]);
+    assert.strictEqual(res.body.decks[0].commander_card_id, 'backup-card');
     assert.deepStrictEqual(res.body.deck_cards.map(card => [card.card_id, card.quantity, card.checked_out]), [['backup-card', 2, 1]]);
     assert.deepStrictEqual(res.body.card_cache.map(card => card.id), ['backup-card']);
 
@@ -60,8 +61,24 @@ async function testFullBackup() {
     assert.strictEqual(restoreRes.body.decks, 1);
     assert.deepStrictEqual(await db.all(`SELECT card_id, position FROM collection WHERE user_id = 1 ORDER BY id`), [{ card_id: 'backup-card', position: 1000 }]);
     assert.strictEqual((await db.get(`SELECT COUNT(*) AS count FROM locations WHERE user_id = 1 AND name = 'Discard Box'`)).count, 0);
-    assert.deepStrictEqual(await db.all(`SELECT name, checked_out FROM decks WHERE user_id = 1 ORDER BY id`), [{ name: 'Backup Deck', checked_out: 1 }]);
+    assert.deepStrictEqual(await db.all(`SELECT name, checked_out, commander_card_id FROM decks WHERE user_id = 1 ORDER BY id`), [{ name: 'Backup Deck', checked_out: 1, commander_card_id: 'backup-card' }]);
     assert.deepStrictEqual(await db.all(`SELECT card_id, quantity, checked_out FROM deck_cards`), [{ card_id: 'backup-card', quantity: 2, checked_out: 1 }]);
+
+    const invalidBackup = { ...res.body, decks: [{ ...res.body.decks[0], commander_card_id: 'discard-card' }] };
+    const invalidRes = {
+      statusCode: 200,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; }
+    };
+    await importBackup({ body: { format: 'backup', data: invalidBackup }, user: { id: 1 } }, invalidRes);
+    assert.ok(invalidRes.statusCode >= 400, 'a commander outside its deck must make the backup invalid');
+    assert.strictEqual((await db.get(`SELECT commander_card_id FROM decks WHERE user_id = 1`)).commander_card_id, 'backup-card', 'invalid backups must not replace existing data');
+
+    // Backups made before commander support remain valid.
+    delete res.body.decks[0].commander_card_id;
+    await importBackup({ body: { format: 'backup', data: res.body }, user: { id: 1 } }, restoreRes);
+    assert.strictEqual(restoreRes.statusCode, 200);
+    assert.strictEqual((await db.get(`SELECT commander_card_id FROM decks WHERE user_id = 1`)).commander_card_id, null);
   } finally {
     try { db.dbConnection.close(); } catch { /* already closed */ }
     for (const suffix of ['', '-wal', '-shm']) {

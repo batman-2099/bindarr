@@ -758,6 +758,9 @@ async function initDb() {
   if (!decksCols.some(c => c.name === 'inventory_type')) {
     await run(`ALTER TABLE decks ADD COLUMN inventory_type TEXT DEFAULT 'collection'`);
   }
+  if (!decksCols.some(c => c.name === 'commander_card_id')) {
+    await run(`ALTER TABLE decks ADD COLUMN commander_card_id TEXT`);
+  }
 
   // Lock flags: a locked compartment/location is skipped by auto-filing
   // (recommendSlot) so it never receives new cards; existing cards stay put and

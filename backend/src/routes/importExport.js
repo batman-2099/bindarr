@@ -58,6 +58,12 @@ function parseCompleteBackup(data) {
     || backup.compartment_assignments.some(assignment => !compartmentIds.has(assignment.compartment_id))
     || backup.collection.some(card => !cardIds.has(card.card_id) || (card.location_id != null && !locationIds.has(card.location_id)) || (card.compartment_id != null && !compartmentIds.has(card.compartment_id)))
     || backup.deck_cards.some(card => !cardIds.has(card.card_id) || !deckIds.has(card.deck_id))
+    || backup.decks.some(deck => deck.commander_card_id != null && (
+      typeof deck.commander_card_id !== 'string'
+      || deck.game !== 'mtg'
+      || !/commander|edh/i.test(deck.format)
+      || !backup.deck_cards.some(card => card.deck_id === deck.id && card.card_id === deck.commander_card_id && card.quantity > 0)
+    ))
   ) {
     throw new Error('Invalid backup references');
   }
@@ -140,11 +146,11 @@ async function restoreCompleteBackup(backup, userId) {
       const result = await db.run(`
         INSERT INTO decks (
           name, description, checked_out, checked_out_at, game, created_at, format, category,
-          accent_color, target_size, user_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          accent_color, target_size, commander_card_id, user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         deck.name, deck.description, deck.checked_out || 0, deck.checked_out_at, deck.game, deck.created_at,
-        deck.format, deck.category, deck.accent_color, deck.target_size, userId
+        deck.format, deck.category, deck.accent_color, deck.target_size, deck.commander_card_id ?? null, userId
       ]);
       deckIds.set(deck.id, result.lastID);
     }

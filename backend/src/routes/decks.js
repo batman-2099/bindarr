@@ -23,6 +23,7 @@ router.get('/', async (req, res) => {
         d.category,
         d.accent_color,
         d.target_size,
+        d.commander_card_id,
         d.created_at,
         d.checked_out,
         d.inventory_type,
@@ -326,9 +327,11 @@ router.put('/:id', async (req, res) => {
     const result = await db.run(
       `UPDATE decks
        SET name = ?, description = ?, format = COALESCE(?, format), category = COALESCE(?, category),
-           accent_color = COALESCE(?, accent_color), target_size = COALESCE(?, target_size), inventory_type = ?
+           accent_color = COALESCE(?, accent_color), target_size = COALESCE(?, target_size), inventory_type = ?,
+           commander_card_id = CASE WHEN ? THEN NULL ELSE commander_card_id END
        WHERE id = ? AND user_id = ?`,
-      [String(name).trim(), description, format, category, accent_color, targetSize, inventoryType, id, req.user.id]
+      [String(name).trim(), description, format, category, accent_color, targetSize, inventoryType,
+        format != null && !/commander|edh/i.test(format), id, req.user.id]
     );
 
     if (result.changes === 0) {
@@ -342,12 +345,41 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+// Designate one existing card as commander; null clears the designation.
+router.put('/:id/commander', async (req, res) => {
+  const { id } = req.params;
+  const cardId = req.body?.card_id;
+  if (cardId !== null && (typeof cardId !== 'string' || !cardId.trim())) {
+    return res.status(400).json({ error: 'card_id must be a non-empty string or null' });
+  }
+
+  try {
+    const deck = await db.get(`SELECT format FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`, [id, req.user.id]);
+    if (!deck) return res.status(404).json({ error: 'Deck not found or unauthorized' });
+    if (!/commander|edh/i.test(deck.format)) {
+      return res.status(400).json({ error: 'Only Commander / EDH decks can designate a commander' });
+    }
+    const result = await db.run(
+      `UPDATE decks SET commander_card_id = ?
+       WHERE id = ? AND user_id = ? AND format = ? AND (? IS NULL OR EXISTS (
+         SELECT 1 FROM deck_cards WHERE deck_id = decks.id AND card_id = ? AND quantity > 0
+       ))`,
+      [cardId, id, req.user.id, deck.format, cardId, cardId]
+    );
+    if (!result.changes) return res.status(400).json({ error: 'Commander must be a card in this deck' });
+    res.json({ commander_card_id: cardId });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to update commander' });
+  }
+});
+
 // Duplicate Deck
 router.post('/:id/duplicate', async (req, res) => {
   const { id } = req.params;
   try {
     const deck = await db.get(
-      `SELECT name, description, game, format, category, accent_color, target_size, inventory_type
+      `SELECT name, description, game, format, category, accent_color, target_size, inventory_type, commander_card_id
        FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`,
       [id, req.user.id]
     );
@@ -355,9 +387,9 @@ router.post('/:id/duplicate', async (req, res) => {
 
     const duplicateId = await db.withTransaction(async () => {
       const result = await db.run(
-        `INSERT INTO decks (name, description, game, format, category, accent_color, target_size, inventory_type, user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [`${deck.name} (Copy)`, deck.description, deck.game, deck.format, deck.category, deck.accent_color, deck.target_size, deck.inventory_type, req.user.id]
+        `INSERT INTO decks (name, description, game, format, category, accent_color, target_size, inventory_type, commander_card_id, user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [`${deck.name} (Copy)`, deck.description, deck.game, deck.format, deck.category, deck.accent_color, deck.target_size, deck.inventory_type, deck.commander_card_id, req.user.id]
       );
       await db.run(
         `INSERT INTO deck_cards (deck_id, card_id, quantity)
@@ -437,6 +469,9 @@ router.post('/:id/cards', async (req, res) => {
       VALUES (?, ?, ?)
       ON CONFLICT(deck_id, card_id) DO UPDATE SET quantity = ?
     `, [id, card_id, parseInt(quantity, 10), parseInt(quantity, 10)]);
+    if (parseInt(quantity, 10) === 0) {
+      await db.run(`UPDATE decks SET commander_card_id = NULL WHERE id = ? AND commander_card_id = ?`, [id, card_id]);
+    }
 
     // Record initial price history trend if card is added
     const cacheCard = await db.get(`SELECT price_trend FROM card_cache WHERE id = ?`, [card_id]);
@@ -481,7 +516,10 @@ router.delete('/:id/cards/:card_id', async (req, res) => {
       return res.status(404).json({ error: 'Deck not found or unauthorized' });
     }
 
-    await db.run(`DELETE FROM deck_cards WHERE deck_id = ? AND card_id = ?`, [id, card_id]);
+    await db.withTransaction(async () => {
+      await db.run(`DELETE FROM deck_cards WHERE deck_id = ? AND card_id = ?`, [id, card_id]);
+      await db.run(`UPDATE decks SET commander_card_id = NULL WHERE id = ? AND commander_card_id = ?`, [id, card_id]);
+    });
     res.json({ message: 'Card removed from deck successfully' });
   } catch (error) {
     console.error(error);

@@ -1,4 +1,7 @@
 {
+  "deck.commander": "Commander",
+  "deck.noCommander": "Select a commander (one only)",
+  "deck.errCommander": "Failed to update commander.",
   "loc.chooseCover": "Choose container image",
   "loc.automaticCover": "Automatic image",
   "collection.exportViewCsv": "Export view CSV",

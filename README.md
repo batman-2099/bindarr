@@ -77,6 +77,8 @@ Decklist import accepts plain lines and MTG Arena-style lines such as `4 Llanowa
 
 Use **Duplicate deck** for a new deck with the same card list. Use **Edit Properties** to adjust metadata or change its deck type after inventory validation.
 
+For **Commander / EDH** decks, use the **Commander** dropdown beneath the deck description to designate one card already in the deck. Selecting another replaces the previous commander; the empty option clears it. The choice persists in duplicates and complete backups, and is cleared if that card is removed or the format changes away from Commander.
+
 ### Check out a physical deck
 
 Open a Physical deck and choose **Check Out for Play**. Bindarr creates a pull list grouped by container and compartment, reserves the copies used by that deck, and keeps their stored locations intact. Mark each card pulled while gathering it, then return the deck to release the reservation. Arena decks are digital and therefore have no checkout flow.

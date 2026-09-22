@@ -293,6 +293,25 @@ function DeckBuilder({ showToast }) {
     }
   };
 
+  const handleCommanderChange = async (cardId) => {
+    if (!activeDeck || savingCard) return;
+    setSavingCard(true);
+    try {
+      const response = await fetch(`/api/decks/${activeDeck.id}/commander`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ card_id: cardId || null }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || t('deck.errCommander'));
+      await loadDeckDetails(activeDeck.id);
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      setSavingCard(false);
+    }
+  };
+
   const handlePulledChange = async (cardId, pulled) => {
     if (!activeDeck || savingCard) return;
     setSavingCard(true);
@@ -1630,6 +1649,15 @@ function DeckBuilder({ showToast }) {
                   ) : null}
                 </h2>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{activeDeck.description || 'Custom deck build.'}</p>
+                {/commander|edh/i.test(activeDeck.format || '') && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
+                    {t('deck.commander')}
+                    <select className="select-control" value={activeDeck.commander_card_id || ''} disabled={savingCard} onChange={e => handleCommanderChange(e.target.value)} style={{ width: 'auto', maxWidth: '100%' }}>
+                      <option value="">{t('deck.noCommander')}</option>
+                      {activeDeck.cards.map(card => <option key={card.id} value={card.id}>{card.name} ({card.set_id}) {card.number}</option>)}
+                    </select>
+                  </label>
+                )}
                 {!!activeDeck.checked_out && activeDeck.checked_out_at && (
                   <p style={{ color: '#eab308', fontSize: '0.7rem', marginTop: '2px' }}>
                     Checked out since {new Date(activeDeck.checked_out_at).toLocaleString()}

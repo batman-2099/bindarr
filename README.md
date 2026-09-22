@@ -94,6 +94,30 @@ The following changes were developed on the [`AI-Deck-Builder` branch](https://g
 - Additional UI refinements: the Obtained control beside the Arena badge, Collection/Arena/Unassigned/Wishlist tab ordering, alphabetical deck selectors, and resetting Deck Builder when opened from navigation.
 - Corrected basic-land copy-limit detection so nonbasic dual lands are not treated as unlimited basic lands.
 
+### Screenshots
+
+These screenshots show the fork's interfaces using sample data, not a personal collection. Model availability and inventory counts depend on your installation.
+
+**AI Deck Builder** — compact green connection status, Physical/Arena selection, checked-out-copy planning, color/set filters, and the deck request. This example has an empty inventory.
+
+![AI Deck Builder with AI Connected status, inventory and format selectors, checked-out-card option, and color/set filters](docs/images/ai-deck-builder.webp)
+
+**Ollama settings** — choose the provider, enter a per-user service address, check connectivity, and select an installed model. The example uses a local service address.
+
+![Ollama settings showing the server address field, Check connection button, connected status, and model selector](docs/images/ollama-settings.webp)
+
+**Storage boxes** — artwork-covered containers with names and card counts, search and sorting, container creation, and ManaBox container import. Box names and quantities shown here are illustrative.
+
+![Storage gallery showing Commander Decks, Draft Staples, and Trade Box containers with card artwork, counts, search, sorting, and import controls](docs/images/storage-boxes.png)
+
+**Deck Builder — table view** — compare sample Physical and Arena decks, formats, categories, capacity, and play status in one overview.
+
+![Deck Builder table showing sample Physical and Arena decks, card counts, readiness, and deck actions](docs/images/deck-builder-table.png)
+
+**Deck Builder — grid view** — the same sample decks as tiles, with completion bars and a highlighted checked-out deck.
+
+![Deck Builder grid showing sample deck tiles with inventory types, capacity bars, and a checked-out deck banner](docs/images/deck-builder-grid.png)
+
 ## Highlights
 
 - Search, browse, scan, and catalog Magic: The Gathering cards through Scryfall.
@@ -175,7 +199,11 @@ For **Commander / EDH** and **Brawl** decks, check **Commander** on a deck card 
 4. Review the draft, edit its name and description, adjust quantities, remove cards, or add exact printings from your owned inventory. Commander and Brawl use 100 cards including one commander.
 5. Choose **Add Deck** to save. Nothing is created during generation. The server rechecks current quantities, physical checkout reservations (unless **Include checked-out cards** is enabled for planning), copy limits, and cached format rules before saving every card atomically. Creating a deck neither moves cards nor checks it out; checkout still requires enough unreserved copies.
 
-Use the **Color** and **Set** multi-selects to limit the inventory sent to AI. Empty selections include all; selected colors match any color in a card's color identity, selected sets match any chosen set, and both filters apply together. Multicolor cards remain eligible when any selected color matches. Select **Colorless** separately for known empty identities. Only matching available cards are sent; no extra lands or other cards are inserted automatically. Counts update before generation. Changing filters clears the suggestion; afterward, manual draft editing can still add other owned cards.
+To improve a saved Physical or Arena deck, open its detail view and choose **Improve with AI**. Describe the changes you want, generate and edit the suggestion, then choose **Save as New Deck**. The source deck's inventory, format, and target size stay fixed; its card IDs, names, quantities, and commander are supplied as context alongside your request and eligible inventory, not its description or private notes. Color/set filters and the explicit **Include checked-out cards** planning option still apply. Back returns to the original deck; saving opens a new deck and leaves the original and all checkout reservations unchanged.
+
+Use the **Color** and **Set** multi-selects to limit the eligible inventory sent to AI. Empty selections include all; selected colors match any color in a card's color identity, selected sets match any chosen set, and both filters apply together. Multicolor cards remain eligible when any selected color matches. Select **Colorless** separately for known empty identities. Only matching available cards are eligible for AI selection; no extra lands or other cards are inserted automatically. Counts update before generation. Changing filters clears the suggestion; afterward, manual draft editing can still add other owned cards.
+
+For **Physical** inventory, use **Containers** to choose one or more storage containers; leave it empty for all physical inventory, including unassigned cards. Counts, AI eligibility, and manual additions use only copies in those containers, excluding missing copies and respecting the checked-out option. Changing containers clears the draft, reloads counts, and preserves color/set filters. This also works with **Improve with AI**: the full source deck remains context, but cards outside the eligible selection cannot be picked. Container names and IDs never reach the AI provider. This is a generation/editing filter, not a permanent restriction on the saved deck; Arena has no container selector.
 
 For **Physical** inventory, **Include checked-out cards** also makes reserved copies eligible for the counts, AI suggestion, manual quantity limits, and saved deck. Missing copies remain excluded. This option is off by default, clears the draft when toggled, and resets when switching inventory. It is for planning only: existing checkout reservations are never released or shared, so return the cards from their other decks before checking out the new deck for play. Arena inventory is unaffected.
 

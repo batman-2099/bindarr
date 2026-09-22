@@ -99,6 +99,8 @@ function DeckBuilder({ showToast }) {
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAiBuilder, setShowAiBuilder] = useState(false);
+  const [aiSourceDeck, setAiSourceDeck] = useState(null);
+  const closeAiBuilder = () => { setShowAiBuilder(false); setAiSourceDeck(null); };
   const [newDeckName, setNewDeckName] = useState('');
   const [newDeckDesc, setNewDeckDesc] = useState('');
   const [newDeckGame, setNewDeckGame] = useState(() => defaultGame()); // 'pokemon' | 'mtg'
@@ -162,7 +164,7 @@ function DeckBuilder({ showToast }) {
   useBackGuard(showSimulator, () => setShowSimulator(false));
   useBackGuard(!!activeDeck, () => setActiveDeck(null));
   useBackGuard(!!deckDraft, () => setDeckDraft(null));
-  useBackGuard(showAiBuilder, () => setShowAiBuilder(false));
+  useBackGuard(showAiBuilder, closeAiBuilder);
 
   useEffect(() => {
     fetchDecks();
@@ -1000,10 +1002,11 @@ function DeckBuilder({ showToast }) {
       
       {showAiBuilder && (
         <AiDeckBuilder
+          sourceDeck={aiSourceDeck}
           onPreview={setPreviewCard}
-          onClose={() => setShowAiBuilder(false)}
+          onClose={closeAiBuilder}
           onSaved={async id => {
-            setShowAiBuilder(false);
+            closeAiBuilder();
             showToast(t('deck.created'));
             await fetchDecks();
             await loadDeckDetails(id);
@@ -1026,7 +1029,7 @@ function DeckBuilder({ showToast }) {
               </p>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
-              {isGameEnabled('mtg') && <button className="btn btn-secondary" onClick={() => setShowAiBuilder(true)}>
+              {isGameEnabled('mtg') && <button className="btn btn-secondary" onClick={() => { setAiSourceDeck(null); setShowAiBuilder(true); }}>
                 <Zap size={18} /> {t('aiDeck.title')}
               </button>}
             <button 
@@ -1567,7 +1570,7 @@ function DeckBuilder({ showToast }) {
       )}
 
       {/* 2. DECK EDITOR / DETAIL VIEW */}
-      {viewMode === 'detail' && activeDeck && (
+      {viewMode === 'detail' && activeDeck && !showAiBuilder && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           {/* Header */}
           {deckDraft && (
@@ -1677,6 +1680,16 @@ function DeckBuilder({ showToast }) {
             </div>
 
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {activeDeck.game === 'mtg' && (
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => { setAiSourceDeck(activeDeck); setShowAiBuilder(true); }}
+                  disabled={savingCard}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                >
+                  <Zap size={14} /> {t('aiDeck.improve')}
+                </button>
+              )}
               <button
                 className="btn btn-secondary"
                 onClick={() => setDeckDraft({

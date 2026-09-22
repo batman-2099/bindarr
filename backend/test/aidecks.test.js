@@ -606,6 +606,112 @@ async function main() {
     assert.strictEqual((await request('PUT', `/decks/${brawl.body.id}`, { name: 'Edited Brawl', format: 'Brawl' })).status, 200);
     assert.strictEqual((await request('GET', `/decks/${brawl.body.id}`)).body.commander_card_id, ids.commander);
 
+    await db.run("INSERT INTO users (id, username, password_hash, share_token) VALUES (5, 'improve-user', 'not-a-real-password', 'improve-share')");
+    await db.run("INSERT INTO users (id, username, password_hash, share_token) VALUES (6, 'improve-other-user', 'not-a-real-password', 'improve-other-share')");
+    await db.run(`INSERT INTO collection (card_id, quantity, user_id, list_type, missing, game, notes)
+      SELECT card_id, quantity, 5, list_type, missing, game, notes FROM collection WHERE user_id = 3`);
+    const source = await db.run(`INSERT INTO decks
+      (user_id, name, description, game, inventory_type, format, target_size, category, checked_out, checked_out_at)
+      VALUES (5, 'PRIVATE SOURCE NAME', 'PRIVATE SOURCE DESCRIPTION', 'mtg', 'collection', 'Standard', 60, 'PRIVATE CATEGORY', 1, '2026-09-22')`);
+    const sourceCards = [
+      { card_id: ids.bolt, name: 'Lightning Bolt', quantity: 1 },
+      { card_id: ids.reprint, name: 'Lightning Bolt', quantity: 1 },
+      { card_id: ids.locked, name: 'Locked Creature', quantity: 2 },
+      { card_id: ids.forest, name: 'Forest', quantity: 55 },
+      { card_id: ids.tenant, name: 'Other Users Private Card', quantity: 1 },
+    ];
+    for (const card of sourceCards) {
+      await db.run('INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, ?, ?)', [source.lastID, card.card_id, card.quantity]);
+    }
+    const improvement = { ...requestBody, source_deck_id: source.lastID, prompt: 'Improve consistency and remove weak cards.', sets: ['tst'] };
+    const sourceBefore = await db.get('SELECT * FROM decks WHERE id = ?', [source.lastID]);
+    const sourceCardsBefore = await db.all('SELECT * FROM deck_cards WHERE deck_id = ? ORDER BY card_id', [source.lastID]);
+    const reservationsBefore = await db.all('SELECT id, checked_out, checked_out_at FROM decks WHERE checked_out = 1 ORDER BY id');
+    const inventoryBeforeImprove = await db.all('SELECT * FROM collection ORDER BY id');
+    const decksBeforeImprove = await db.get('SELECT COUNT(*) AS count FROM decks');
+    const callsBeforeInvalidSource = calls.length + ollamaCalls.length + otherOllamaCalls.length;
+    for (const source_deck_id of [null, 0, -1, 1.5, '1', {}, Number.MAX_SAFE_INTEGER + 1]) {
+      assert.strictEqual((await request('POST', '/ai/suggest', { ...requestBody, source_deck_id }, 6)).status, 400);
+    }
+    assert.strictEqual((await request('POST', '/ai/suggest', improvement, 6)).status, 404, 'another user cannot read or improve the source');
+    assert.strictEqual((await request('POST', '/ai/suggest', { ...improvement, source_deck_id: Number.MAX_SAFE_INTEGER }, 5)).status, 404);
+    for (const stale of [{ inventory_type: 'arena' }, { format: 'Modern' }, { target_size: 61 }]) {
+      assert.strictEqual((await request('POST', '/ai/suggest', { ...improvement, ...stale }, 5)).status, 400,
+        'source configuration cannot be silently changed by a stale client');
+    }
+    assert.strictEqual((await request('POST', '/ai/suggest', { ...improvement, source_deck: { cards: [] } }, 5)).status, 400,
+      'clients cannot inject their own source context');
+    const unsupported = await db.run("INSERT INTO decks (user_id, name, game, inventory_type, format, target_size) VALUES (5, 'Old deck', 'mtg', 'collection', 'Old unsupported format', 60)");
+    const unsupportedResult = await request('POST', '/ai/suggest', { ...improvement, source_deck_id: unsupported.lastID }, 5);
+    assert.strictEqual(unsupportedResult.status, 400);
+    assert.match(unsupportedResult.body.error, /unsupported.*format/i);
+    await db.run("UPDATE decks SET game = 'pokemon' WHERE id = ?", [unsupported.lastID]);
+    assert.strictEqual((await request('POST', '/ai/suggest', { ...improvement, source_deck_id: unsupported.lastID }, 5)).status, 404,
+      'owned non-Magic decks are not exposed as improvement sources');
+    await db.run('DELETE FROM decks WHERE id = ?', [unsupported.lastID]);
+    assert.strictEqual(calls.length + ollamaCalls.length + otherOllamaCalls.length, callsBeforeInvalidSource,
+      'invalid, inaccessible and stale sources are rejected before contacting either provider');
+
+    model = async () => ({ ...draft(), warnings: [] });
+    const improved = await request('POST', '/ai/suggest', improvement, 5);
+    assert.strictEqual(improved.status, 200, JSON.stringify(improved.body));
+    const improvedPayload = lastPayload();
+    assert.deepStrictEqual(improvedPayload.source_deck, {
+      inventory_type: 'collection', format: 'Standard', target_size: 60, commander_card_id: null,
+      cards: [...sourceCards].sort((a, b) => a.card_id.localeCompare(b.card_id)),
+    }, 'source context contains exact printing quantities, not aggregated names or private deck metadata');
+    assert.strictEqual(improvedPayload.request.prompt, improvement.prompt);
+    assert.deepStrictEqual(improvedPayload.request.sets, ['tst']);
+    assert.ok(!Object.hasOwn(improvedPayload.request, 'source_deck_id'));
+    assert.ok(!Object.hasOwn(improved.body, 'source_deck_id'));
+    assert.ok(!Object.hasOwn(sent, 'source_deck'), 'ordinary generation keeps its original payload');
+    assert.ok(['PRIVATE SOURCE NAME', 'PRIVATE SOURCE DESCRIPTION', 'PRIVATE CATEGORY', 'PRIVATE STORAGE NOTE']
+      .every(value => !calls.at(-1).prompt.includes(value)));
+    assert.ok([ids.reprint, ids.locked, ids.tenant].every(cardId => !improvedPayload.catalog.some(row => row[0] === cardId)),
+      'source cards do not override filters, reservations or ownership');
+    for (const card_id of [ids.tenant, ids.reprint, ids.locked]) {
+      model = async () => ({ ...draft({ cards: [{ card_id, quantity: 1 }, { card_id: ids.forest, quantity: 59 }] }), warnings: [] });
+      assert.strictEqual((await request('POST', '/ai/suggest', improvement, 5)).status, 502,
+        'source membership cannot authorize an ineligible model result');
+    }
+    model = async () => ({ ...reservedDraft, warnings: [] });
+    const improvedReserved = await request('POST', '/ai/suggest', { ...improvement, include_checked_out: true }, 5);
+    assert.strictEqual(improvedReserved.status, 200, JSON.stringify(improvedReserved.body));
+    assert.strictEqual(improvedReserved.body.include_checked_out, true);
+    assert.deepStrictEqual(await db.get('SELECT COUNT(*) AS count FROM decks'), decksBeforeImprove, 'improvement only suggests, never saves');
+    const { warnings: improvementWarnings, ...improvementSave } = improvedReserved.body;
+    const newDeck = await request('POST', '/ai', { ...improvementSave, name: 'Edited improvement' }, 5);
+    assert.strictEqual(newDeck.status, 201, JSON.stringify(newDeck.body));
+    assert.notStrictEqual(newDeck.body.id, source.lastID);
+    const newLoaded = await request('GET', `/decks/${newDeck.body.id}`, undefined, 5);
+    assert.strictEqual(newLoaded.body.name, 'Edited improvement');
+    assert.strictEqual(newLoaded.body.checked_out, 0);
+    assert.deepStrictEqual(newLoaded.body.cards.map(card => [card.id, card.quantity]).sort(),
+      reservedDraft.cards.map(card => [card.card_id, card.quantity]).sort());
+    assert.deepStrictEqual(await db.get('SELECT * FROM decks WHERE id = ?', [source.lastID]), sourceBefore);
+    assert.deepStrictEqual(await db.all('SELECT * FROM deck_cards WHERE deck_id = ? ORDER BY card_id', [source.lastID]), sourceCardsBefore);
+    assert.deepStrictEqual(await db.all('SELECT id, checked_out, checked_out_at FROM decks WHERE checked_out = 1 ORDER BY id'), reservationsBefore);
+    assert.deepStrictEqual(await db.all('SELECT * FROM collection ORDER BY id'), inventoryBeforeImprove);
+
+    const arenaCommander = { ...commander, inventory_type: 'arena' };
+    const commanderSource = await request('POST', '/ai', arenaCommander, 5);
+    assert.strictEqual(commanderSource.status, 201);
+    const improveCommander = { ...requestBody, inventory_type: 'arena', format: 'Commander / EDH', target_size: 100, source_deck_id: commanderSource.body.id };
+    for (const provider of ['chatgpt', 'ollama']) {
+      assert.strictEqual((await request('PUT', '/ai/preferences', provider === 'ollama' ? defaultSelection : defaults, 5)).status, 200);
+      model = async () => ({ ...arenaCommander, warnings: [] });
+      ollamaDraft = { ...arenaCommander, warnings: [] };
+      const result = await request('POST', '/ai/suggest', improveCommander, 5);
+      assert.strictEqual(result.status, 200, JSON.stringify(result.body));
+      assert.strictEqual(result.body.commander_card_id, ids.commander);
+      const payload = provider === 'chatgpt' ? lastPayload()
+        : JSON.parse(ollamaCalls.at(-1).body.messages.find(message => message.role === 'user').content.split('\n').at(-1));
+      assert.deepStrictEqual(payload.source_deck, {
+        inventory_type: 'arena', format: 'Commander / EDH', target_size: 100, commander_card_id: ids.commander,
+        cards: [{ card_id: ids.forest, name: 'Forest', quantity: 99 }, { card_id: ids.commander, name: 'Green Commander', quantity: 1 }],
+      }, 'both providers receive the same explicit commander source context');
+      assert.ok(!payload.catalog.some(row => row[0] === ids.locked), 'Arena improvement never borrows physical cards');
+    }
     const beforeFailure = await db.get('SELECT COUNT(*) AS count FROM decks');
     const cardsBeforeFailure = await db.get('SELECT COUNT(*) AS count FROM deck_cards');
     await db.run(`CREATE TRIGGER reject_ai_card BEFORE INSERT ON deck_cards WHEN NEW.card_id = '${ids.forest}' BEGIN SELECT RAISE(ABORT, 'deliberate card insert failure'); END`);
@@ -616,6 +722,137 @@ async function main() {
     assert.deepStrictEqual(await db.get('SELECT COUNT(*) AS count FROM deck_cards'), cardsBeforeFailure, 'failed insertion rolls back previously inserted cards');
     await db.run('DROP TRIGGER reject_ai_card');
     assert.strictEqual((await request('POST', '/ai', edited)).status, 201, 'rollback releases the save lock');
+
+    for (const user of [7, 8, 9]) {
+      await db.run('INSERT INTO users (id, username, password_hash, share_token) VALUES (?, ?, ?, ?)',
+        [user, `container-user-${user}`, 'not-a-real-password', `container-share-${user}`]);
+    }
+    const boxA = 900000071;
+    const boxB = 900000072;
+    const emptyBox = 900000073;
+    const foreignBox = 900000081;
+    for (const [location, user, name] of [
+      [boxA, 7, 'PRIVATE CONTAINER A'], [boxB, 7, 'PRIVATE CONTAINER B'],
+      [emptyBox, 7, 'PRIVATE EMPTY CONTAINER'], [foreignBox, 8, 'PRIVATE FOREIGN CONTAINER'],
+    ]) {
+      await db.run("INSERT INTO locations (id, name, type, user_id) VALUES (?, ?, 'Box', ?)", [location, name, user]);
+    }
+    const stored = (card, quantity, location, added, missing = 0, user = 7, type = 'collection') => db.run(`
+      INSERT INTO collection (card_id, quantity, user_id, list_type, missing, game, location_id, added_at, notes)
+      VALUES (?, ?, ?, ?, ?, 'mtg', ?, ?, 'PRIVATE CONTAINER NOTE')`,
+    [card, quantity, user, type, missing, location, added]);
+    await stored(ids.forest, 6, boxA, '2026-01-01');
+    await stored(ids.forest, 4, boxB, '2026-02-01');
+    await stored(ids.forest, 3, null, '2026-03-01');
+    await stored(ids.bolt, 3, boxA, '2026-01-01');
+    await stored(ids.bolt, 2, boxB, '2026-02-01');
+    await stored(ids.reprint, 1, boxA, '2026-01-01');
+    await stored(ids.island, 3, boxB, '2026-01-01');
+    await stored(ids.locked, 3, boxA, '2026-01-01');
+    await stored(ids.locked, 3, boxA, '2026-02-01', 1);
+    await stored(ids.missing, 2, boxA, '2026-01-01', 1);
+    await stored(ids.unknown, 2, null, '2026-01-01');
+    await stored(ids.wishlist, 2, boxA, '2026-01-01', 0, 7, 'wishlist');
+    await stored(ids.bolt, 9, null, '2026-01-01', 0, 7, 'arena');
+    await stored(ids.tenant, 10, foreignBox, '2026-01-01', 0, 8);
+    await stored(ids.tenant, 4, boxA, '2026-01-01', 0, 8);
+    await stored(ids.bolt, 30, foreignBox, '2026-01-01', 0, 8);
+    const containerCheckout = await db.run("INSERT INTO decks (user_id, name, game, inventory_type, checked_out) VALUES (7, 'Checked out', 'mtg', 'collection', 1)");
+    for (const [card, quantity] of [[ids.forest, 5], [ids.bolt, 1], [ids.locked, 2]]) {
+      await db.run('INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, ?, ?)', [containerCheckout.lastID, card, quantity]);
+    }
+    const foreignCheckout = await db.run("INSERT INTO decks (user_id, name, game, inventory_type, checked_out) VALUES (8, 'Other checked out', 'mtg', 'collection', 1)");
+    await db.run('INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, ?, 20)', [foreignCheckout.lastID, ids.bolt]);
+    const containerInventory = suffix => request('GET', `/ai/inventory?inventory_type=collection${suffix}`, undefined, 7);
+    const quantities = result => result.body.cards.map(card => [card.id, card.owned_qty, card.available_qty, card.missing_qty]).sort();
+    const selectedA = await containerInventory(`&container_ids=${boxA}`);
+    assert.strictEqual(selectedA.status, 200);
+    assert.deepStrictEqual(quantities(selectedA), [
+      [ids.forest, 6, 5, 0], [ids.bolt, 3, 3, 0], [ids.reprint, 1, 1, 0],
+      [ids.locked, 3, 1, 3], [ids.missing, 0, 0, 2],
+    ].sort(), 'only selected, owned, nonmissing copies count; missing-row allocation is globally capped');
+    const selectedB = await containerInventory(`&container_ids=${boxB}`);
+    assert.deepStrictEqual(quantities(selectedB), [
+      [ids.forest, 4, 0, 0], [ids.bolt, 2, 1, 0], [ids.island, 3, 3, 0],
+    ].sort(), 'reservations consume located copies before newer unassigned copies, then newest located copies first');
+    const bothBoxes = await containerInventory(`&container_ids=${boxA},${boxB}`);
+    assert.deepStrictEqual(quantities(bothBoxes), [
+      [ids.forest, 10, 5, 0], [ids.bolt, 5, 4, 0], [ids.reprint, 1, 1, 0],
+      [ids.locked, 3, 1, 3], [ids.island, 3, 3, 0], [ids.missing, 0, 0, 2],
+    ].sort(), 'multiple boxes add exact entries without multiplying shared printing quantities');
+    assert.deepStrictEqual((await containerInventory(`&container_ids=${emptyBox}`)).body.cards, []);
+    const allContainers = await containerInventory('');
+    assert.deepStrictEqual(quantities(allContainers), [
+      [ids.forest, 13, 8, 0], [ids.bolt, 5, 4, 0], [ids.reprint, 1, 1, 0],
+      [ids.locked, 3, 1, 3], [ids.island, 3, 3, 0], [ids.missing, 0, 0, 2], [ids.unknown, 2, 2, 0],
+    ].sort(), 'omitting the filter retains all physical inventory, including unassigned cards');
+    const beforeInvalidContainers = calls.length + ollamaCalls.length + otherOllamaCalls.length;
+    for (const container_ids of [null, {}, '1', [0], [-1], [1.5], ['1'], [Number.MAX_SAFE_INTEGER + 1], [boxA, boxA], Array.from({ length: 1001 }, (_, i) => i + 1)]) {
+      assert.strictEqual((await request('POST', '/ai/suggest', { ...requestBody, container_ids }, 9)).status, 400);
+    }
+    for (const query of ['', '0', '-1', '1.5', '1e2', '1,', '1,,2', '01', '%201', '9007199254740992', `${boxA},${boxA}`, `${boxA}&container_ids=${boxB}`]) {
+      assert.strictEqual((await containerInventory(`&container_ids=${query}`)).status, 400, `invalid query: ${query}`);
+    }
+    assert.strictEqual((await containerInventory(`&container_ids=${Array.from({ length: 1001 }, (_, i) => i + 1).join(',')}`)).status, 400);
+    for (const container_ids of [[foreignBox], [Number.MAX_SAFE_INTEGER], [boxA, foreignBox]]) {
+      assert.strictEqual((await containerInventory(`&container_ids=${container_ids.join(',')}`)).status, 404);
+      assert.strictEqual((await request('POST', '/ai/suggest', { ...requestBody, container_ids }, 7)).status, 404);
+    }
+    assert.strictEqual((await request('GET', `/ai/inventory?inventory_type=arena&container_ids=${boxA}`, undefined, 7)).status, 400);
+    assert.strictEqual((await request('POST', '/ai/suggest', { ...requestBody, inventory_type: 'arena', container_ids: [boxA] }, 9)).status, 400);
+    assert.strictEqual(calls.length + ollamaCalls.length + otherOllamaCalls.length, beforeInvalidContainers);
+
+    const scopedRequest = { ...requestBody, target_size: 6, container_ids: [boxA] };
+    const scopedDraft = draft({ target_size: 6, cards: [{ card_id: ids.forest, quantity: 5 }, { card_id: ids.bolt, quantity: 1 }] });
+    model = async () => ({ ...scopedDraft, warnings: [] });
+    const scopedSuggestion = await request('POST', '/ai/suggest', scopedRequest, 7);
+    assert.strictEqual(scopedSuggestion.status, 200, JSON.stringify(scopedSuggestion.body));
+    const scopedPayload = lastPayload();
+    assert.deepStrictEqual(scopedPayload.catalog.map(row => [row[0], row[2]]).sort(),
+      [[ids.forest, 5], [ids.bolt, 3], [ids.reprint, 1], [ids.locked, 1]].sort());
+    assert.ok(!Object.hasOwn(scopedPayload.request, 'container_ids'));
+    assert.ok(['PRIVATE CONTAINER', 'location_id', 'location_name', 'container_ids', String(boxA), String(boxB), String(foreignBox)]
+      .every(value => !calls.at(-1).prompt.includes(value)), 'storage names, notes and IDs never reach the provider');
+    const { container_ids: selectedContainers, ...unscopedRequest } = scopedRequest;
+    assert.strictEqual((await request('POST', '/ai/suggest', unscopedRequest, 7)).status, 200);
+    const defaultCatalog = lastPayload().catalog;
+    assert.strictEqual((await request('POST', '/ai/suggest', { ...unscopedRequest, container_ids: [] }, 7)).status, 200);
+    assert.deepStrictEqual(lastPayload().catalog, defaultCatalog, 'explicit empty selection and omission use the same full catalog');
+    assert.ok(defaultCatalog.some(row => row[0] === ids.unknown));
+    const beforeEmptyContainer = calls.length;
+    assert.strictEqual((await request('POST', '/ai/suggest', { ...scopedRequest, container_ids: [emptyBox] }, 7)).status, 422);
+    assert.strictEqual(calls.length, beforeEmptyContainer);
+    const containerSource = await db.run(`INSERT INTO decks (user_id, name, game, inventory_type, format, target_size)
+      VALUES (7, 'Source outside selected container', 'mtg', 'collection', 'Standard', 6)`);
+    for (const [card, quantity] of [[ids.island, 2], [ids.forest, 4]]) {
+      await db.run('INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, ?, ?)', [containerSource.lastID, card, quantity]);
+    }
+    const scopedImprove = { ...scopedRequest, source_deck_id: containerSource.lastID };
+    assert.strictEqual((await request('POST', '/ai/suggest', scopedImprove, 7)).status, 200);
+    assert.ok(lastPayload().source_deck.cards.some(card => card.card_id === ids.island));
+    assert.ok(!lastPayload().catalog.some(row => row[0] === ids.island), 'full source context does not expand selected eligibility');
+    for (const invalidCards of [
+      [{ card_id: ids.island, quantity: 1 }, { card_id: ids.forest, quantity: 5 }],
+      [{ card_id: ids.forest, quantity: 6 }],
+      [{ card_id: ids.locked, quantity: 2 }, { card_id: ids.forest, quantity: 4 }],
+      [{ card_id: ids.missing, quantity: 1 }, { card_id: ids.forest, quantity: 5 }],
+    ]) {
+      model = async () => ({ ...draft({ target_size: 6, cards: invalidCards }), warnings: [] });
+      assert.strictEqual((await request('POST', '/ai/suggest', scopedImprove, 7)).status, 502,
+        'model output cannot borrow from unselected containers, missing entries or checked-out quantities');
+    }
+    model = async () => ({ ...draft({ target_size: 6, cards: [{ card_id: ids.forest, quantity: 6 }] }), warnings: [] });
+    assert.strictEqual((await request('POST', '/ai/suggest', { ...scopedRequest, include_checked_out: true }, 7)).status, 200);
+    assert.deepStrictEqual(lastPayload().catalog.map(row => [row[0], row[2]]).sort(),
+      [[ids.forest, 6], [ids.bolt, 3], [ids.reprint, 1], [ids.locked, 3]].sort(),
+      'including checkout restores selected owned copies only, never missing or outside copies');
+    const editedScope = await request('POST', '/ai', draft({
+      target_size: 6, cards: [{ card_id: ids.island, quantity: 2 }, { card_id: ids.forest, quantity: 4 }],
+    }), 7);
+    assert.strictEqual(editedScope.status, 201, 'container selection limits generation, not later deck editing and saving');
+    model = async () => ({ ...draft({ inventory_type: 'arena', target_size: 2, cards: [{ card_id: ids.bolt, quantity: 2 }] }), warnings: [] });
+    assert.strictEqual((await request('POST', '/ai/suggest', { ...unscopedRequest, inventory_type: 'arena', target_size: 2, container_ids: [] }, 7)).status, 200);
+    assert.deepStrictEqual(lastPayload().catalog.map(row => [row[0], row[2]]), [[ids.bolt, 9]]);
     console.log('AI deck owned-inventory, draft, legality and atomic-save self-check passed');
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));

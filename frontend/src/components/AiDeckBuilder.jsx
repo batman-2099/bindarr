@@ -27,20 +27,26 @@ async function request(path, options, fallback) {
   return data;
 }
 
-export default function AiDeckBuilder({ onClose, onSaved, onPreview }) {
+export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onPreview }) {
   const { t, locale } = useT();
   const [account, setAccount] = useState(null);
   const [accountError, setAccountError] = useState('');
-  const [inventoryType, setInventoryType] = useState('collection');
+  const [inventoryType, setInventoryType] = useState(sourceDeck?.inventory_type || 'collection');
   const [includeCheckedOut, setIncludeCheckedOut] = useState(false);
+  const [containerIds, setContainerIds] = useState([]);
+  const [locations, setLocations] = useState([]);
+  const [locationsLoading, setLocationsLoading] = useState(true);
+  const [locationsError, setLocationsError] = useState('');
+  const [locationsRevision, setLocationsRevision] = useState(0);
+  const inventoryController = useRef(null);
   const [inventory, setInventory] = useState([]);
   const [colors, setColors] = useState([]);
   const [sets, setSets] = useState([]);
   const [inventoryLoading, setInventoryLoading] = useState(true);
   const [inventoryError, setInventoryError] = useState('');
   const [inventoryRevision, setInventoryRevision] = useState(0);
-  const [format, setFormat] = useState('Commander / EDH');
-  const [targetSize, setTargetSize] = useState(100);
+  const [format, setFormat] = useState(sourceDeck?.format || 'Commander / EDH');
+  const [targetSize, setTargetSize] = useState(sourceDeck?.target_size || 100);
   const [prompt, setPrompt] = useState('');
   const [draft, setDraft] = useState(null);
   const [query, setQuery] = useState('');
@@ -85,32 +91,55 @@ export default function AiDeckBuilder({ onClose, onSaved, onPreview }) {
   }, [t]);
 
   useEffect(() => {
+    if (inventoryType !== 'collection') return;
     const controller = new AbortController();
+    setLocationsLoading(true);
+    setLocationsError('');
+    fetch('/api/locations', { signal: controller.signal })
+      .then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || t('aiDeck.errContainers'));
+        if (!controller.signal.aborted) setLocations(data);
+      })
+      .catch(err => { if (!controller.signal.aborted) setLocationsError(err.message); })
+      .finally(() => { if (!controller.signal.aborted) setLocationsLoading(false); });
+    return () => controller.abort();
+  }, [inventoryType, locationsRevision, t]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    inventoryController.current = controller;
     setInventoryLoading(true);
     setInventoryError('');
     setInventory([]);
-    setColors([]);
-    setSets([]);
     setDraft(null);
     setQuery('');
     setError('');
-    request(`/inventory?inventory_type=${inventoryType}`, { signal: controller.signal }, t('aiDeck.errInventory'))
+    const params = new URLSearchParams({ inventory_type: inventoryType });
+    if (inventoryType === 'collection' && containerIds.length) params.set('container_ids', containerIds.join(','));
+    request(`/inventory?${params}`, { signal: controller.signal }, t('aiDeck.errInventory'))
       .then(data => { if (!controller.signal.aborted) setInventory(data.cards); })
       .catch(err => { if (!controller.signal.aborted) setInventoryError(err.message); })
       .finally(() => { if (!controller.signal.aborted) setInventoryLoading(false); });
     return () => controller.abort();
-  }, [inventoryType, inventoryRevision, t]);
+  }, [inventoryType, containerIds, inventoryRevision, t]);
 
   const effectiveInventory = useMemo(() => inventoryType === 'collection' && includeCheckedOut
     ? inventory.map(card => ({ ...card, available_qty: card.owned_qty })) : inventory,
   [inventory, inventoryType, includeCheckedOut]);
   const cardById = useMemo(() => new Map(effectiveInventory.map(card => [String(card.id), card])), [effectiveInventory]);
-  const colorOptions = useMemo(() => Array.from(new Set(inventory.flatMap(card =>
+  const colorOptions = useMemo(() => Array.from(new Set([...colors, ...inventory.flatMap(card =>
     card.color_identity.length ? card.color_identity : card.color_identity_known ? ['Colorless'] : []
-  ))).sort().map(color => ({ value: color, label: color === 'Colorless' ? t('inspector.colorless') : color })), [inventory, t]);
-  const setOptions = useMemo(() => Array.from(new Map(inventory.filter(card => card.set_id).map(card => [
-    card.set_id, { value: card.set_id, label: `${card.set_name || card.set_id} (${card.set_id})` },
-  ])).values()).sort((a, b) => a.label.localeCompare(b.label, locale)), [inventory, locale]);
+  )])).sort().map(color => ({ value: color, label: color === 'Colorless' ? t('inspector.colorless') : color })), [inventory, colors, t]);
+  const setOptions = useMemo(() => Array.from(new Map([
+    ...sets.map(id => [id, { value: id, label: id }]),
+    ...inventory.filter(card => card.set_id).map(card => [
+      card.set_id, { value: card.set_id, label: `${card.set_name || card.set_id} (${card.set_id})` },
+    ]),
+  ]).values()).sort((a, b) => a.label.localeCompare(b.label, locale)), [inventory, sets, locale]);
+  const containerOptions = useMemo(() => locations.map(location => ({
+    value: location.id, label: location.name,
+  })).sort((a, b) => a.label.localeCompare(b.label, locale)), [locations, locale]);
   const filteredInventory = useMemo(() => effectiveInventory.filter(card =>
     (sets.length === 0 || sets.includes(card.set_id))
     && (colors.length === 0 || colors.some(color => color === 'Colorless'
@@ -130,6 +159,13 @@ export default function AiDeckBuilder({ onClose, onSaved, onPreview }) {
   const isCommander = /commander|edh|brawl/i.test(format);
 
   const clearDraft = () => { setDraft(null); setError(''); setQuery(''); };
+  const clearInventory = () => {
+    inventoryController.current?.abort();
+    setInventoryLoading(true);
+    setInventoryError('');
+    setInventory([]);
+    clearDraft();
+  };
   const changeQuantity = (id, quantity) => setDraft(current => ({
     ...current, cards: current.cards.map(card => String(card.card_id) === id ? { ...card, quantity } : card),
   }));
@@ -148,7 +184,7 @@ export default function AiDeckBuilder({ onClose, onSaved, onPreview }) {
 
   const generate = async event => {
     event.preventDefault();
-    if (busy || !account?.connected || inventoryLoading || inventoryError || counts.available === 0) return;
+    if (busy || !account?.connected || inventoryLoading || inventoryController.current?.signal.aborted || inventoryError || counts.available === 0) return;
     setBusy('generate');
     setError('');
     setGenerationLog([]);
@@ -161,6 +197,8 @@ export default function AiDeckBuilder({ onClose, onSaved, onPreview }) {
         body: JSON.stringify({
           inventory_type: inventoryType, format, target_size: targetSize, prompt, colors, sets,
           include_checked_out: inventoryType === 'collection' && includeCheckedOut,
+          ...(inventoryType === 'collection' ? { container_ids: containerIds } : {}),
+          ...(sourceDeck ? { source_deck_id: sourceDeck.id } : {}),
         }),
       });
       const data = await readProgressStream(response, event => {
@@ -212,8 +250,9 @@ export default function AiDeckBuilder({ onClose, onSaved, onPreview }) {
     <section className="glass-panel" aria-labelledby="ai-deck-title" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', minWidth: 0 }}>
       <div style={rowStyle}>
         <button type="button" className="btn btn-secondary" onClick={onClose} aria-label={t('common.back')}><ArrowLeft size={18} /></button>
-        <h2 id="ai-deck-title" style={{ margin: 0 }}><Sparkles size={20} /> {t('aiDeck.title')}</h2>
+        <h2 id="ai-deck-title" style={{ margin: 0 }}><Sparkles size={20} /> {t(sourceDeck ? 'aiDeck.improve' : 'aiDeck.title')}</h2>
       </div>
+      {sourceDeck && <p style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.improveHint', { name: sourceDeck.name })}</p>}
       <section>
         <span role="status" style={{ color: account?.connected ? 'var(--type-grass)' : 'var(--text-secondary)' }}>
           {account?.connected ? t('aiDeck.aiConnected') : account === null && !accountError ? t('common.loading') : t('aiDeck.disconnected')}
@@ -227,21 +266,40 @@ export default function AiDeckBuilder({ onClose, onSaved, onPreview }) {
           <div style={{ ...rowStyle, alignItems: 'start' }}>
             <div className="form-group" style={{ flex: '1 1 180px' }}>
               <label htmlFor="ai-inventory">{t('aiDeck.inventory')}</label>
-              <select id="ai-inventory" className="input-control" value={inventoryType} onChange={event => { clearDraft(); setIncludeCheckedOut(false); setInventoryType(event.target.value); setFormat(event.target.value === 'arena' ? 'Standard' : 'Commander / EDH'); setTargetSize(event.target.value === 'arena' ? 60 : 100); }}>
+              <select id="ai-inventory" className="input-control" disabled={!!sourceDeck} value={inventoryType} onChange={event => { clearInventory(); setContainerIds([]); setColors([]); setSets([]); setIncludeCheckedOut(false); setInventoryType(event.target.value); setFormat(event.target.value === 'arena' ? 'Standard' : 'Commander / EDH'); setTargetSize(event.target.value === 'arena' ? 60 : 100); }}>
                 <option value="collection">{t('aiDeck.physical')}</option><option value="arena">MTG Arena</option>
               </select>
             </div>
             <div className="form-group" style={{ flex: '1 1 180px' }}>
               <label htmlFor="ai-format">{t('deck.format')}</label>
-              <select id="ai-format" className="input-control" value={format} onChange={event => { clearDraft(); setFormat(event.target.value); setTargetSize(/commander|edh|brawl/i.test(event.target.value) ? 100 : 60); }}>
+              <select id="ai-format" className="input-control" disabled={!!sourceDeck} value={format} onChange={event => { clearDraft(); setFormat(event.target.value); setTargetSize(/commander|edh|brawl/i.test(event.target.value) ? 100 : 60); }}>
+                {sourceDeck && !FORMATS[inventoryType].includes(format) && <option>{format}</option>}
                 {FORMATS[inventoryType].map(value => <option key={value}>{value}</option>)}
               </select>
             </div>
             <div className="form-group" style={{ flex: '1 1 100px' }}>
               <label htmlFor="ai-target">{t('deck.targetSize')}</label>
-              <input id="ai-target" className="input-control" type="number" min="1" max="250" step="1" required readOnly={isCommander} value={targetSize} onChange={event => { clearDraft(); setTargetSize(event.target.value === '' ? '' : Number(event.target.value)); }} />
+              <input id="ai-target" className="input-control" type="number" min="1" max="250" step="1" required readOnly={!!sourceDeck || isCommander} value={targetSize} onChange={event => { clearDraft(); setTargetSize(event.target.value === '' ? '' : Number(event.target.value)); }} />
             </div>
           </div>
+          {inventoryType === 'collection' && (
+            <div className="form-group">
+              <fieldset disabled={locationsLoading || !!locationsError} style={fieldsetStyle} aria-describedby="ai-container-hint">
+                <label>{t('aiDeck.containers')}</label>
+                <MultiSelectDropdown
+                  label={t('aiDeck.containers')}
+                  allLabel={t('aiDeck.allContainers')}
+                  value={containerIds}
+                  options={containerOptions}
+                  onChange={value => { if (!busy) { clearInventory(); setContainerIds(value); } }}
+                />
+              </fieldset>
+              <p id="ai-container-hint" style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.containerHint')}</p>
+              {sourceDeck && <p style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.improveContainerHint')}</p>}
+              {locationsLoading && <p role="status">{t('common.loading')}</p>}
+              {locationsError && <p role="alert">{locationsError} <button type="button" className="btn btn-secondary" onClick={() => setLocationsRevision(value => value + 1)}>{t('aiDeck.retry')}</button></p>}
+            </div>
+          )}
           {inventoryType === 'collection' && (
             <div className="form-group">
               <label style={rowStyle}>
@@ -280,11 +338,11 @@ export default function AiDeckBuilder({ onClose, onSaved, onPreview }) {
           <p id="ai-filter-hint" style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.filterHint')}</p>
           <p role="status">{inventoryLoading ? t('common.loading') : t('aiDeck.matchingCounts', counts)}</p>
           <p style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.inventoryHint')}</p>
-          {inventoryError && <p role="alert">{inventoryError} <button type="button" className="btn btn-secondary" onClick={() => setInventoryRevision(value => value + 1)}>{t('aiDeck.retry')}</button></p>}
-          {!inventoryLoading && !inventoryError && counts.available === 0 && <p>{t(colors.length || sets.length ? 'aiDeck.emptyFilters' : 'aiDeck.emptyInventory')}</p>}
+          {inventoryError && <p role="alert">{inventoryError} <button type="button" className="btn btn-secondary" onClick={() => { clearInventory(); setInventoryRevision(value => value + 1); }}>{t('aiDeck.retry')}</button></p>}
+          {!inventoryLoading && !inventoryError && counts.available === 0 && <p>{t(colors.length || sets.length || containerIds.length ? 'aiDeck.emptyFilters' : 'aiDeck.emptyInventory')}</p>}
           <div className="form-group" style={{ marginTop: '0.75rem' }}>
-            <label htmlFor="ai-prompt">{t('aiDeck.prompt')}</label>
-            <textarea id="ai-prompt" className="input-control" rows={3} maxLength={4000} value={prompt} onChange={event => setPrompt(event.target.value)} placeholder={t('aiDeck.promptPlaceholder')} />
+            <label htmlFor="ai-prompt">{t(sourceDeck ? 'aiDeck.improvePrompt' : 'aiDeck.prompt')}</label>
+            <textarea id="ai-prompt" className="input-control" rows={3} maxLength={4000} value={prompt} onChange={event => setPrompt(event.target.value)} placeholder={t(sourceDeck ? 'aiDeck.improvePromptPlaceholder' : 'aiDeck.promptPlaceholder')} />
           </div>
           <button className="btn btn-primary" type="submit" disabled={!!busy || !account?.connected || inventoryLoading || !!inventoryError || counts.available === 0}>
             <Sparkles size={16} /> {t(busy === 'generate' ? 'aiDeck.generating' : draft ? 'aiDeck.regenerate' : 'aiDeck.generate')}
@@ -326,7 +384,7 @@ export default function AiDeckBuilder({ onClose, onSaved, onPreview }) {
         <form onSubmit={save}>
           <fieldset disabled={!!busy} style={fieldsetStyle}>
             <h3>{t('aiDeck.draftTitle')}</h3>
-            <p>{t('aiDeck.draftHint')}</p>
+            <p>{t(sourceDeck ? 'aiDeck.improveDraftHint' : 'aiDeck.draftHint')}</p>
             {(draft.warnings || []).length > 0 && <ul>{draft.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>}
             <div className="form-group">
               <label htmlFor="ai-name">{t('deck.deckName')}</label>
@@ -386,7 +444,7 @@ export default function AiDeckBuilder({ onClose, onSaved, onPreview }) {
               })}
             </div>
             <button type="submit" className="btn btn-primary" style={{ marginTop: '1rem' }} disabled={!!busy || inventoryLoading || !!inventoryError || !draft.name.trim() || draft.cards.length === 0 || total !== Number(targetSize) || invalidCards || (isCommander && !draft.commander_card_id)}>
-              {t(busy === 'save' ? 'aiDeck.saving' : 'aiDeck.save')}
+              {t(busy === 'save' ? 'aiDeck.saving' : sourceDeck ? 'aiDeck.saveNew' : 'aiDeck.save')}
             </button>
           </fieldset>
         </form>

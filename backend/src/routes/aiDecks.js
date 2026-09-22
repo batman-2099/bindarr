@@ -5,7 +5,7 @@ const codex = require('../codexDeckClient');
 const ollama = require('../ollamaDeckClient');
 const { validateDeckAddition } = require('../utils/deckRules');
 const {
-  FORMATS, REVIEW_WARNING, fail, inventoryType, preferencesRequest, suggestionRequest, draftRequest,
+  FORMATS, REVIEW_WARNING, fail, inventoryType, containerIds, preferencesRequest, suggestionRequest, draftRequest,
   inventory, cardRules, filterInventory, validateDraft, modelRequest,
 } = require('../utils/aiDecks');
 
@@ -98,10 +98,26 @@ router.put('/preferences', sessionOnly, endpoint(async (req, res) => {
 }));
 router.get('/inventory', endpoint(async (req, res) => {
   const type = inventoryType(req.query.inventory_type);
-  res.json({ inventory_type: type, cards: await cardRules(await inventory(req.user.id, type)) });
+  const container_ids = req.query.container_ids === undefined ? [] : containerIds(req.query.container_ids, type, true);
+  res.json({ inventory_type: type, cards: await cardRules(await inventory(req.user.id, type, { container_ids })) });
 }));
 router.post('/suggest', sessionOnly, suggestionLimit, endpoint(async (req, res) => {
-  const request = suggestionRequest(req.body);
+  const { source_deck_id, ...request } = suggestionRequest(req.body);
+  let sourceDeck;
+  if (source_deck_id !== undefined) {
+    sourceDeck = await db.get(
+      `SELECT inventory_type, format, target_size, commander_card_id FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`,
+      [source_deck_id, req.user.id]);
+    if (!sourceDeck) fail('Source deck not found.', 404);
+    if (!Object.hasOwn(FORMATS, sourceDeck.format)) fail('The source deck has an unsupported Magic format. Edit its format before improving it with AI.');
+    if (['inventory_type', 'format', 'target_size'].some(key => sourceDeck[key] !== request[key])) {
+      fail('The source deck inventory, format or target size changed. Reopen the AI builder to use its current settings.');
+    }
+    sourceDeck.cards = await db.all(
+      `SELECT dc.card_id, cc.name, dc.quantity FROM deck_cards dc LEFT JOIN card_cache cc ON cc.id = dc.card_id
+       WHERE dc.deck_id = ? ORDER BY dc.card_id`,
+      [source_deck_id]);
+  }
   if (suggesting.has(req.user.id)) fail('A deck suggestion is already running for your account.', 429);
   suggesting.add(req.user.id);
   const streaming = req.accepts(['application/json', 'application/x-ndjson']) === 'application/x-ndjson';
@@ -127,14 +143,14 @@ router.post('/suggest', sessionOnly, suggestionLimit, endpoint(async (req, res) 
     const preferences = await db.get('SELECT ai_provider, ai_model, ai_reasoning_effort, ai_ollama_url FROM users WHERE id = ?', [req.user.id]);
     const model = preferences.ai_model ?? undefined;
     const reasoning_effort = preferences.ai_reasoning_effort ?? undefined;
-    onProgress?.({ stage: 'inventory' });
     const owned = await inventory(req.user.id, request.inventory_type, request);
     if (!canWrite()) return;
+    onProgress?.({ stage: 'inventory' });
     onProgress?.({ stage: 'catalog' });
     const cards = filterInventory(await cardRules(owned), request);
     if (!canWrite()) return;
     onProgress?.({ stage: 'inventory_ready', printings: cards.length, availableCopies: cards.reduce((sum, card) => sum + card.available_qty, 0) });
-    const { prompt, schema } = modelRequest(request, cards);
+    const { prompt, schema } = modelRequest(request, cards, sourceDeck);
     onProgress?.({ stage: 'request_ready', bytes: Buffer.byteLength(prompt, 'utf8') });
     const output = await client(preferences.ai_provider).suggest(req.user.id, prompt, schema, { model, reasoning_effort, signal: controller.signal, baseUrl: preferences.ai_ollama_url }, onProgress);
     if (!canWrite()) return;

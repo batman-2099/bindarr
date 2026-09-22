@@ -12,7 +12,7 @@ import { langName, isEnglish, displayName, translatedName, setReference, setCode
 import { defaultGame, gameOptions, showGamePicker, gameLabel } from '../utils/games';
 import CardImage from './CardImage';
 import { useT } from '../utils/i18n';
-import { readImportStream } from '../utils/importStream';
+import { readProgressStream } from '../utils/importStream';
 
 // Search failures worth explaining in-page rather than only as a toast. `keyHint`
 // marks the ones a user API key actually fixes; an upstream 5xx does not. Title
@@ -732,7 +732,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
         signal: controller.signal,
         body: JSON.stringify({ format, data: preview.text, list_type: preview.listType, ...(format === 'internal' ? { mapping: preview.mapping } : {}) })
       });
-      const data = await readImportStream(response, event => {
+      const data = await readProgressStream(response, event => {
         if (!controller.signal.aborted && ['parsed', 'local-lookup', 'local-resolved', 'api-fallback', 'lookup', 'retry', 'resolved', 'caching', 'saving', 'saved'].includes(event.stage)) appendImportLog(event);
       }, {
         failed: t('settings.importFailed', { error: '' }),
@@ -740,6 +740,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
         invalid: t('importLog.invalid')
       });
       if (controller.signal.aborted) return;
+      if (!data.summary || typeof data.summary !== 'object' || Array.isArray(data.summary)) throw new Error(t('importLog.invalid'));
       appendImportLog({ stage: 'complete' });
       setCsvPreview(null);
       setManaBoxPreview(null);

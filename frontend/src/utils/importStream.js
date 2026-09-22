@@ -1,4 +1,4 @@
-export async function readImportStream(response, onProgress, messages) {
+export async function readProgressStream(response, onProgress, messages) {
   const errorMessage = data => [data?.error, data?.message].filter(value => typeof value === 'string' && value).join(': ') || messages.failed;
   if (!response.ok || !response.headers.get('content-type')?.includes('application/x-ndjson')) {
     const data = await response.json().catch(() => null);
@@ -17,7 +17,7 @@ export async function readImportStream(response, onProgress, messages) {
       throw new Error(messages.invalid);
     }
     if (event?.type === 'error') throw new Error(errorMessage(event));
-    if (event?.type === 'complete' && event.data?.summary) return event.data;
+    if (event?.type === 'complete' && event.data && typeof event.data === 'object' && !Array.isArray(event.data)) return event.data;
     if (event?.type !== 'progress') throw new Error(messages.invalid);
     onProgress(event);
   };

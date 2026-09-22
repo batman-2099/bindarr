@@ -358,6 +358,13 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
             {t('nav.collection')}
           </button>
           <button
+            className={`btn ${subTab === 'arena' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setSubTab('arena')}
+            style={{ fontSize: '0.85rem', padding: '0.45rem 1.25rem', borderRadius: 'var(--radius-sm)' }}
+          >
+            {t('collection.arena')}
+          </button>
+          <button
             className={`btn ${subTab === 'unsorted' ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setSubTab('unsorted')}
             style={{ fontSize: '0.85rem', padding: '0.45rem 1.25rem', borderRadius: 'var(--radius-sm)' }}
@@ -370,13 +377,6 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
             style={{ fontSize: '0.85rem', padding: '0.45rem 1.25rem', borderRadius: 'var(--radius-sm)' }}
           >
             {t('collection.wishlist')}
-          </button>
-          <button
-            className={`btn ${subTab === 'arena' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setSubTab('arena')}
-            style={{ fontSize: '0.85rem', padding: '0.45rem 1.25rem', borderRadius: 'var(--radius-sm)' }}
-          >
-            {t('collection.arena')}
           </button>
         </div>
 

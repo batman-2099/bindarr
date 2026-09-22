@@ -331,7 +331,7 @@ router.put('/:id', async (req, res) => {
            commander_card_id = CASE WHEN ? THEN NULL ELSE commander_card_id END
        WHERE id = ? AND user_id = ?`,
       [String(name).trim(), description, format, category, accent_color, targetSize, inventoryType,
-        format != null && !/commander|edh/i.test(format), id, req.user.id]
+        format != null && !/commander|edh|brawl/i.test(format), id, req.user.id]
     );
 
     if (result.changes === 0) {
@@ -356,8 +356,8 @@ router.put('/:id/commander', async (req, res) => {
   try {
     const deck = await db.get(`SELECT format FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`, [id, req.user.id]);
     if (!deck) return res.status(404).json({ error: 'Deck not found or unauthorized' });
-    if (!/commander|edh/i.test(deck.format)) {
-      return res.status(400).json({ error: 'Only Commander / EDH decks can designate a commander' });
+    if (!/commander|edh|brawl/i.test(deck.format)) {
+      return res.status(400).json({ error: 'Only Commander / EDH or Brawl decks can designate a commander' });
     }
     const result = await db.run(
       `UPDATE decks SET commander_card_id = ?

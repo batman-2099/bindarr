@@ -15,8 +15,8 @@ function isBasicEnergyOrLand(card, game = 'pokemon') {
   if (!card) return false;
   const subs = parseSubtypes(card.subtypes);
   if (game === 'mtg' || card.game === 'mtg') {
-    const basicTypes = ['Basic', 'Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'];
-    return (subs.includes('Land') || card.supertype === 'Land') && basicTypes.some(t => subs.includes(t) || card.name === t);
+    return (subs.includes('Land') || card.supertype === 'Land') &&
+      (subs.includes('Basic') || /^(?:Snow-Covered )?(?:Plains|Island|Swamp|Mountain|Forest|Wastes)$/.test(card.name));
   }
   return card.supertype === 'Energy' && !subs.includes('Special');
 }

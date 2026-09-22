@@ -12,6 +12,8 @@ function testClassification() {
   // MTG basic land exempt; nonbasic land is not.
   assert.strictEqual(isBasicEnergyOrLand({ name: 'Forest', supertype: 'Land', subtypes: '["Basic","Forest"]' }, 'mtg'), true);
   assert.strictEqual(isBasicEnergyOrLand({ name: 'Fabled Passage', supertype: 'Land', subtypes: '["Land"]' }, 'mtg'), false);
+  assert.strictEqual(isBasicEnergyOrLand({ name: 'Hallowed Fountain', supertype: 'Land', subtypes: '["Plains","Island"]' }, 'mtg'), false);
+  assert.strictEqual(isBasicEnergyOrLand({ name: 'Snow-Covered Forest', supertype: 'Land', subtypes: '[]' }, 'mtg'), true);
 }
 
 // Fake db: one owned card (3 copies of a normal Pokémon), a deck already

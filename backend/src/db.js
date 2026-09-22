@@ -704,6 +704,18 @@ async function initDb() {
   }
 
   const usersCols = await all(`PRAGMA table_info(users)`);
+  if (!usersCols.some(c => c.name === 'ai_provider')) {
+    await run(`ALTER TABLE users ADD COLUMN ai_provider TEXT NOT NULL DEFAULT 'chatgpt'`);
+  }
+  if (!usersCols.some(c => c.name === 'ai_model')) {
+    await run(`ALTER TABLE users ADD COLUMN ai_model TEXT`);
+  }
+  if (!usersCols.some(c => c.name === 'ai_reasoning_effort')) {
+    await run(`ALTER TABLE users ADD COLUMN ai_reasoning_effort TEXT`);
+  }
+  if (!usersCols.some(c => c.name === 'ai_ollama_url')) {
+    await run(`ALTER TABLE users ADD COLUMN ai_ollama_url TEXT`);
+  }
   if (!usersCols.some(c => c.name === 'tcg_api_key')) {
     await run(`ALTER TABLE users ADD COLUMN tcg_api_key TEXT DEFAULT ''`);
   }

@@ -110,6 +110,14 @@ These screenshots show the fork's interfaces using sample data, not a personal c
 
 ![Storage gallery showing Commander Decks, Draft Staples, and Trade Box containers with card artwork, counts, search, sorting, and import controls](docs/images/storage-boxes.png)
 
+**Inside a container — list view** — sample card contents with search, filters, storage-order sorting, duplicate stacking, and adjustable image size.
+
+![Inside the sample Draft Staples box in list view, showing card images, search, sorting, and duplicate stacking controls](docs/images/container-list.png)
+
+**Inside a container — grid/gallery view** — the box layout presents cards in a carousel with the selected card's details and compartment controls.
+
+![Inside the sample Draft Staples box in grid/gallery view, showing its card carousel and selected card details](docs/images/container-grid.png)
+
 **Deck Builder — table view** — compare sample Physical and Arena decks, formats, categories, capacity, and play status in one overview.
 
 ![Deck Builder table showing sample Physical and Arena decks, card counts, readiness, and deck actions](docs/images/deck-builder-table.png)

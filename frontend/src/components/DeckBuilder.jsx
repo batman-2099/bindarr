@@ -159,6 +159,7 @@ function DeckBuilder({ showToast }) {
   // would otherwise each compute a new quantity from the same stale render and
   // clobber one another (last-writer-wins on the server upsert).
   const [savingCard, setSavingCard] = useState(false);
+  const [savingRecord, setSavingRecord] = useState(false);
 
   useBackGuard(showCreateModal, () => setShowCreateModal(false));
   useBackGuard(showSimulator, () => setShowSimulator(false));
@@ -294,6 +295,31 @@ function DeckBuilder({ showToast }) {
       showToast(t('deck.errLoadDetails'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRecordChange = async (result, delta) => {
+    if (!activeDeck || savingRecord) return;
+    const count = activeDeck[result === 'win' ? 'wins' : 'losses'] ?? 0;
+    if ((delta === -1 && count === 0) || (delta === 1 && count === 2147483647)) return;
+    const deckId = activeDeck.id;
+    setSavingRecord(true);
+    try {
+      const response = await fetch(`/api/decks/${deckId}/record`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ result, delta })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || t('deck.errRecord'));
+      const record = { wins: data.wins, losses: data.losses };
+      setActiveDeck(deck => deck?.id === deckId ? { ...deck, ...record } : deck);
+      setDecks(current => current.map(deck => deck.id === deckId ? { ...deck, ...record } : deck));
+    } catch (error) {
+      console.error(error);
+      showToast(t('deck.errRecord'));
+    } finally {
+      setSavingRecord(false);
     }
   };
 
@@ -1334,6 +1360,11 @@ function DeckBuilder({ showToast }) {
                       <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', marginTop: '0.6rem', minHeight: '34px', lineHeight: '1.4' }}>
                         {deck.description || 'No description provided.'}
                       </p>
+                      {isMtg && (
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginTop: '0.4rem', fontVariantNumeric: 'tabular-nums' }}>
+                          {t('deck.recordSummary', { wins: deck.wins ?? 0, losses: deck.losses ?? 0 })}
+                        </p>
+                      )}
                     </div>
 
                     {/* Progress Bar & Details */}
@@ -1497,6 +1528,11 @@ function DeckBuilder({ showToast }) {
                           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
                             {deck.description || 'No description'}
                           </div>
+                          {isMtg && (
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px', fontVariantNumeric: 'tabular-nums' }}>
+                              {t('deck.recordSummary', { wins: deck.wins ?? 0, losses: deck.losses ?? 0 })}
+                            </div>
+                          )}
                         </td>
                         <td style={{ padding: '0.75rem 1rem' }}>
                           {isMtg && <ManaCounts deck={deck} />}
@@ -1675,6 +1711,38 @@ function DeckBuilder({ showToast }) {
                   <p style={{ color: '#eab308', fontSize: '0.7rem', marginTop: '2px' }}>
                     Checked out since {new Date(activeDeck.checked_out_at).toLocaleString()}
                   </p>
+                )}
+                {activeDeck.game === 'mtg' && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', marginTop: '0.75rem' }}>
+                    {['win', 'loss'].map(result => {
+                      const count = activeDeck[result === 'win' ? 'wins' : 'losses'] ?? 0;
+                      return (
+                        <div key={result} role="group" aria-label={t(result === 'win' ? 'deck.wins' : 'deck.losses')} aria-busy={savingRecord} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
+                          <span aria-live="polite" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {t(result === 'win' ? 'deck.wins' : 'deck.losses')}: <strong>{count}</strong>
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-icon-only"
+                            aria-label={t(result === 'win' ? 'deck.removeWin' : 'deck.removeLoss')}
+                            disabled={savingRecord || count === 0}
+                            onClick={() => handleRecordChange(result, -1)}
+                          >
+                            <Minus size={14} aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-icon-only"
+                            aria-label={t(result === 'win' ? 'deck.addWin' : 'deck.addLoss')}
+                            disabled={savingRecord || count === 2147483647}
+                            onClick={() => handleRecordChange(result, 1)}
+                          >
+                            <Plus size={14} aria-hidden="true" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             </div>

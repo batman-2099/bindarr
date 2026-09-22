@@ -46,6 +46,10 @@ function parseCompleteBackup(data) {
   if (!backup || backup.format !== 'bindarr-backup' || backup.version !== 1 || !arrays.every(key => Array.isArray(backup[key]))) {
     throw new Error('Invalid backup file');
   }
+  if (backup.decks.some(deck => ['wins', 'losses'].some(key => Object.hasOwn(deck, key)
+      && (!Number.isInteger(deck[key]) || deck[key] < 0 || deck[key] > 2147483647)))) {
+    throw new Error('Invalid backup deck record');
+  }
 
   const cardIds = new Set(backup.card_cache.map(card => card.id));
   const locationIds = new Set(backup.locations.map(location => location.id));
@@ -146,11 +150,12 @@ async function restoreCompleteBackup(backup, userId) {
       const result = await db.run(`
         INSERT INTO decks (
           name, description, checked_out, checked_out_at, game, created_at, format, category,
-          accent_color, target_size, commander_card_id, user_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          accent_color, target_size, commander_card_id, inventory_type, wins, losses, user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         deck.name, deck.description, deck.checked_out || 0, deck.checked_out_at, deck.game, deck.created_at,
-        deck.format, deck.category, deck.accent_color, deck.target_size, deck.commander_card_id ?? null, userId
+        deck.format, deck.category, deck.accent_color, deck.target_size, deck.commander_card_id ?? null,
+        deck.inventory_type ?? 'collection', deck.wins ?? 0, deck.losses ?? 0, userId
       ]);
       deckIds.set(deck.id, result.lastID);
     }

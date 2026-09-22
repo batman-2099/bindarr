@@ -366,6 +366,8 @@ async function initDb() {
       checked_out_at DATETIME,
       game TEXT DEFAULT 'mtg',
       inventory_type TEXT DEFAULT 'collection',
+      wins INTEGER NOT NULL DEFAULT 0,
+      losses INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
@@ -775,6 +777,12 @@ async function initDb() {
   }
   if (!decksCols.some(c => c.name === 'commander_card_id')) {
     await run(`ALTER TABLE decks ADD COLUMN commander_card_id TEXT`);
+  }
+  if (!decksCols.some(c => c.name === 'wins')) {
+    await run(`ALTER TABLE decks ADD COLUMN wins INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!decksCols.some(c => c.name === 'losses')) {
+    await run(`ALTER TABLE decks ADD COLUMN losses INTEGER NOT NULL DEFAULT 0`);
   }
 
   // Lock flags: a locked compartment/location is skipped by auto-filing

@@ -28,6 +28,8 @@ router.get('/', async (req, res) => {
         d.checked_out,
         d.inventory_type,
         d.checked_out_at,
+        d.wins,
+        d.losses,
         COUNT(dc.card_id) as total_card_types,
         COALESCE(SUM(dc.quantity), 0) as total_cards,
         COALESCE(SUM(CASE WHEN cc.color_identity LIKE '%"White"%' OR cc.color_identity LIKE '%"W"%' THEN dc.quantity ELSE 0 END), 0) AS white_cards,
@@ -342,6 +344,33 @@ router.put('/:id', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to update deck' });
+  }
+});
+
+router.patch('/:id/record', async (req, res) => {
+  const body = req.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)
+      || Object.keys(body).some(key => key !== 'result' && key !== 'delta')
+      || !['win', 'loss'].includes(body.result) || ![1, -1].includes(body.delta)) {
+    return res.status(400).json({ error: 'Record requires result win or loss and delta 1 or -1' });
+  }
+
+  const column = body.result === 'win' ? 'wins' : 'losses';
+  try {
+    const record = await db.get(
+      `UPDATE decks SET ${column} = ${column} + ?
+       WHERE id = ? AND user_id = ? AND game = 'mtg'
+         AND ${column} + ? BETWEEN 0 AND 2147483647
+       RETURNING wins, losses`,
+      [body.delta, req.params.id, req.user.id, body.delta]
+    );
+    if (record) return res.json(record);
+    const deck = await db.get(`SELECT id FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`, [req.params.id, req.user.id]);
+    if (!deck) return res.status(404).json({ error: 'Deck not found' });
+    return res.status(400).json({ error: 'Wins and losses must remain between 0 and 2147483647' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to update deck record' });
   }
 });
 

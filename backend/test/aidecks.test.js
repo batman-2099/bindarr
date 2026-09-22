@@ -502,6 +502,7 @@ async function main() {
     assert.strictEqual(loaded.body.name, edited.name);
     assert.strictEqual(loaded.body.description, edited.description);
     assert.strictEqual(loaded.body.checked_out, 0);
+    assert.deepStrictEqual([loaded.body.wins, loaded.body.losses], [0, 0], 'AI-created decks start a new record');
     assert.deepStrictEqual(loaded.body.cards.map(card => [card.id, card.quantity]).sort(), edited.cards.map(card => [card.card_id, card.quantity]).sort());
     assert.strictEqual((await request('GET', `/decks/${saved.body.id}`, undefined, 2)).status, 404);
     assert.strictEqual((await request('POST', '/ai', edited, 2)).status, 400, 'another tenant cannot borrow the owned forest');

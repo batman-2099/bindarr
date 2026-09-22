@@ -172,7 +172,7 @@ These screenshots show the fork's interfaces using sample data, not a personal c
 ### Deck Builder improvements
 
 - Deck lists identify the deck type in a dedicated **Deck Type** column.
-- **Duplicate deck** copies the deck metadata and card quantities into a new `<name> (Copy)` deck without copying checkout state.
+- **Duplicate deck** copies the deck metadata and card quantities into a new `<name> (Copy)` deck without copying checkout state or wins and losses.
 - Physical deck cards can sort by container, page or row, and slot. Checkout creates a pull checklist and preserves the card's stored position.
 - Cards already allocated to another checked-out deck show their unavailable quantity and deck name.
 
@@ -208,6 +208,8 @@ In **Collection**, choose **Export view CSV** or **Export view TXT**. Only the d
 Decklist import accepts plain lines and MTG Arena-style lines such as `4 Llanowar Elves (FDN) 227`. Arena imports resolve only against Arena cards. Imports add only cards you own in the deck's inventory.
 
 Use **Duplicate deck** for a new deck with the same card list. Use **Edit Properties** to adjust metadata or change its deck type after inventory validation.
+
+Track a Physical or Arena deck's **Wins** and **Losses** with the **+** controls in its detail view; use **−** to undo a result (counts cannot go below zero). The record appears in both table and grid deck lists, persists across reloads, and is preserved in complete backups. New decks, including duplicates and AI-created decks, start at 0 wins and 0 losses.
 
 For **Commander / EDH** and **Brawl** decks, check **Commander** on a deck card in list or grid view. Only one card can be selected; checking another replaces the previous commander, and unchecking clears it. The selected card displays a **Commander** banner. The choice persists in duplicates and complete backups, and is cleared if that card is removed or the format changes away from these formats.
 

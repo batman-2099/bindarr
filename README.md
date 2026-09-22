@@ -98,6 +98,18 @@ The following changes were developed on the [`AI-Deck-Builder` branch](https://g
 
 These screenshots show the fork's interfaces using sample data, not a personal collection. Model availability and inventory counts depend on your installation.
 
+**Dashboard — All Cards** — combined ownership totals, valuation, investment, gain, and the valuation timeline. All figures and history in these dashboard images are illustrative sample data.
+
+![Dashboard All Cards view with combined ownership and valuation summary](docs/images/dashboard-all.png)
+
+**Dashboard — Physical** — physical inventory metrics and the count of unassigned physical cards.
+
+![Dashboard Physical view with physical card count and unsorted quantity](docs/images/dashboard-physical.png)
+
+**Dashboard — Arena** — digital inventory metrics, with Digital Cards replacing the physical count.
+
+![Dashboard Arena view with digital card ownership and valuation metrics](docs/images/dashboard-arena.png)
+
 **AI Deck Builder** — compact green connection status, Physical/Arena selection, checked-out-copy planning, color/set filters, and the deck request. This example has an empty inventory.
 
 ![AI Deck Builder with AI Connected status, inventory and format selectors, checked-out-card option, and color/set filters](docs/images/ai-deck-builder.webp)

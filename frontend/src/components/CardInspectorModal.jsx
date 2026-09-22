@@ -442,6 +442,11 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                   {t('inspector.arenaItem')}
                 </span>
               )}
+              {activeCard.list_type === 'arena' && (
+                <button type="button" className="btn btn-secondary" style={{ color: 'var(--type-grass)', padding: '0.2rem 0.5rem', fontSize: '0.8rem' }} onClick={() => handleQuickToggle('list_type', 'collection')} title={t('bulk.moveToCollection')}>
+                  {t('inspector.obtained')}
+                </button>
+              )}
               {activeCard.is_trade === 1 && (
                 <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', padding: '0.2rem 0.5rem', borderRadius: '4px', backgroundColor: 'rgba(74, 222, 128, 0.15)', color: 'var(--type-grass)', border: '1px solid rgba(74, 222, 128, 0.3)' }}>
                   {t('inspector.forTrade')}
@@ -754,7 +759,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                   </button>
                 )}
 
-              {activeCard.list_type !== 'collection' && (
+              {activeCard.list_type !== 'collection' && activeCard.list_type !== 'arena' && (
                 <button 
                   className="btn btn-secondary" 
                   style={{ backgroundColor: 'rgba(74,222,128,0.2)', color: 'var(--type-grass)', border: '1px solid rgba(74,222,128,0.3)', padding: '0 0.75rem', fontSize: '0.8rem' }} 

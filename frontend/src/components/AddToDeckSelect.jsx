@@ -16,7 +16,7 @@ export default function AddToDeckSelect({
   const [decks, setDecks] = useState([]);
 
   useEffect(() => {
-    fetch('/api/decks').then(r => (r.ok ? r.json() : [])).then(setDecks).catch(() => {});
+    fetch('/api/decks').then(r => (r.ok ? r.json() : [])).then(items => setDecks(items.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })))).catch(() => {});
   }, []);
 
   if (decks.length === 0) return null;

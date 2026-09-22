@@ -101,6 +101,7 @@ function App() {
   const [selectedLocationId, setSelectedLocationId] = useState(null);
   const [focusEntryId, setFocusEntryId] = useState(null);
   const [storageViewKey, setStorageViewKey] = useState(0);
+  const [deckViewKey, setDeckViewKey] = useState(0);
   const [selectedCardFilter, setSelectedCardFilter] = useState('');
   const [toast, setToast] = useState(null);
   const [statsTrigger, setStatsTrigger] = useState(0);
@@ -311,7 +312,7 @@ function App() {
           />
         );
       case 'deckbuilder':
-        return <DeckBuilder showToast={showToast} />;
+        return <DeckBuilder key={deckViewKey} showToast={showToast} />;
       case 'notes':
         return <Notes showToast={showToast} />;
       case 'settings':
@@ -376,7 +377,10 @@ function App() {
           </button>
           <button
             className={`nav-tab ${activeTab === 'deckbuilder' ? 'active' : ''}`}
-            onClick={() => goTab('deckbuilder')}
+            onClick={() => {
+              setDeckViewKey(key => key + 1);
+              goTab('deckbuilder');
+            }}
           >
             <Swords size={18} />
             <span>{t('nav.deckBuilder')}</span>

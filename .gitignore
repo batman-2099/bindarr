@@ -57,6 +57,9 @@ patch*.py
 .cursor/
 .aider/
 
+# Per-user Codex credentials and account caches, including custom DB_PATH locations
+codex/
+
 # Agent-workflow scratch docs (regenerated per run; not shipped)
 TEST_INFRA.md
 TEST_READY.md

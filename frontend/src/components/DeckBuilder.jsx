@@ -11,14 +11,14 @@ import { defaultGame, gameOptions, showGamePicker, isGameEnabled } from '../util
 import CardImage from './CardImage';
 import { useT } from '../utils/i18n';
 import MtgDeckImport from './MtgDeckImport';
+import AiDeckBuilder from './AiDeckBuilder';
 
 // Basic Energy (Pokémon) & Basic Lands (MTG) are exempt from the "max 4 of a card" deck rule.
 const isBasicEnergyOrLand = (card, game = 'mtg') => {
   if (!card) return false;
   if (game === 'mtg' || card.game === 'mtg') {
     const subs = card.subtypes || [];
-    const basicTypes = ['Basic', 'Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'];
-    return (subs.includes('Land') || card.supertype === 'Land') && basicTypes.some(t => subs.includes(t) || card.name === t);
+    return (subs.includes('Land') || card.supertype === 'Land') && (subs.includes('Basic') || /^(?:Snow-Covered )?(?:Plains|Island|Swamp|Mountain|Forest|Wastes)$/.test(card.name));
   }
   return card.supertype === 'Energy' && (!card.subtypes || !card.subtypes.includes('Special'));
 };
@@ -83,7 +83,7 @@ function DeckBuilder({ showToast }) {
 
   // Deck Creation States & Constants
   const POKEMON_FORMATS = ['Standard', 'Expanded', 'GLC (Gym Leader Challenge)', 'Unlimited', 'Retro'];
-  const MTG_FORMATS = ['Commander / EDH', 'Standard', 'Modern', 'Pioneer', 'Legacy', 'Vintage', 'Pauper'];
+  const MTG_FORMATS = ['Commander / EDH', 'Standard', 'Modern', 'Pioneer', 'Legacy', 'Vintage', 'Pauper', 'Alchemy', 'Historic', 'Explorer', 'Timeless', 'Brawl', 'Casual'];
   const LORCANA_FORMATS = ['Core (Constructed)', 'Casual', 'Draft / Sealed'];
   const DECK_CATEGORIES = ['Competitive', 'Casual', 'Tournament', 'Theorycraft', 'Proxy', 'Trade'];
   const DECK_ACCENT_COLORS = [
@@ -98,6 +98,7 @@ function DeckBuilder({ showToast }) {
   ];
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showAiBuilder, setShowAiBuilder] = useState(false);
   const [newDeckName, setNewDeckName] = useState('');
   const [newDeckDesc, setNewDeckDesc] = useState('');
   const [newDeckGame, setNewDeckGame] = useState(() => defaultGame()); // 'pokemon' | 'mtg'
@@ -161,6 +162,7 @@ function DeckBuilder({ showToast }) {
   useBackGuard(showSimulator, () => setShowSimulator(false));
   useBackGuard(!!activeDeck, () => setActiveDeck(null));
   useBackGuard(!!deckDraft, () => setDeckDraft(null));
+  useBackGuard(showAiBuilder, () => setShowAiBuilder(false));
 
   useEffect(() => {
     fetchDecks();
@@ -996,8 +998,20 @@ function DeckBuilder({ showToast }) {
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       
+      {showAiBuilder && (
+        <AiDeckBuilder
+          onPreview={setPreviewCard}
+          onClose={() => setShowAiBuilder(false)}
+          onSaved={async id => {
+            setShowAiBuilder(false);
+            showToast(t('deck.created'));
+            await fetchDecks();
+            await loadDeckDetails(id);
+          }}
+        />
+      )}
       {/* 1. SELECTION MENU VIEW OF ALL DECKS */}
-      {viewMode === 'list' && (
+      {viewMode === 'list' && !showAiBuilder && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           
           {/* Top Banner Header & Primary Action */}
@@ -1011,6 +1025,10 @@ function DeckBuilder({ showToast }) {
                 {t('deck.vaultSubtitle')}
               </p>
             </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+              {isGameEnabled('mtg') && <button className="btn btn-secondary" onClick={() => setShowAiBuilder(true)}>
+                <Zap size={18} /> {t('aiDeck.title')}
+              </button>}
             <button 
               className="btn btn-primary" 
               onClick={() => setShowCreateModal(true)}
@@ -1018,6 +1036,7 @@ function DeckBuilder({ showToast }) {
             >
               <Plus size={18} /> {t('deck.createDeck')}
             </button>
+            </div>
           </div>
 
           {/* Search, Filters, Sorting & View Toolbar */}
@@ -1923,7 +1942,7 @@ function DeckBuilder({ showToast }) {
                                       <input type="checkbox" checked={!!card.checked_out} disabled={savingCard} onChange={(e) => handlePulledChange(card.id, e.target.checked)} />
                                       {t('deck.pulled')}
                                     </label>
-                                    {/commander|edh/i.test(activeDeck.format || '') && <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.7rem', cursor: 'pointer' }}>
+                                    {/commander|edh|brawl/i.test(activeDeck.format || '') && <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.7rem', cursor: 'pointer' }}>
                                       <input type="checkbox" checked={activeDeck.commander_card_id === card.id} disabled={savingCard} onChange={e => handleCommanderChange(e.target.checked ? card.id : null)} />
                                       {t('deck.commander')}
                                     </label>}
@@ -1980,7 +1999,7 @@ function DeckBuilder({ showToast }) {
                                       <input type="checkbox" checked={!!card.checked_out} disabled={savingCard} onChange={(e) => handlePulledChange(card.id, e.target.checked)} />
                                       {t('deck.pulled')}
                                     </label>
-                                    {/commander|edh/i.test(activeDeck.format || '') && <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.65rem', cursor: 'pointer' }}>
+                                    {/commander|edh|brawl/i.test(activeDeck.format || '') && <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.65rem', cursor: 'pointer' }}>
                                       <input type="checkbox" checked={activeDeck.commander_card_id === card.id} disabled={savingCard} onChange={e => handleCommanderChange(e.target.checked ? card.id : null)} />
                                       {t('deck.commander')}
                                     </label>}

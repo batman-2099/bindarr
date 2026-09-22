@@ -3,6 +3,7 @@ import { ShieldAlert, Share2, Clipboard, RefreshCw, KeyRound, Check, Database, D
 import { CURRENCIES, getCurrency, setCurrency } from '../utils/formatPrice';
 import { LOCALES, localeName, useT } from '../utils/i18n';
 import { REPO_URL } from '../utils/repo';
+import CodexSettings from './CodexSettings';
 
 
 function Settings({ user, onUpdateUser, showToast }) {
@@ -778,6 +779,8 @@ function Settings({ user, onUpdateUser, showToast }) {
             </div>
           </div>
         </div>
+
+        {user && <CodexSettings key={user.id} />}
 
         {user?.role === 'admin' && (
           <section className="glass-panel" aria-labelledby="settings-bulk-title" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>

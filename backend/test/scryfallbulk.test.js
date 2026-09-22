@@ -33,9 +33,16 @@ async function testDuplicateIdentifiers() {
     assert.strictEqual(cards.length, 1, 'one Scryfall printing is fetched once');
     assert.deepStrictEqual(pairs.map(pair => pair.row), [normal, foil], 'every source row receives the resolved card');
     assert.deepStrictEqual(unmatchedRows, [], 'resolved rows are not reported as failed');
+    let rateLimited = false;
     scryfallApi.client.get = async (url) => {
       const set = url.includes('e%3Avow') ? 'vow' : url.includes('e%3Akhm') ? 'khm' : null;
       assert.ok(set, `set-scoped search expected, got ${url}`);
+      if (!rateLimited) {
+        rateLimited = true;
+        const error = new Error('Scryfall rate limit');
+        error.response = { status: 429, headers: { 'retry-after': '0' } };
+        throw error;
+      }
       return {
         data: {
           has_more: false,

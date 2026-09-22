@@ -325,7 +325,7 @@ async function fetchSetScopedRows(rows) {
       while (url) {
         let resp;
         try {
-          resp = await scryGet(url);
+          resp = await scryGetRetried(url);
         } catch (error) {
           if (error.response?.status === 404) break;
           throw error;

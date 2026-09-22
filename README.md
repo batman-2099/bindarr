@@ -18,6 +18,82 @@ Bindarr keeps the card, its printing, its condition, its value, and—when it is
 
 The [live demo](https://thenotoriousjeremy.github.io/bindarr/) uses sample data. Changes are not saved there, and camera scanning requires a server installation.
 
+## About this fork
+
+This is [batman-2099/bindarr](https://github.com/batman-2099/bindarr), a fork of [thenotoriousJeremy/bindarr](https://github.com/thenotoriousJeremy/bindarr). It builds on upstream **1.8.5** (`404a659`) and focuses on Magic: The Gathering, physical storage, Arena inventory, and collection-to-deck workflows. The original project and its contributors provide the underlying application; the changes below describe this fork's additions and fixes rather than claiming upstream features as new work.
+
+### Changes on `main`
+
+**Magic-only scope and inventory**
+
+- Made the active product Magic-only: removed Pokémon and Lorcana from core navigation, setup, controls, APIs, and product documentation. Legacy database records are retained rather than deleted.
+- Added separate **Arena** inventory and **Physical/Arena** deck types, with inventory-scoped ownership and availability checks. Arena decks cannot use physical checkout or storage workflows.
+- Added Arena-aware Dashboard views and statistics, plus inventory-type changes through deck properties when the destination owns sufficient copies.
+- Added an explicit **Add to Wishlist** action and wishlist persistence; wishlist entries are excluded from owned-card statistics.
+- Added an **Unassigned Pile** collection view and filters for unfiled cards.
+- Added checked-out-card collection filters and Missing/Found tracking for individual cards and bulk selections, preserving their last known locations.
+- Added duplication of eligible raw physical collection cards.
+- Corrected MTG card-type filtering and restored basic-land color classification.
+
+**Collection imports, review, and exports**
+
+- Added ManaBox plaintext collection imports, including `.txt` uploads from Add Cards, foil markers, duplicate-printing quantities, and exact-printing resolution.
+- Added CSV upload in Add Cards, including MTG Arena collection exports and Bindarr-style CSV files resolved through Scryfall.
+- Added CSV review before saving: detected rows and quantities, validation errors, suggested header mappings, editable column mappings, and refreshed previews.
+- Preserved the selected Collection/Arena import destination and corrected imported Magic cards being hidden from the intended view.
+- Replaced unresolved CSV identifiers with canonical Scryfall printings; preserved set-specific printings when matching by name and retried rate-limited set-scoped lookups.
+- Corrected missing artwork on ManaBox CSV imports.
+- Added completion summaries covering successful cards, entries and copies, failures, skipped/unresolved cards, and downloadable failed-card lists for retry.
+- Added timestamped import activity logs showing real lookup, cache, rate-limit, preparation, saving, completion, and failure events.
+- Added a persistent local Scryfall bulk catalog used by CSV, ManaBox, precon, and container imports before API fallback.
+- Added administrator-controlled daily UTC bulk-catalog refresh scheduling and an immediate download action in Settings.
+- Added CSV and TXT exports of the **current visible collection view**, respecting its inventory tab, filters, sorting, and duplicate stacking; aligned the export controls with collection selection.
+
+**Deck building and play**
+
+- Added ManaBox deck imports and corrected ManaBox detection, Arena inventory lookup, exact-printing identity, import/export icons, and skipped-card summaries.
+- Added creation from MTGJSON preconstructed decks, import review, and optional deck-box creation.
+- Added editable deck properties, a Deck Type column, deck duplication, and inventory-aware Physical/Arena switching.
+- Added card storage locations and sorting by container, compartment, and slot.
+- Added unavailable-copy warnings and the names of checked-out decks reserving those copies; corrected checked-out availability calculations.
+- Added persistent pulled-card checkboxes and resizable deck grid cards.
+- Added mana/color identity and category information to deck lists.
+- Added single-commander selection for Commander decks using card checkboxes and banners, with persistence in deck copies and complete backups.
+
+**Storage and containers**
+
+- Added ManaBox container imports that create a named box and file cards already owned in Unsorted instead of creating missing collection cards.
+- Corrected container imports to split and place stacked copies while retaining unfiled remainders.
+- Added expandable capacity and movement of selected cards between containers, back to Unsorted, or through automatic filing.
+- Added a scalable container image grid/list with search, filters, card-state labels, missing-card indicators, sorting, grouped results, and duplicate stacking.
+- Added deck-assignment indicators and In Play/Not In Play filtering, corrected to classify only copies actually allocated to checked-out decks.
+- Added an action to put selected container cards into a deck.
+- Alphabetized container selectors and made name sorting the default.
+- Added a searchable, sortable container gallery as the Storage landing page, with card counts and artwork covers.
+- Added user-selected cover artwork from cards in the container, managed through Container Settings, plus automatic-cover fallback and backup persistence.
+- Refined gallery tiles to show full card artwork without card-detail overlays, and made the Storage navigation button return to the gallery.
+
+**Settings, backups, and maintenance**
+
+- Added configurable default collection, storage, and deck views and default card image scaling.
+- Added complete collection-data backup and restore, including the fork's inventory, storage, deck, and related metadata.
+- Reworked the README into a Magic-focused product and workflow guide; added repository development guidance, import fixtures, and regression checks for the new workflows.
+
+### AI Deck Builder and related improvements
+
+The following changes were developed on the [`AI-Deck-Builder` branch](https://github.com/batman-2099/bindarr/tree/AI-Deck-Builder) (`47a3c8b`) and merged into `main` through [pull request #2](https://github.com/batman-2099/bindarr/pull/2):
+
+- AI deck suggestions through either a per-user ChatGPT/Codex connection or an Ollama service.
+- User Settings controls for provider, model, ChatGPT thinking level, and a per-user Ollama server address, with connection checking and persisted preferences.
+- Physical/Arena inventory selection, color/set filters, and an explicit option to include checked-out physical copies for planning without changing existing reservations.
+- Editable suggested decks, card previews, live generation logs, ownership/quantity/legality validation, and explicit atomic saving.
+- Compact inventory requests, local cached rules, bounded provider requests, cancellation, and isolated Codex sessions that do not receive storage locations, private notes, or other users' collections.
+- Ollama structured-output chat support for thinking models such as Qwen, with unfinished output rejected and context/output-limit errors explained.
+- A compact green **AI Connected** status in Deck Builder; connection details, account identity, and data-sharing notices live in Settings.
+- Development-server watch-path fixes so Codex runtime files do not restart the backend during generation.
+- Additional UI refinements: the Obtained control beside the Arena badge, Collection/Arena/Unassigned/Wishlist tab ordering, alphabetical deck selectors, and resetting Deck Builder when opened from navigation.
+- Corrected basic-land copy-limit detection so nonbasic dual lands are not treated as unlimited basic lands.
+
 ## Highlights
 
 - Search, browse, scan, and catalog Magic: The Gathering cards through Scryfall.

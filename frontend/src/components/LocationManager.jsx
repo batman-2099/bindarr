@@ -1186,9 +1186,9 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
         {galleryLocations.map(location => (
           <div key={location.id} className="glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
           <button onClick={() => setActiveLocationId(location.id)} style={{ width: '100%', padding: 0, border: 0, background: 'transparent', textAlign: 'left', color: 'var(--text-strong)', cursor: 'pointer' }}>
-            <div style={{ height: '200px', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ aspectRatio: '1.4', overflow: 'hidden', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {galleryCovers.has(location.id)
-                ? <CardImage card={galleryCovers.get(location.id)} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                ? <CardImage card={galleryCovers.get(location.id)} src={galleryCovers.get(location.id).image_url.replace(/^(https:\/\/cards\.scryfall\.io\/)(?:small|normal|large|png)\/([^?]+)(.*)$/, (_, host, path, query) => `${host}art_crop/${path.replace(/\.png$/, '.jpg')}${query}`)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 : <Layers size={56} style={{ color: 'var(--text-muted)' }} />}
             </div>
             <div style={{ padding: '0.75rem 1rem' }}>

@@ -48,12 +48,14 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
   const [format, setFormat] = useState(sourceDeck?.format || 'Commander / EDH');
   const [targetSize, setTargetSize] = useState(sourceDeck?.target_size || 100);
   const [prompt, setPrompt] = useState('');
+  const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState(null);
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [generationLog, setGenerationLog] = useState([]);
   const logContainer = useRef(null);
+  const conversationContainer = useRef(null);
   const followLog = useRef(true);
   const logId = useRef(0);
   const timeFormat = useMemo(() => new Intl.DateTimeFormat(locale, { timeStyle: 'medium' }), [locale]);
@@ -68,6 +70,10 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
   useEffect(() => {
     if (followLog.current && logContainer.current) logContainer.current.scrollTop = logContainer.current.scrollHeight;
   }, [generationLog]);
+
+  useEffect(() => {
+    if (conversationContainer.current) conversationContainer.current.scrollTop = conversationContainer.current.scrollHeight;
+  }, [messages]);
 
   const appendGenerationLog = event => {
     const entry = { id: ++logId.current, time: Date.now(), stage: event.stage };
@@ -113,6 +119,9 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
     setInventoryError('');
     setInventory([]);
     setDraft(null);
+    setMessages([]);
+    setPrompt('');
+    setGenerationLog([]);
     setQuery('');
     setError('');
     const params = new URLSearchParams({ inventory_type: inventoryType });
@@ -157,8 +166,11 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
   const total = (draft?.cards || []).reduce((sum, card) => sum + Number(card.quantity), 0);
   const invalidCards = draft?.cards.some(card => !Number.isInteger(card.quantity) || card.quantity < 1 || card.quantity > (cardById.get(String(card.card_id))?.available_qty || 0));
   const isCommander = /commander|edh|brawl/i.test(format);
+  const conversationFull = messages.length >= 40;
+  const needsMessage = messages.length > 0 || !!draft;
 
-  const clearDraft = () => { setDraft(null); setError(''); setQuery(''); };
+  const restartConversation = () => { setMessages([]); setError(''); setGenerationLog([]); };
+  const clearDraft = () => { setDraft(null); restartConversation(); setPrompt(''); setQuery(''); };
   const clearInventory = () => {
     inventoryController.current?.abort();
     setInventoryLoading(true);
@@ -184,7 +196,11 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
 
   const generate = async event => {
     event.preventDefault();
-    if (busy || !account?.connected || inventoryLoading || inventoryController.current?.signal.aborted || inventoryError || counts.available === 0) return;
+    if (busy || !account?.connected || inventoryLoading || inventoryController.current?.signal.aborted || inventoryError) return;
+    if (conversationFull) { setError(t('aiDeck.conversationFull')); return; }
+    if (prompt.length > 4000) { setError(t('aiDeck.promptLimit')); return; }
+    if (needsMessage && !prompt.trim()) return;
+    const content = prompt.trim() || t(sourceDeck ? 'aiDeck.defaultImprove' : 'aiDeck.defaultGenerate');
     setBusy('generate');
     setError('');
     setGenerationLog([]);
@@ -195,7 +211,13 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
       const response = await fetch('/api/ai-decks/suggest', {
         method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson' }, signal,
         body: JSON.stringify({
-          inventory_type: inventoryType, format, target_size: targetSize, prompt, colors, sets,
+          inventory_type: inventoryType, format, target_size: targetSize, prompt: content, colors, sets,
+          messages,
+          current_draft: draft ? {
+            name: draft.name, description: draft.description, commander_card_id: draft.commander_card_id,
+            cards: draft.cards.map(({ card_id, quantity }) => ({ card_id, quantity })),
+            inventory_type: inventoryType, format, target_size: targetSize,
+          } : null,
           include_checked_out: inventoryType === 'collection' && includeCheckedOut,
           ...(inventoryType === 'collection' ? { container_ids: containerIds } : {}),
           ...(sourceDeck ? { source_deck_id: sourceDeck.id } : {}),
@@ -209,8 +231,13 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
         invalid: t('aiDeckLog.invalid'),
       });
       if (signal.aborted) return;
-      if (!Array.isArray(data.cards)) throw new Error(t('aiDeckLog.invalid'));
-      setDraft(data);
+      if (typeof data.message !== 'string' || !data.message.trim() || data.message.length > 8000
+        || (data.draft !== null && (!data.draft || !Array.isArray(data.draft.cards)))) {
+        throw new Error(t('aiDeckLog.invalid'));
+      }
+      if (data.draft !== null) setDraft(data.draft);
+      setMessages(current => [...current, { role: 'user', content }, { role: 'assistant', content: data.message }]);
+      setPrompt('');
       appendGenerationLog({ stage: 'complete' });
     } catch (err) {
       if (!signal.aborted) {
@@ -340,14 +367,31 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
           <p style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.inventoryHint')}</p>
           {inventoryError && <p role="alert">{inventoryError} <button type="button" className="btn btn-secondary" onClick={() => { clearInventory(); setInventoryRevision(value => value + 1); }}>{t('aiDeck.retry')}</button></p>}
           {!inventoryLoading && !inventoryError && counts.available === 0 && <p>{t(colors.length || sets.length || containerIds.length ? 'aiDeck.emptyFilters' : 'aiDeck.emptyInventory')}</p>}
+          <section aria-labelledby="ai-conversation-title" style={{ marginTop: '1rem', minWidth: 0 }}>
+            <h3 id="ai-conversation-title">{t('aiDeck.conversationTitle')}</h3>
+            <p id="ai-conversation-hint" style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.conversationHint')}</p>
+            {messages.length > 0 && <>
+              <div ref={conversationContainer} role="log" aria-labelledby="ai-conversation-title" aria-live="polite" aria-relevant="additions" tabIndex={0} style={{ maxHeight: 'min(400px, 50dvh)', overflowY: 'auto', overflowWrap: 'anywhere', overscrollBehavior: 'contain', padding: '0.75rem', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)' }}>
+                {messages.map((message, index) => (
+                  <div key={index} style={{ marginBottom: '0.75rem' }}>
+                    <strong>{t(message.role === 'user' ? 'aiDeck.you' : 'aiDeck.assistant')}</strong>
+                    <p style={{ whiteSpace: 'pre-wrap', margin: '0.25rem 0 0' }}>{message.content}</p>
+                  </div>
+                ))}
+              </div>
+              <p style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.messageCount', { count: messages.length })}</p>
+              <button type="button" className="btn btn-secondary" onClick={restartConversation}>{t('aiDeck.restartConversation')}</button>
+            </>}
+            {conversationFull && <p role="status">{t('aiDeck.conversationFull')}</p>}
+          </section>
           <div className="form-group" style={{ marginTop: '0.75rem' }}>
-            <label htmlFor="ai-prompt">{t(sourceDeck ? 'aiDeck.improvePrompt' : 'aiDeck.prompt')}</label>
-            <textarea id="ai-prompt" className="input-control" rows={3} maxLength={4000} value={prompt} onChange={event => setPrompt(event.target.value)} placeholder={t(sourceDeck ? 'aiDeck.improvePromptPlaceholder' : 'aiDeck.promptPlaceholder')} />
+            <label htmlFor="ai-prompt">{t(needsMessage ? 'aiDeck.followUp' : sourceDeck ? 'aiDeck.improvePrompt' : 'aiDeck.prompt')}</label>
+            <textarea id="ai-prompt" className="input-control" rows={3} maxLength={4000} required={needsMessage} aria-describedby="ai-conversation-hint ai-prompt-limit" value={prompt} onChange={event => setPrompt(event.target.value)} placeholder={t(needsMessage ? 'aiDeck.followUpPlaceholder' : sourceDeck ? 'aiDeck.improvePromptPlaceholder' : 'aiDeck.promptPlaceholder')} />
+            <p id="ai-prompt-limit" style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.promptLimit')} ({prompt.length}/4000)</p>
           </div>
-          <button className="btn btn-primary" type="submit" disabled={!!busy || !account?.connected || inventoryLoading || !!inventoryError || counts.available === 0}>
-            <Sparkles size={16} /> {t(busy === 'generate' ? 'aiDeck.generating' : draft ? 'aiDeck.regenerate' : 'aiDeck.generate')}
+          <button className="btn btn-primary" type="submit" disabled={!!busy || !account?.connected || inventoryLoading || !!inventoryError || conversationFull || (needsMessage && !prompt.trim())}>
+            <Sparkles size={16} /> {t(busy === 'generate' ? 'aiDeck.generating' : needsMessage || prompt.trim() ? 'aiDeck.send' : 'aiDeck.generate')}
           </button>
-          {draft && <p style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.regenerateHint')}</p>}
         </fieldset>
       </form>
       {generationLog.length > 0 && (

@@ -303,7 +303,7 @@ async function createSession(key) {
       selectedCapabilityRoots: [],
       approvalPolicy: 'never',
       sandbox: 'read-only',
-      baseInstructions: 'You recommend Magic: The Gathering decks from the supplied owned inventory. Return only the requested JSON draft. Never use tools or request access to anything outside the supplied input.',
+      baseInstructions: 'You help build and discuss Magic: The Gathering decks from the supplied owned inventory. Return only the requested JSON response with a message and a complete draft or null for discussion. Never use tools or request access to anything outside the supplied input.',
     });
     if (typeof started?.thread?.id !== 'string' ||
         !Array.isArray(started.thread.environments) || started.thread.environments.length) {

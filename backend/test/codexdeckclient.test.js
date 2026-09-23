@@ -77,7 +77,7 @@ function fakeServer() {
           notify('item/completed', { threadId: `thread-${user}`, item: { type: 'agentMessage', phase: 'commentary', text: 'fixture-private-commentary' } });
           // Unrelated thread events must not become the returned deck draft.
           notify('item/completed', { threadId: 'unrelated', turnId: `turn-${user}`, item: { type: 'agentMessage', text: '{"owner":"other"}' } });
-          notify('item/completed', { threadId: `thread-${user}`, turnId: `turn-${user}`, item: { type: 'agentMessage', phase: 'final_answer', text: text === 'invalid-json' ? '```json\n{}\n```' : JSON.stringify({ owner: user }) } });
+          notify('item/completed', { threadId: `thread-${user}`, turnId: `turn-${user}`, item: { type: 'agentMessage', phase: 'final_answer', text: text === 'invalid-json' ? '```json\n{}\n```' : JSON.stringify({ message: 'Response', draft: text === 'discussion' ? null : { owner: user } }) } });
           notify('turn/completed', { threadId: `thread-${user}`, turn: { id: `turn-${user}`, status: 'completed' } });
         }, user === '1' ? 20 : 1);
       }
@@ -113,7 +113,16 @@ async function main() {
     return child;
   };
   const client = require('../src/codexDeckClient');
-  const schema = { type: 'object', properties: { owner: { type: 'string' } }, required: ['owner'], additionalProperties: false };
+  const schema = {
+    type: 'object', additionalProperties: false, required: ['message', 'draft'],
+    properties: {
+      message: { type: 'string' },
+      draft: { anyOf: [
+        { type: 'object', additionalProperties: false, required: ['owner'], properties: { owner: { type: 'string' } } },
+        { type: 'null' },
+      ] },
+    },
+  };
   try {
     assert.deepStrictEqual(await client.account(1), { connected: false });
     const login = await client.login(1);
@@ -140,7 +149,7 @@ async function main() {
     assert.deepStrictEqual(await client.suggest(1, 'selected', schema, { model: 'precise-1', reasoning_effort: 'xhigh' }, event => {
       progress.push(event);
       throw new Error('observer failure must not crash the worker');
-    }), { owner: '1' });
+    }), { message: 'Response', draft: { owner: '1' } });
     assert.deepStrictEqual(progress.filter(event => event.stage !== 'waiting'), [
       { stage: 'connecting' }, { stage: 'model_ready', model: 'precise-1', reasoning_effort: 'xhigh' },
       { stage: 'generating' }, { stage: 'response_received' },
@@ -151,10 +160,11 @@ async function main() {
     const finishedCount = progress.length;
     await new Promise(resolve => originalTimeout(resolve, 10));
     assert.strictEqual(progress.length, finishedCount, 'no progress may arrive after completion');
-    assert.deepStrictEqual(await client.suggest(1, 'effort-only', schema, { reasoning_effort: 'low' }), { owner: '1' });
-    assert.deepStrictEqual(await client.suggest(1, 'model-only', schema, { model: 'precise-1' }), { owner: '1' });
+    assert.deepStrictEqual(await client.suggest(1, 'effort-only', schema, { reasoning_effort: 'low' }), { message: 'Response', draft: { owner: '1' } });
+    assert.deepStrictEqual(await client.suggest(1, 'model-only', schema, { model: 'precise-1' }), { message: 'Response', draft: { owner: '1' } });
     const drafts = await Promise.all([client.suggest(1, 'first', schema), client.suggest(2, 'second', schema)]);
-    assert.deepStrictEqual(drafts, [{ owner: '1' }, { owner: '2' }]);
+    assert.deepStrictEqual(drafts, [{ message: 'Response', draft: { owner: '1' } }, { message: 'Response', draft: { owner: '2' } }]);
+    assert.deepStrictEqual(await client.suggest(1, 'discussion', schema), { message: 'Response', draft: null });
     assert.deepStrictEqual(await client.account(1), { connected: true, email: '1@example.test' }, 'credentials persist across process restarts');
     await client.logout(1);
     assert.deepStrictEqual(await client.account(1), { connected: false });

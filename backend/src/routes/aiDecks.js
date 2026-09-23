@@ -5,7 +5,7 @@ const codex = require('../codexDeckClient');
 const ollama = require('../ollamaDeckClient');
 const { validateDeckAddition } = require('../utils/deckRules');
 const {
-  FORMATS, REVIEW_WARNING, fail, inventoryType, containerIds, preferencesRequest, suggestionRequest, draftRequest,
+  FORMATS, REVIEW_WARNING, fail, inventoryType, containerIds, preferencesRequest, suggestionRequest, suggestionResponse, draftRequest,
   inventory, cardRules, filterInventory, validateDraft, modelRequest,
 } = require('../utils/aiDecks');
 
@@ -42,8 +42,9 @@ const loginLimit = rateLimit({
 router.use((req, res, next) => {
   if (!req.user?.id) return res.status(401).json({ error: 'Sign in to use AI decks.' });
   // The app parser also has a transport limit; keep this feature's request bound explicit.
-  if (req.body && Buffer.byteLength(JSON.stringify(req.body), 'utf8') > 32768) {
-    return res.status(413).json({ error: 'AI deck requests cannot exceed 32 KiB.' });
+  const limit = req.path === '/suggest' ? 512 * 1024 : 32768;
+  if (req.body && Buffer.byteLength(JSON.stringify(req.body), 'utf8') > limit) {
+    return res.status(413).json({ error: `AI deck requests cannot exceed ${limit / 1024} KiB.` });
   }
   next();
 });
@@ -149,36 +150,46 @@ router.post('/suggest', sessionOnly, suggestionLimit, endpoint(async (req, res) 
     onProgress?.({ stage: 'catalog' });
     const cards = filterInventory(await cardRules(owned), request);
     if (!canWrite()) return;
+    if (request.current_draft) {
+      const ids = new Set(cards.map(card => card.id));
+      if (request.current_draft.cards.some(card => !ids.has(card.card_id))
+        || (request.current_draft.commander_card_id !== null && !ids.has(request.current_draft.commander_card_id))) {
+        fail('The current draft contains a printing outside your selected Magic inventory.');
+      }
+    }
     onProgress?.({ stage: 'inventory_ready', printings: cards.length, availableCopies: cards.reduce((sum, card) => sum + card.available_qty, 0) });
     const { prompt, schema } = modelRequest(request, cards, sourceDeck);
     onProgress?.({ stage: 'request_ready', bytes: Buffer.byteLength(prompt, 'utf8') });
     const output = await client(preferences.ai_provider).suggest(req.user.id, prompt, schema, { model, reasoning_effort, signal: controller.signal, baseUrl: preferences.ai_ollama_url }, onProgress);
     if (!canWrite()) return;
     onProgress?.({ stage: 'validating' });
-    let draft;
+    let response;
     try {
-      draft = draftRequest(output, true);
-      if (draft.inventory_type !== request.inventory_type || draft.format !== request.format || draft.target_size !== request.target_size) {
-        fail('The AI changed the requested inventory, format or target size.');
+      response = suggestionResponse(output);
+      if (response.draft) {
+        const draft = response.draft;
+        if (draft.inventory_type !== request.inventory_type || draft.format !== request.format || draft.target_size !== request.target_size) {
+          fail('The AI changed the requested inventory, format or target size.');
+        }
+        validateDraft(draft, cards);
+        draft.include_checked_out = request.include_checked_out;
+        draft.warnings = [REVIEW_WARNING, ...draft.warnings];
+        if (request.inventory_type === 'collection' && request.include_checked_out) {
+          draft.warnings.push('This draft may use cards from checked-out decks. Return those decks before checking out or playing this deck.');
+        }
+        const selected = new Set(draft.cards.map(card => card.card_id));
+        if (FORMATS[draft.format] && cards.some(card => selected.has(card.id) && !card.legalities?.[FORMATS[draft.format]])) {
+          draft.warnings.push('Cached format legality is unavailable for some selected cards; verify their legality yourself.');
+        }
       }
-      validateDraft(draft, cards);
     } catch (error) {
-      fail(`The AI did not return a valid owned-card draft. ${error.status ? error.message : 'Please try again.'} Nothing was saved.`, 502);
-    }
-    draft.include_checked_out = request.include_checked_out;
-    draft.warnings = [REVIEW_WARNING, ...draft.warnings];
-    if (request.inventory_type === 'collection' && request.include_checked_out) {
-      draft.warnings.push('This draft may use cards from checked-out decks. Return those decks before checking out or playing this deck.');
-    }
-    const selected = new Set(draft.cards.map(card => card.card_id));
-    if (FORMATS[draft.format] && cards.some(card => selected.has(card.id) && !card.legalities?.[FORMATS[draft.format]])) {
-      draft.warnings.push('Cached format legality is unavailable for some selected cards; verify their legality yourself.');
+      fail(`The AI did not return a valid response or owned-card draft. ${error.status ? error.message : 'Please try again.'} Nothing was saved.`, 502);
     }
     if (streaming) {
       onProgress({ stage: 'complete' });
-      sendEvent({ type: 'complete', data: draft });
+      sendEvent({ type: 'complete', data: response });
       if (canWrite()) res.end();
-    } else res.json(draft);
+    } else res.json(response);
   } catch (error) {
     if (!canWrite()) return;
     if (!res.headersSent) throw error;

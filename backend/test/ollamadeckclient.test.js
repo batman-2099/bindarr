@@ -2,9 +2,18 @@ const assert = require('assert');
 const http = require('http');
 const ollama = require('../src/ollamaDeckClient');
 
-const schema = { type: 'object', additionalProperties: false, required: ['name'], properties: { name: { type: 'string' } } };
+const schema = {
+  type: 'object', additionalProperties: false, required: ['message', 'draft'],
+  properties: {
+    message: { type: 'string' },
+    draft: { anyOf: [
+      { type: 'object', additionalProperties: false, required: ['name'], properties: { name: { type: 'string' } } },
+      { type: 'null' },
+    ] },
+  },
+};
 const tags = { models: [{ model: 'deck:8b', name: 'Deck model' }] };
-const complete = { done: true, done_reason: 'stop', message: { role: 'assistant', content: JSON.stringify({ name: 'Owned deck' }), thinking: 'Private reasoning is never deck content.' } };
+const complete = { done: true, done_reason: 'stop', message: { role: 'assistant', content: JSON.stringify({ message: 'Here is your deck.', draft: { name: 'Owned deck' } }), thinking: 'Private reasoning is never deck content.' } };
 let tagsReply = tags;
 let generateReply = complete;
 let status = 200;
@@ -34,7 +43,7 @@ async function main() {
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify(req.url === '/ollama/api/tags'
       ? { models: [{ model: 'other:8b', name: 'Other model' }] }
-      : { ...complete, message: { role: 'assistant', content: JSON.stringify({ name: 'Other deck' }) } }));
+      : { ...complete, message: { role: 'assistant', content: JSON.stringify({ message: 'Here is your deck.', draft: { name: 'Other deck' } }) } }));
   });
   await new Promise(resolve => otherServer.listen(0, '127.0.0.1', resolve));
   const otherUrl = `http://127.0.0.1:${otherServer.address().port}/ollama/`;
@@ -53,12 +62,12 @@ async function main() {
     assert.strictEqual(otherModels.models[0].id, 'other:8b');
     assert.deepStrictEqual(await ollama.account(2, { baseUrl: otherUrl }), { connected: true });
     const defaultCount = calls.length;
-    assert.deepStrictEqual(await suggest({ baseUrl: otherUrl, model: 'other:8b' }), { name: 'Other deck' });
+    assert.deepStrictEqual(await suggest({ baseUrl: otherUrl, model: 'other:8b' }), { message: 'Here is your deck.', draft: { name: 'Other deck' } });
     assert.strictEqual(otherCalls.at(-1).url, '/ollama/api/chat');
     assert.strictEqual(calls.length, defaultCount, 'explicit addresses never contact the operator default');
     assert.strictEqual(process.env.OLLAMA_BASE_URL, url, 'per-call addresses never mutate the operator configuration');
     const progress = [];
-    assert.deepStrictEqual(await suggest({}, event => progress.push(event)), { name: 'Owned deck' });
+    assert.deepStrictEqual(await suggest({}, event => progress.push(event)), { message: 'Here is your deck.', draft: { name: 'Owned deck' } });
     assert.deepStrictEqual(calls.at(-1), { method: 'POST', url: '/api/chat', body: {
       model: 'deck:8b', format: schema, stream: false,
       messages: [
@@ -70,6 +79,10 @@ async function main() {
       { stage: 'connecting' }, { stage: 'model_ready', model: 'deck:8b' },
       { stage: 'generating' }, { stage: 'response_received' },
     ]);
+    const discussion = { message: 'Which play style do you prefer?', draft: null };
+    generateReply = { ...complete, message: { role: 'assistant', content: JSON.stringify(discussion) } };
+    assert.deepStrictEqual(await suggest(), discussion, 'nullable structured output supports discussion without a draft');
+    generateReply = complete;
     const generations = () => calls.filter(call => call.url === '/api/chat').length;
     const count = generations();
     for (const options of [{ model: undefined }, { model: 'absent' }, { reasoning_effort: 'high' }]) {

@@ -13,6 +13,7 @@ const BG = {
   mtg: '#0e1017',
   lorcana: '#0a0918',
   lcars: '#000000',
+  jenny: '#160d22',
 };
 
 function applyStatusBar() {

@@ -67,6 +67,48 @@
 /* Themes only re-map the tokens above; layout/structure is shared. Set via
    document.documentElement.dataset.theme (see index.html init + Settings). */
 
+/* Jenny — plum surfaces, lavender highlights, and warm orange accents. */
+:root[data-theme="jenny"] {
+  --bg-primary: #160d22;
+  --bg-secondary: #261638;
+  --bg-glass: rgba(43, 24, 63, 0.85);
+  --border-glass: rgba(216, 180, 254, 0.18);
+  --border-glass-hover: rgba(251, 146, 60, 0.5);
+  --text-primary: #faf5ff;
+  --text-secondary: #d8bfe9;
+  --text-muted: #b69bc9;
+  --text-strong: #fff7ed;
+  --text-on-accent: #160d22;
+  --accent-red: #fb923c;
+  --accent-red-glow: rgba(251, 146, 60, 0.35);
+  --accent-blue: #c084fc;
+  --accent-blue-glow: rgba(192, 132, 252, 0.35);
+  --accent-yellow: #fdba74;
+  --accent-yellow-glow: rgba(253, 186, 116, 0.35);
+  --surface-1: rgba(192, 132, 252, 0.05);
+  --surface-2: rgba(192, 132, 252, 0.09);
+  --surface-3: rgba(192, 132, 252, 0.14);
+  --input-bg: rgba(22, 13, 34, 0.7);
+  --input-bg-focus: #160d22;
+  --bg-gradient:
+    radial-gradient(at 0% 0%, rgba(147, 51, 234, 0.25), transparent 55%),
+    radial-gradient(at 100% 100%, rgba(249, 115, 22, 0.14), transparent 55%);
+  --logo-cover: #fb923c;
+  --logo-spine: #c084fc;
+  --logo-page-left: #e9d5ff;
+  --logo-page-right: #fff7ed;
+}
+
+:root[data-theme="jenny"] .btn-primary {
+  background: linear-gradient(135deg, #fdba74, #fb923c);
+  box-shadow: 0 4px 15px var(--accent-red-glow);
+}
+
+:root[data-theme="jenny"] .btn-primary:hover {
+  background: linear-gradient(135deg, #fed7aa, #fdba74);
+  box-shadow: 0 6px 20px var(--accent-red-glow);
+}
+
 /* Light */
 :root[data-theme="light"] {
   --bg-primary: #eef2f7;

@@ -1392,6 +1392,7 @@
   "theme.mtg": "Magic: The Gathering",
   "theme.lorcana": "Disney Lorcana",
   "theme.lcars": "LCARS",
+  "theme.jenny": "Jenny",
   "prefs.gamesShown": "Card Types Shown",
   "prefs.gamesShownHint": "Hides that card type’s tabs, filters and cards everywhere in the app. Nothing is deleted — hidden cards stay in your collection and in every export, and they come back the moment you switch it on again.",
   "prefs.lastGameKept": "At least one card type has to stay visible.",

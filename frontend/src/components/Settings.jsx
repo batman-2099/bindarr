@@ -952,6 +952,7 @@ function Settings({ user, onUpdateUser, showToast }) {
               <option value="light">{t('theme.light')}</option>
               <option value="mtg">{t('theme.mtg')}</option>
               <option value="lcars">{t('theme.lcars')}</option>
+              <option value="jenny">{t('theme.jenny')}</option>
             </select>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>
               {t('prefs.themeHint')}

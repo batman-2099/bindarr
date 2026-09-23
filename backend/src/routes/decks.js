@@ -4,6 +4,7 @@ const cardApi = require('../utils/cardApi');
 const { parseCardRow, recordPrice } = require('../utils/priceHelpers');
 const { compartmentLabel } = require('../utils/compartmentSort');
 const { validateDeckAddition } = require('../utils/deckRules');
+const { FORMATS } = require('../utils/aiDecks');
 const scryfallApi = require('../scryfallApi');
 const { parseManaboxText } = require('../utils/csvMappers');
 const mtgjsonApi = require('../mtgjsonApi');
@@ -164,6 +165,48 @@ router.post('/', async (req, res) => {
     if (newDeckId) await db.run(`DELETE FROM decks WHERE id = ? AND user_id = ?`, [newDeckId, req.user.id]);
     if (!error.status) console.error(error);
     res.status(error.status || 500).json({ error: error.status ? error.message : 'Failed to create deck' });
+  }
+});
+
+// Save the entire physical container as a deck definition, without moving or reserving copies.
+router.post('/from-container', async (req, res) => {
+  const { location_id, name, format = 'Casual' } = req.body || {};
+  if (!Number.isSafeInteger(location_id) || location_id < 1) {
+    return res.status(400).json({ error: 'Container ID must be a positive integer' });
+  }
+  if (typeof name !== 'string' || !name.trim() || name.length > 120) {
+    return res.status(400).json({ error: 'Deck name must be non-empty text of at most 120 characters' });
+  }
+  if (typeof format !== 'string' || !Object.hasOwn(FORMATS, format)) {
+    return res.status(400).json({ error: 'Choose a supported Magic format' });
+  }
+
+  try {
+    const id = await db.withTransaction(async () => {
+      const location = await db.get('SELECT id FROM locations WHERE id = ? AND user_id = ?', [location_id, req.user.id]);
+      if (!location) throw Object.assign(new Error('Container not found'), { status: 404 });
+      // Missing and checked-out copies still belong to the definition; checkout handles availability.
+      const cards = await db.all(`
+        SELECT c.card_id, SUM(c.quantity) AS quantity
+        FROM collection c JOIN card_cache cc ON cc.id = c.card_id AND cc.game = 'mtg'
+        WHERE c.location_id = ? AND c.user_id = ? AND c.game = 'mtg'
+          AND c.list_type = 'collection' AND c.quantity > 0
+        GROUP BY c.card_id
+      `, [location_id, req.user.id]);
+      if (!cards.length) throw Object.assign(new Error('Container has no physical Magic cards'), { status: 400 });
+      const deck = await db.run(`
+        INSERT INTO decks (user_id, name, description, game, format, inventory_type, target_size)
+        VALUES (?, ?, '', 'mtg', ?, 'collection', ?)
+      `, [req.user.id, name.trim(), format, cards.reduce((total, card) => total + card.quantity, 0)]);
+      for (const card of cards) {
+        await db.run('INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, ?, ?)', [deck.lastID, card.card_id, card.quantity]);
+      }
+      return deck.lastID;
+    });
+    res.status(201).json({ id });
+  } catch (error) {
+    if (!error.status) console.error(error);
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Failed to create deck from container' });
   }
 });
 

@@ -7,7 +7,7 @@ import { getCardRarityBorder, getRarityBadgeStyle, getRarityBadgeLabel } from '.
 import CardInspectorModal from './CardInspectorModal';
 import AddToDeckSelect from './AddToDeckSelect';
 import { useMultiSelect } from '../utils/useMultiSelect';
-import { isBinderType as computeIsBinder, binderSpread } from '../utils/cardOptions';
+import { isBinderType as computeIsBinder, binderSpread, MTG_FORMATS } from '../utils/cardOptions';
 import { displayName } from '../utils/languages';
 import CompartmentView, { FocusedCardInfo, getSortCategories } from './CompartmentView';
 import { SortBuilder, FilterBuilder } from './SortFilterBuilder';
@@ -196,6 +196,14 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
 
 
   const [showCreate, setShowCreate] = useState(false);
+  const [containerDeckDraft, setContainerDeckDraft] = useState(null);
+  const [creatingContainerDeck, setCreatingContainerDeck] = useState(false);
+  const [containerDeckError, setContainerDeckError] = useState('');
+  const containerDeckBusy = useRef(false);
+  const closeContainerDeck = () => {
+    if (!containerDeckBusy.current) setContainerDeckDraft(null);
+  };
+  useBackGuard(!!containerDeckDraft, closeContainerDeck);
   const containerImportInput = useRef(null);
   const containerImportBusy = useRef(false);
   const [importingContainer, setImportingContainer] = useState(false);
@@ -620,6 +628,31 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
     } catch (err) {
       console.error(err);
       showToast(t('loc.errCreate'));
+    }
+  };
+
+  const handleCreateContainerDeck = async (event) => {
+    event.preventDefault();
+    if (containerDeckBusy.current || !containerDeckDraft?.name.trim()) return;
+    containerDeckBusy.current = true;
+    setCreatingContainerDeck(true);
+    setContainerDeckError('');
+    try {
+      const response = await fetch('/api/decks/from-container', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...containerDeckDraft, name: containerDeckDraft.name.trim() }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || t('loc.errCreateDeck'));
+      setContainerDeckDraft(null);
+      showToast(t('deck.created'));
+      onUpdate?.();
+    } catch (error) {
+      setContainerDeckError(error.message || t('loc.errCreateDeck'));
+    } finally {
+      containerDeckBusy.current = false;
+      setCreatingContainerDeck(false);
     }
   };
 
@@ -1362,6 +1395,35 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
     >
     {importReview}
     <div className="storage-workspace-grid">
+      {containerDeckDraft && (
+        <dialog
+          ref={element => { if (element && !element.open) element.showModal(); }}
+          onCancel={event => { event.preventDefault(); closeContainerDeck(); }}
+          aria-labelledby="container-deck-title"
+          aria-describedby="container-deck-hint"
+          style={{ margin: 'auto', width: 'min(480px, 92vw)', maxHeight: '90dvh', overflowY: 'auto', background: 'var(--bg-secondary)', color: 'var(--text-strong)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '1.25rem' }}
+        >
+          <form onSubmit={handleCreateContainerDeck} aria-busy={creatingContainerDeck}>
+            <h2 id="container-deck-title" style={{ marginTop: 0 }}>{t('deck.createDeck')}</h2>
+            <p id="container-deck-hint" style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.5 }}>{t('loc.createDeckHint')}</p>
+            <div className="form-group">
+              <label htmlFor="container-deck-name">{t('deck.deckName')}</label>
+              <input id="container-deck-name" className="input-control" required maxLength={120} autoFocus disabled={creatingContainerDeck} value={containerDeckDraft.name} onChange={event => setContainerDeckDraft(draft => ({ ...draft, name: event.target.value }))} />
+            </div>
+            <div className="form-group">
+              <label htmlFor="container-deck-format">{t('deck.format')}</label>
+              <select id="container-deck-format" className="input-control" disabled={creatingContainerDeck} value={containerDeckDraft.format} onChange={event => setContainerDeckDraft(draft => ({ ...draft, format: event.target.value }))}>
+                {MTG_FORMATS.map(format => <option key={format} value={format}>{format}</option>)}
+              </select>
+            </div>
+            {containerDeckError && <p role="alert" style={{ color: 'var(--accent-red)' }}>{containerDeckError}</p>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: '0.75rem', marginTop: '1rem' }}>
+              <button type="button" className="btn btn-secondary" disabled={creatingContainerDeck} onClick={closeContainerDeck}>{t('common.cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={creatingContainerDeck || !containerDeckDraft.name.trim()}>{t(creatingContainerDeck ? 'container.creating' : 'deck.createDeck')}</button>
+            </div>
+          </form>
+        </dialog>
+      )}
       {coverLocation && (
         <dialog ref={element => { if (element && !element.open) element.showModal(); }} onCancel={() => setCoverLocation(null)} aria-label={t('loc.chooseCover')} style={{ margin: 'auto', width: 'min(700px, 90vw)', maxHeight: '80vh', overflowY: 'auto', background: 'var(--bg-secondary)', color: 'var(--text-strong)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '1.25rem' }}>
           <h3>{t('loc.chooseCover')} — {coverLocation.name}</h3>
@@ -1529,14 +1591,14 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
           (the recommended slot blinks in it); the compact filing bar is pinned
           at the bottom of the screen. */}
       <div className="glass-panel" style={{ padding: '0.9rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', minWidth: 0 }}>
             <button className="btn btn-secondary" onClick={() => { storage.exitSelectMode(); setActiveLocationId(null); setShowGallery(true); }} title={t('nav.storage')} aria-label={t('nav.storage')}><LayoutGrid size={16} /></button>
             <select
               className="select-control"
               value={activeLocationId || ''}
               onChange={(e) => setActiveLocationId(parseInt(e.target.value, 10))}
-              style={{ fontSize: '1rem', fontWeight: 'bold', padding: '0.3rem', width: 'auto', minWidth: '150px' }}
+              style={{ fontSize: '1rem', fontWeight: 'bold', padding: '0.3rem', width: 'auto', minWidth: '150px', maxWidth: '100%' }}
             >
               <option value="" disabled>{t('loc.selectContainer')}</option>
               {locations.slice().sort((a, b) => a.name.localeCompare(b.name)).map(loc => <option key={loc.id} value={loc.id}>{loc.locked ? '🔒 ' : ''}{loc.name} ({loc.type})</option>)}
@@ -1556,7 +1618,15 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
           </div>
           
           {selectedLoc && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.4rem' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => { setContainerDeckError(''); setContainerDeckDraft({ location_id: selectedLoc.id, name: selectedLoc.name, format: 'Casual' }); }}
+              style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem' }}
+            >
+              <Layers size={14} aria-hidden="true" /> {t('deck.createDeck')}
+            </button>
             {!filingMode && !moveMode && (
               <div style={{ display: 'flex', background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
                 <button

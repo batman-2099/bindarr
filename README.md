@@ -198,6 +198,7 @@ These screenshots show the fork's interfaces using sample data, not a personal c
 - Move selected cards between containers, return them to Unsorted, or auto-file them. When a container is full, Bindarr can add matching pages or rows after confirmation.
 - Storage supports physical layout and image-list views, with search, filters, sorting, duplicate stacking, and 60%–250% image scaling.
 - Storage import actions use the download icon in both the gallery and container toolbar. Import reviews show a quick summary first; expand the full summary for card-level details and the **Move** action in the last column.
+- **Create Deck** in an open container creates a Physical Magic deck from its complete saved contents, independently of the current filters or card selection, including in locked containers.
 
 ### Account themes and clearer scrollbars
 
@@ -236,6 +237,14 @@ Use **Duplicate deck** for a new deck with the same card list. Use **Edit Proper
 Track a Physical or Arena deck's **Wins** and **Losses** under **Deck Health & Rules** with the **+** controls; use **−** to undo a result (counts cannot go below zero). The record appears in both table and grid deck lists, persists across reloads, and is preserved in complete backups. New decks, including duplicates and AI-created decks, start at 0 wins and 0 losses.
 
 For **Commander / EDH** and **Brawl** decks, check **Commander** on a deck card in list or grid view. Only one card can be selected; checking another replaces the previous commander, and unchecking clears it. The selected card displays a **Commander** banner. The choice persists in duplicates and complete backups, and is cleared if that card is removed or the format changes away from these formats.
+
+### Create a deck from a storage container
+
+Open a container in **Storage** and choose **Create Deck** in its toolbar. The deck name starts with the container name; choose a format (default **Casual**) and confirm. The container stays open after creation; the saved deck is available in **Deck Builder**.
+
+This uses every physical Magic copy recorded in the container, across all rows or pages, including missing copies and copies checked out in other decks. Search, filters, selection, stacking, Arena, and wishlist entries do not change the result. Quantities for the same card printing are combined, and the deck's target size is the full quantity. Empty physical Magic contents cannot create a deck.
+
+Only a deck definition is created: collection cards, storage positions, missing markers, and existing checkout reservations remain unchanged. The new deck is **not checked out**, even from a locked container. Availability warnings and checkout restrictions still apply; return reserved cards or resolve missing copies before checking it out. Any size is saved as an editable draft without trimming to format limits or automatically choosing a commander; review legality and commander choice in Deck Builder.
 
 ### Get an AI deck recommendation
 

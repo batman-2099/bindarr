@@ -117,6 +117,8 @@
   "aiDeckLog.failed": "Anfrage fehlgeschlagen. Siehe Fehler unten; Gespräch und vorhandener Entwurf bleiben unverändert.",
   "aiDeckLog.incomplete": "Die Verbindung wurde beendet, bevor eine vollständige Antwort ankam. Gespräch und vorhandener Entwurf bleiben unverändert.",
   "aiDeckLog.invalid": "Der KI-Dienst hat eine ungültige Antwort gesendet. Gespräch und vorhandener Entwurf bleiben unverändert.",
+  "loc.createDeckHint": "Erstellt ein physisches Magic-Deck aus allen in diesem Behälter erfassten Exemplaren, einschließlich vermisster und in anderen Decks ausgecheckter Karten. Filter und Auswahl werden ignoriert; Arena- und Wunschlistenkarten sind ausgeschlossen. Sammlungskarten werden weder verschoben noch dupliziert, und das neue Deck wird nicht ausgecheckt. Verfügbarkeitswarnungen und Auscheck-Beschränkungen gelten weiterhin.",
+  "loc.errCreateDeck": "Das Deck konnte nicht erstellt werden. Bitte versuche es erneut.",
   "importLog.title": "Importprotokoll (letzte 200 Ereignisse)",
   "importLog.connecting": "Verbindung zum Importdienst wird hergestellt…",
   "importLog.parsed": "{total} Zeilen eingelesen.",

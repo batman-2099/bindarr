@@ -8,6 +8,7 @@ import CheckoutWizardModal from './CheckoutWizardModal';
 import { useBackGuard } from '../utils/useBackGuard';
 import { arenaCardKey, buildDeckExport, parseDeckLine } from '../utils/deckText';
 import { defaultGame, gameOptions, showGamePicker, isGameEnabled } from '../utils/games';
+import { MTG_FORMATS } from '../utils/cardOptions';
 import CardImage from './CardImage';
 import { useT } from '../utils/i18n';
 import MtgDeckImport from './MtgDeckImport';
@@ -83,7 +84,6 @@ function DeckBuilder({ showToast }) {
 
   // Deck Creation States & Constants
   const POKEMON_FORMATS = ['Standard', 'Expanded', 'GLC (Gym Leader Challenge)', 'Unlimited', 'Retro'];
-  const MTG_FORMATS = ['Commander / EDH', 'Standard', 'Modern', 'Pioneer', 'Legacy', 'Vintage', 'Pauper', 'Alchemy', 'Historic', 'Explorer', 'Timeless', 'Brawl', 'Casual'];
   const LORCANA_FORMATS = ['Core (Constructed)', 'Casual', 'Draft / Sealed'];
   const DECK_CATEGORIES = ['Competitive', 'Casual', 'Tournament', 'Theorycraft', 'Proxy', 'Trade'];
   const DECK_ACCENT_COLORS = [

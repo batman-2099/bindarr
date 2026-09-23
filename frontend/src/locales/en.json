@@ -129,6 +129,8 @@
   "deck.errRecord": "Failed to update the deck record. Please try again.",
   "loc.chooseCover": "Choose container image",
   "loc.automaticCover": "Automatic image",
+  "loc.createDeckHint": "Creates a Physical Magic deck from all copies recorded in this container, including missing cards and copies checked out in other decks. Filters and selection are ignored; Arena and wishlist cards are excluded. No collection cards are moved or duplicated, and the new deck is not checked out. Availability warnings and checkout restrictions still apply.",
+  "loc.errCreateDeck": "Could not create the deck. Please try again.",
   "collection.exportViewCsv": "Export view CSV",
   "collection.exportViewTxt": "Export view TXT",
   "common.loading": "Loading",

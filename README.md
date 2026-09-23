@@ -52,13 +52,14 @@ This is [batman-2099/bindarr](https://github.com/batman-2099/bindarr), a fork of
 **Deck building and play**
 
 - Added ManaBox deck imports and corrected ManaBox detection, Arena inventory lookup, exact-printing identity, import/export icons, and skipped-card summaries.
-- Added creation from MTGJSON preconstructed decks, import review, and optional deck-box creation.
+- Added MTGJSON precon imports with independent **Create Storage Container** and **Create Deck** checkboxes, both enabled by default; deck creation imports every card and checks out the new Physical deck atomically.
 - Added editable deck properties, a Deck Type column, deck duplication, and inventory-aware Physical/Arena switching.
 - Added card storage locations and sorting by container, compartment, and slot.
 - Added unavailable-copy warnings and the names of checked-out decks reserving those copies; corrected checked-out availability calculations.
 - Added persistent pulled-card checkboxes and resizable deck grid cards.
 - Added mana/color identity and category information to deck lists.
 - Added single-commander selection for Commander decks using card checkboxes and banners, with persistence in deck copies and complete backups.
+- Added per-deck wins/losses and reorganized the detail view: description, overview panels, then full-width card list/grid. Record controls live in **Deck Health & Rules**.
 
 **Storage and containers**
 
@@ -77,6 +78,7 @@ This is [batman-2099/bindarr](https://github.com/batman-2099/bindarr), a fork of
 **Settings, backups, and maintenance**
 
 - Added configurable default collection, storage, and deck views and default card image scaling.
+- Added the **Jenny** theme: purple backgrounds, lavender highlights, and orange buttons and accents.
 - Added complete collection-data backup and restore, including the fork's inventory, storage, deck, and related metadata.
 - Reworked the README into a Magic-focused product and workflow guide; added repository development guidance, import fixtures, and regression checks for the new workflows.
 
@@ -155,6 +157,7 @@ These screenshots show the fork's interfaces using sample data, not a personal c
 
 - **Settings → AI preferences** selects ChatGPT (your own account with Codex access) or an Ollama service and saves each user's address and model choice. **Deck Builder → AI Deck Builder** uses those saved preferences to suggest decks from their Physical or Arena inventory.
 - Physical suggestions always exclude missing copies and exclude checked-out copies by default. Enable **Include checked-out cards** to plan with owned copies reserved in other decks. Review and edit the draft before **Add Deck**; saving rechecks eligible quantities and creates the entire deck or nothing. Existing reservations stay unchanged: return the cards from other decks before checking out the new deck for play.
+- Added session-only conversation: ask questions, get explanations, and refine the current draft with earlier messages and manual edits included. Discussion does not replace the draft, and saving remains explicit.
 
 ### Local-first Magic imports
 
@@ -176,6 +179,9 @@ These screenshots show the fork's interfaces using sample data, not a personal c
 - **Duplicate deck** copies the deck metadata and card quantities into a new `<name> (Copy)` deck without copying checkout state or wins and losses.
 - Physical deck cards can sort by container, page or row, and slot. Checkout creates a pull checklist and preserves the card's stored position.
 - Cards already allocated to another checked-out deck show their unavailable quantity and deck name.
+- **Description** has its own section. **Supertype Breakdown**, **Color & land distribution**, and **Deck Health & Rules** sit beneath it, above **Add cards to deck**, with Deck Health on the right.
+- **Wins / Losses** controls sit beneath the health statistics. Card grid and list views use the same full width; the mana curve appears below the cards.
+- Precon imports offer side-by-side **Create Storage Container** and **Create Deck** options, both checked by default. Uncheck either to skip that action; a created deck is automatically checked out.
 
 ### Collection and storage improvements
 
@@ -183,6 +189,11 @@ These screenshots show the fork's interfaces using sample data, not a personal c
 - Mark a card or multi-selection Missing/Found without losing its last known location.
 - Move selected cards between containers, return them to Unsorted, or auto-file them. When a container is full, Bindarr can add matching pages or rows after confirmation.
 - Storage supports physical layout and image-list views, with search, filters, sorting, duplicate stacking, and 60%–250% image scaling.
+- Storage import actions use the download icon in both the gallery and container toolbar. Import reviews show a quick summary first; expand the full summary for card-level details and the **Move** action in the last column.
+
+### Jenny theme
+
+Choose **Settings → Theme → Jenny** for purple surfaces, lavender text, and warm orange accents. The choice is saved in the current browser; the native status-bar background also matches the theme.
 
 ## Workflows
 
@@ -210,7 +221,7 @@ Decklist import accepts plain lines and MTG Arena-style lines such as `4 Llanowa
 
 Use **Duplicate deck** for a new deck with the same card list. Use **Edit Properties** to adjust metadata or change its deck type after inventory validation.
 
-Track a Physical or Arena deck's **Wins** and **Losses** with the **+** controls in its detail view; use **−** to undo a result (counts cannot go below zero). The record appears in both table and grid deck lists, persists across reloads, and is preserved in complete backups. New decks, including duplicates and AI-created decks, start at 0 wins and 0 losses.
+Track a Physical or Arena deck's **Wins** and **Losses** under **Deck Health & Rules** with the **+** controls; use **−** to undo a result (counts cannot go below zero). The record appears in both table and grid deck lists, persists across reloads, and is preserved in complete backups. New decks, including duplicates and AI-created decks, start at 0 wins and 0 losses.
 
 For **Commander / EDH** and **Brawl** decks, check **Commander** on a deck card in list or grid view. Only one card can be selected; checking another replaces the previous commander, and unchecking clears it. The selected card displays a **Commander** banner. The choice persists in duplicates and complete backups, and is cleared if that card is removed or the format changes away from these formats.
 
@@ -252,7 +263,7 @@ Open a Physical deck and choose **Check Out for Play**. Bindarr creates a pull l
 
 ### Import a Magic preconstructed deck
 
-Open **Add Cards → Precon Deck**, search MTGJSON by name, set code, or type, inspect the details, and choose **Add deck**. **Create Storage Container** optionally creates a correctly sized Deck Box for the imported physical cards. **Create Deck** independently creates a Physical deck with all imported cards and checks it out. If Create Deck is selected, unresolved cards or a failed import prevent the operation from leaving a partial collection, container, or deck.
+Open **Add Cards → Precon Deck**, search MTGJSON by name, set code, or type, and inspect the details. The side-by-side **Create Storage Container** and **Create Deck** checkboxes are both checked by default; uncheck either before choosing **Add deck** to skip that action. **Create Storage Container** creates a correctly sized Deck Box for the imported physical cards. **Create Deck** creates a Physical deck with all imported cards and checks it out. If Create Deck is selected, unresolved cards or a failed import prevent the operation from leaving a partial collection, container, or deck.
 
 ### Import a ManaBox storage container
 
@@ -260,7 +271,7 @@ Open **Add Cards → Precon Deck**, search MTGJSON by name, set code, or type, i
 
 In **Container Settings**, choose **Choose container image** to pick artwork from cards currently stored in that container. The selection is saved with the container and included in complete backups. **Automatic image** restores the default cover; if the chosen card leaves the container, the gallery falls back to another available card image.
 
-In **Storage**, choose the upload action beside **Create Container** and select a ManaBox `.txt` export. Bindarr creates a Box named after the file and files matching cards already in Unsorted into its first row. It never creates missing collection cards during this workflow.
+In **Storage**, choose the import action (download icon) beside **Create Container** and select a ManaBox `.txt` export. The gallery also offers this action. Bindarr creates a Box named after the file and files matching cards already in Unsorted into its first row. It never creates missing collection cards during this workflow.
 
 After import, expand **Full summary** to review requested, moved, and unmoved quantities for each exact Scryfall card/set/collector identity. Repeated rows for the same card are combined; mixed normal and foil requests appear as **Any finish**. Both the initial import and **Move** can use any finish of that exact card, preferring the requested finish when one is specified and always preserving each copy's actual finish and other metadata. The **Moved** column shows the actual finish counts. Cards not moved show where remaining copies already are, including Unsorted, other containers, Arena, and Wishlist; different finishes and missing-marked copies remain labeled for reference. The initial import uses only eligible physical copies in Unsorted. Use **Move** to fill the remaining quantity from other unlocked containers or Unsorted. Checked-out copies can change storage assignments without returning their decks or changing deck quantities; missing, Arena, and Wishlist copies stay put. Legacy stacks carrying a slab certificate cannot be split; individual certified copies retain their certificate when moved. The summary updates from the actual result, including partial moves; retries and simultaneous moves count all destination finishes together and never add more than the requested total for that card. The imported box must still be an unlocked, custom-sorted Magic Box accepting any card, with an unlocked, unrestricted first row and stacking disabled. Unresolved printings have no Move action or guessed locations; if none resolve, no container is created.
 

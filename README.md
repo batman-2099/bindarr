@@ -156,7 +156,7 @@ These screenshots show the fork's interfaces using sample data, not a personal c
 ### AI deck recommendations
 
 - **Settings → AI preferences** selects ChatGPT (your own account with Codex access) or an Ollama service and saves each user's address and model choice. **Deck Builder → AI Deck Builder** uses those saved preferences to suggest decks from their Physical or Arena inventory.
-- Physical suggestions always exclude missing copies and exclude checked-out copies by default. Enable **Include checked-out cards** to plan with owned copies reserved in other decks. Review and edit the draft before **Add Deck**; saving rechecks eligible quantities and creates the entire deck or nothing. Existing reservations stay unchanged: return the cards from other decks before checking out the new deck for play.
+- Physical suggestions always exclude missing copies. **Improve with AI** includes the source deck's eligible owned copies even outside selected color, set, or container filters, and exempts those copies from the source deck's own checkout reservation. Other decks' reservations remain excluded unless **Include checked-out cards** is enabled. Saving rechecks quantities and creates a separate deck atomically; it never modifies the original deck or releases reservations. Return reserved cards before checking out the new deck for play.
 - Added session-only conversation: ask questions, get explanations, and refine the current draft with earlier messages and manual edits included. Discussion does not replace the draft, and saving remains explicit.
 
 ### Local-first Magic imports
@@ -191,9 +191,13 @@ These screenshots show the fork's interfaces using sample data, not a personal c
 - Storage supports physical layout and image-list views, with search, filters, sorting, duplicate stacking, and 60%–250% image scaling.
 - Storage import actions use the download icon in both the gallery and container toolbar. Import reviews show a quick summary first; expand the full summary for card-level details and the **Move** action in the last column.
 
-### Jenny theme
+### Account themes and clearer scrollbars
 
 Choose **Settings → Theme → Jenny** for purple surfaces, lavender text, and warm orange accents. Themes are saved to your account and applied when you sign in on any device. Accounts without a saved choice use Dark; old browser-only choices are not imported. Signing out resets the app to Dark. Public share links can still override the theme for visitors with `?theme=...`; the native status-bar background also matches the active theme.
+
+When people share a computer and browser profile, each person's saved theme applies after they sign in—not the previous user's choice. Select a theme once in Settings to save it to your account; failed saves show an error without changing the selection.
+
+Scrollbars now use the active theme's brighter accent against its background: blue for Dark and Light, lavender for Jenny, sky blue for MTG, and periwinkle for LCARS. This applies to both page scrolling and scrollable panels.
 
 ## Workflows
 

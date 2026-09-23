@@ -120,6 +120,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
 
   // Set-code autocomplete, sourced from the sets already cached in the DB.
   const [knownSets, setKnownSets] = useState([]);
+  const [setsOpen, setSetsOpen] = useState(false);
 
   // Rapid add: set code stays pinned, type a collector number, press Enter, the
   // card goes straight in. `rapidLog` is the running receipt with undo.
@@ -194,7 +195,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
         const seen = new Set();
         setKnownSets(rows
           .filter(s => !s.game || s.game === game)
-          .map(s => ({ code: String(s.id || '').replace(/^mtg-/, ''), name: s.name }))
+          .map(s => ({ code: String(s.id || '').replace(/^mtg-/, ''), name: s.name, symbol_url: s.symbol_url }))
           .filter(s => s.code && !seen.has(s.code) && seen.add(s.code))
           .reverse()); // newest first — that is what people are adding
       })
@@ -830,21 +831,48 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
                 onChange={(e) => setNumberQuery(e.target.value)}
               />
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-              <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{t('search.sets')}</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', position: 'relative' }}
+              onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setSetsOpen(false); }}
+              onKeyDown={event => { if (event.key === 'Escape') setSetsOpen(false); }}>
+              <label htmlFor="search-set-codes" style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{t('search.sets')}</label>
               <input
+                id="search-set-codes"
                 type="text"
                 className="input-control"
-                list="known-set-codes"
+                autoComplete="off"
+                aria-expanded={setsOpen}
+                aria-controls="known-set-codes"
                 placeholder={t(game === 'mtg' ? 'search.setsPlaceholderMtg' : 'search.setsPlaceholderPokemon')}
                 value={setCodeQuery}
-                onChange={(e) => setSetCodeQuery(e.target.value)}
+                onFocus={() => setSetsOpen(true)}
+                onChange={event => { setSetCodeQuery(event.target.value); setSetsOpen(true); }}
               />
-              {/* Native datalist: free typeahead over every known set, no
-                  dropdown component and no extra dependency. */}
-              <datalist id="known-set-codes">
-                {knownSets.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
-              </datalist>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                {knownSets.filter(set => setCodeQuery.toLowerCase().split(/[\s,]+/).includes(set.code.toLowerCase())).map(set => (
+                  <span key={set.code} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem' }}>
+                    {set.symbol_url && <img src={set.symbol_url} alt="" width="20" height="20" style={{ objectFit: 'contain', background: '#fff', borderRadius: '3px', padding: '2px' }} onError={event => { event.currentTarget.style.display = 'none'; }} />}
+                    {set.name} ({set.code.toUpperCase()})
+                  </span>
+                ))}
+              </div>
+              {setsOpen && (
+                <div id="known-set-codes" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, maxHeight: '260px', overflowY: 'auto', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)' }}>
+                  {knownSets.filter(set => {
+                    const term = setCodeQuery.split(/[\s,]+/).at(-1).toLowerCase();
+                    return !term || set.code.toLowerCase().includes(term) || set.name.toLowerCase().includes(term);
+                  }).map(set => (
+                    <button key={set.code} type="button" className="btn btn-secondary"
+                      style={{ display: 'flex', width: '100%', justifyContent: 'flex-start', gap: '0.5rem', textAlign: 'left' }}
+                      onClick={() => {
+                        setSetCodeQuery(previous => previous.replace(/[^\s,]*$/, set.code));
+                        setSetsOpen(false);
+                      }}>
+                      {set.symbol_url && <img src={set.symbol_url} alt="" width="24" height="24" loading="lazy" style={{ objectFit: 'contain', background: '#fff', borderRadius: '3px', padding: '2px' }} onError={event => { event.currentTarget.style.display = 'none'; }} />}
+                      {set.name} ({set.code.toUpperCase()})
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

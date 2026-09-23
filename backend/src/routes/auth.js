@@ -2,7 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const db = require('../db');
 const { authenticateToken, authLimiter } = require('../middleware/auth');
-const { verifyPassword, generateSession } = require('../utils/authHelpers');
+const { verifyPassword, generateSession, sanitizeUser } = require('../utils/authHelpers');
 const oidc = require('../utils/oidc');
 
 const router = express.Router();
@@ -200,20 +200,11 @@ router.post('/bootstrap', authLimiter, async (req, res) => {
     await db.seedStarterLocations(result.lastID);
 
     const token = await generateSession(result.lastID);
+    const user = await db.get(`SELECT * FROM users WHERE id = ?`, [result.lastID]);
     res.status(201).json({
       message: 'Setup complete',
       token,
-      user: {
-        username: OWNER_USERNAME,
-        role: 'admin',
-        share_token: shareToken,
-        share_enabled: 0,
-        share_locations: 0,
-        tcg_api_key: '',
-        psa_api_token: '',
-        graded_price_api_key: '',
-        api_key: ''
-      }
+      user: sanitizeUser(user)
     });
   } catch (error) {
     console.error(error);
@@ -254,17 +245,12 @@ router.post('/register', authLimiter, async (req, res) => {
     `, [cleanUsername, passwordHash, 'member', shareToken, 0]);
 
     const token = await generateSession(result.lastID);
+    const user = await db.get(`SELECT * FROM users WHERE id = ?`, [result.lastID]);
 
     res.status(201).json({
       message: 'Registration successful',
       token,
-      user: {
-        username: cleanUsername,
-        role: 'member',
-        share_token: shareToken,
-        share_enabled: 0,
-        share_locations: 0
-      }
+      user: sanitizeUser(user)
     });
   } catch (error) {
     console.error(error);
@@ -292,17 +278,7 @@ router.post('/login', authLimiter, async (req, res) => {
     res.json({
       message: 'Login successful',
       token,
-      user: {
-        username: user.username,
-        role: user.role,
-        share_token: user.share_token,
-        share_enabled: user.share_enabled,
-        share_locations: user.share_locations,
-        tcg_api_key: user.tcg_api_key || '',
-        psa_api_token: user.psa_api_token || '',
-        graded_price_api_key: user.graded_price_api_key || '',
-        api_key: user.api_key || ''
-      }
+      user: sanitizeUser(user)
     });
   } catch (error) {
     console.error(error);
@@ -336,6 +312,21 @@ router.get('/me', authenticateToken, (req, res) => {
     return res.json({ user: safe });
   }
   res.json({ user: req.user });
+});
+
+router.patch('/theme', authenticateToken, async (req, res) => {
+  const theme = req.body?.theme;
+  if (!['dark', 'light', 'jenny', 'mtg', 'lcars'].includes(theme)) {
+    return res.status(400).json({ error: 'Invalid theme' });
+  }
+
+  try {
+    await db.run(`UPDATE users SET theme = ? WHERE id = ?`, [theme, req.user.id]);
+    res.json({ theme });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to update theme' });
+  }
 });
 
 // Issue (or rotate) this account's read-only API key — issue #33: a finance
@@ -408,20 +399,10 @@ router.put('/settings', authenticateToken, async (req, res) => {
     }
 
     // Retrieve updated info
-    const updatedUser = await db.get(`SELECT username, role, share_token, share_enabled, share_locations, tcg_api_key, psa_api_token, graded_price_api_key, api_key FROM users WHERE id = ?`, [req.user.id]);
+    const updatedUser = await db.get(`SELECT * FROM users WHERE id = ?`, [req.user.id]);
     res.json({
       message: 'Settings updated successfully',
-      user: {
-        username: updatedUser.username,
-        role: updatedUser.role,
-        share_token: updatedUser.share_token,
-        share_enabled: updatedUser.share_enabled,
-        share_locations: updatedUser.share_locations,
-        tcg_api_key: updatedUser.tcg_api_key || '',
-        psa_api_token: updatedUser.psa_api_token || '',
-        graded_price_api_key: updatedUser.graded_price_api_key || '',
-        api_key: updatedUser.api_key || ''
-      }
+      user: sanitizeUser(updatedUser)
     });
   } catch (error) {
     console.error(error);

@@ -149,6 +149,7 @@ async function initDb() {
       role TEXT CHECK(role IN ('admin', 'member')) NOT NULL DEFAULT 'member',
       share_token TEXT UNIQUE NOT NULL,
       share_enabled INTEGER DEFAULT 0,
+      theme TEXT NOT NULL DEFAULT 'dark',
       oidc_sub TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
@@ -719,6 +720,9 @@ async function initDb() {
   }
 
   const usersCols = await all(`PRAGMA table_info(users)`);
+  if (!usersCols.some(c => c.name === 'theme')) {
+    await run(`ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'dark'`);
+  }
   if (!usersCols.some(c => c.name === 'ai_provider')) {
     await run(`ALTER TABLE users ADD COLUMN ai_provider TEXT NOT NULL DEFAULT 'chatgpt'`);
   }

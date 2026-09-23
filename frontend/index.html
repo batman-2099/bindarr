@@ -5,13 +5,18 @@
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Bindarr</title>
-    <!-- Apply saved theme before first paint so there's no flash of the wrong theme. -->
+    <!-- Cache only: the authenticated account's theme replaces this after session refresh. -->
     <script>
       (function () {
+        const isShare = /^\/share\/[a-zA-Z0-9_-]+$/.test(window.location.pathname);
+        const urlTheme = isShare && new URLSearchParams(window.location.search).get('theme');
+        let cachedTheme = 'dark';
         try {
-          const urlTheme = new URLSearchParams(window.location.search).get('theme');
-          document.documentElement.setAttribute('data-theme', urlTheme || localStorage.getItem('theme') || 'dark');
+          if (localStorage.getItem('bindarr_token')) cachedTheme = localStorage.getItem('theme') || 'dark';
         } catch (e) { /* private mode / storage blocked: stay on dark */ }
+        const theme = urlTheme || cachedTheme;
+        document.documentElement.setAttribute('data-theme',
+          ['dark', 'light', 'jenny', 'mtg', 'lcars', 'pokemon', 'lorcana'].includes(theme) ? theme : 'dark');
       })();
     </script>
     <!-- Google Fonts -->

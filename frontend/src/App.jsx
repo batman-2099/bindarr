@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, lazy, Suspense } from 'react';
 import { LayoutDashboard, Database, MapPin, Sparkles, Settings as SettingsIcon, LogOut, ShieldAlert, Plus, Swords, StickyNote } from 'lucide-react';
 import Login from './components/Login';
 import Logo from './components/Logo';
@@ -73,7 +73,7 @@ window.fetch = function (input, options = {}) {
     };
   }
   return originalFetch(input, finalOptions).then(response => {
-    if (response.status === 401 && !isPublicOrAuthRoute) {
+    if (response.status === 401 && !isPublicOrAuthRoute && token === localStorage.getItem('bindarr_token')) {
       // Dispatch custom event to trigger logout without page refresh
       window.dispatchEvent(new Event('bindarr_logout'));
     }
@@ -92,6 +92,8 @@ function App() {
       return null;
     }
   });
+
+  const sessionRevision = useRef(0);
 
   const [activeTab, setActiveTab] = useState('dashboard');
   // First-run scanning setup. Asked once per session, only for an admin, and only
@@ -135,6 +137,30 @@ function App() {
     return /^\d+$/.test(id || '') ? id : null;
   });
 
+  // The browser value is only a first-paint cache; the account owns the theme.
+  useLayoutEffect(() => {
+    if (shareToken) return;
+    const theme = token && ['dark', 'light', 'jenny', 'mtg', 'lcars'].includes(user?.theme) ? user.theme : 'dark';
+    document.documentElement.setAttribute('data-theme', theme);
+    try { localStorage.setItem('theme', theme); } catch { /* storage may be blocked */ }
+  }, [token, user?.theme, shareToken]);
+
+  // Reload the account on session restoration, including changes made on another device.
+  useEffect(() => {
+    if (!token || shareToken) return;
+    let cancelled = false;
+    const revision = sessionRevision.current;
+    fetch('/api/auth/me')
+      .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to fetch profile')))
+      .then(data => {
+        if (cancelled || revision !== sessionRevision.current || token !== localStorage.getItem('bindarr_token')) return;
+        setUser(data.user);
+        localStorage.setItem('bindarr_user', JSON.stringify(data.user));
+      })
+      .catch(err => { if (!cancelled) console.error('Session refresh failed:', err); });
+    return () => { cancelled = true; };
+  }, [token, shareToken]);
+
   const showToast = (message) => {
     setToast(message);
   };
@@ -150,12 +176,14 @@ function App() {
         window.history.replaceState({}, document.title, newUrl);
 
         // Fetch user profile with the token to complete login
+        const revision = sessionRevision.current;
         fetch('/api/auth/me', {
           headers: { 'Authorization': `Bearer ${oidcToken}` }
         })
           .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to fetch profile')))
           .then(data => {
-            if (data.user) {
+            if (data.user && revision === sessionRevision.current && !localStorage.getItem('bindarr_token')) {
+              sessionRevision.current += 1;
               setToken(oidcToken);
               setUser(data.user);
               localStorage.setItem('bindarr_token', oidcToken);
@@ -198,6 +226,7 @@ function App() {
   // Handle automatic logout on 401
   useEffect(() => {
     const handleAutoLogout = () => {
+      sessionRevision.current += 1;
       setToken(null);
       setUser(null);
       localStorage.removeItem('bindarr_token');
@@ -233,6 +262,7 @@ function App() {
   }, []);
 
   const handleLoginSuccess = (newToken, newUser) => {
+    sessionRevision.current += 1;
     setToken(newToken);
     setUser(newUser);
     localStorage.setItem('bindarr_token', newToken);
@@ -245,6 +275,7 @@ function App() {
     // Revoke token on server asynchronously
     fetch('/api/auth/logout', { method: 'POST' }).catch(err => console.error(err));
 
+    sessionRevision.current += 1;
     setToken(null);
     setUser(null);
     localStorage.removeItem('bindarr_token');
@@ -252,9 +283,28 @@ function App() {
     showToast(t('toast.loggedOut'));
   };
 
-  const handleUpdateUser = (updatedUser) => {
-    setUser(updatedUser);
-    localStorage.setItem('bindarr_user', JSON.stringify(updatedUser));
+  const handleUpdateUser = (changes) => {
+    if (!token || token !== localStorage.getItem('bindarr_token')) return;
+    sessionRevision.current += 1;
+    setUser(current => {
+      if (!current || current.id !== user.id) return current;
+      const updatedUser = { ...current, ...changes };
+      localStorage.setItem('bindarr_user', JSON.stringify(updatedUser));
+      return updatedUser;
+    });
+  };
+
+  const handleSaveTheme = async (theme) => {
+    const response = await fetch('/api/auth/theme', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ theme }),
+    });
+    const data = await response.json();
+    if (token !== localStorage.getItem('bindarr_token')) return false;
+    if (!response.ok) throw new Error(data.error || t('prefs.themeError'));
+    handleUpdateUser({ theme: data.theme });
+    return true;
   };
 
   const triggerRefresh = () => {
@@ -316,7 +366,7 @@ function App() {
       case 'notes':
         return <Notes showToast={showToast} />;
       case 'settings':
-        return <Settings user={user} onUpdateUser={handleUpdateUser} showToast={showToast} />;
+        return <Settings user={user} onUpdateUser={handleUpdateUser} onSaveTheme={handleSaveTheme} showToast={showToast} />;
       case 'admin':
         return <AdminPanel user={user} onUpdateUser={handleUpdateUser} showToast={showToast} />;
       default:

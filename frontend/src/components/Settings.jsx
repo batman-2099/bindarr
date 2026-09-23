@@ -6,7 +6,7 @@ import { REPO_URL } from '../utils/repo';
 import CodexSettings from './CodexSettings';
 
 
-function Settings({ user, onUpdateUser, showToast }) {
+function Settings({ user, onUpdateUser, onSaveTheme, showToast }) {
   const { locale, setLocale, t } = useT();
   const [currentPassword, setCurrentPassword] = useState('');
   const [password, setPassword] = useState('');
@@ -28,10 +28,20 @@ function Settings({ user, onUpdateUser, showToast }) {
   const [bulkNotice, setBulkNotice] = useState(null);
   const mountedRef = useRef(true);
 
-  const [theme, setTheme] = useState(() => {
-    const saved = localStorage.getItem('theme');
-    return ['dark', 'light', 'mtg', 'lcars'].includes(saved) ? saved : 'dark';
-  });
+  const theme = user?.theme || 'dark';
+  const [themeLoading, setThemeLoading] = useState(false);
+
+  const handleThemeChange = async (value) => {
+    setThemeLoading(true);
+    try {
+      const saved = await onSaveTheme(value);
+      if (saved && mountedRef.current) showToast(t('prefs.themeSet', { theme: t(`theme.${value}`) }));
+    } catch {
+      if (mountedRef.current) showToast(t('prefs.themeError'));
+    } finally {
+      if (mountedRef.current) setThemeLoading(false);
+    }
+  };
   const [currency, setCurrencyState] = useState(() => getCurrency());
 
   const [collectionDefaultView, setCollectionDefaultView] = useState(() => localStorage.getItem('collection_default_view') || 'gallery');
@@ -316,7 +326,7 @@ function Settings({ user, onUpdateUser, showToast }) {
 
       if (response.ok) {
         const data = await response.json();
-        onUpdateUser(data.user);
+        onUpdateUser({ share_enabled: data.user.share_enabled });
         showToast(t(checked ? 'settings.sharingOn' : 'settings.sharingOff'));
       } else {
         setShareEnabled(!checked); // Revert
@@ -342,7 +352,7 @@ function Settings({ user, onUpdateUser, showToast }) {
       });
       if (response.ok) {
         const data = await response.json();
-        onUpdateUser(data.user);
+        onUpdateUser({ share_locations: data.user.share_locations });
         showToast(t(checked ? 'settings.locationsOn' : 'settings.locationsOff'));
       } else {
         setShareLocations(!checked);
@@ -372,7 +382,7 @@ function Settings({ user, onUpdateUser, showToast }) {
 
       if (response.ok) {
         const data = await response.json();
-        onUpdateUser(data.user);
+        onUpdateUser({ share_token: data.user.share_token });
         showToast(t('settings.tokenRegenerated'));
       } else {
         showToast(t('settings.errRegenerate'));
@@ -399,7 +409,7 @@ function Settings({ user, onUpdateUser, showToast }) {
         const next = action === 'revoke' ? '' : (data?.api_key || '');
         setAccessKey(next);
         setShowAccessKey(action !== 'revoke');
-        onUpdateUser({ ...user, api_key: next });
+        onUpdateUser({ api_key: next });
         showToast(t(action === 'revoke' ? 'settings.accessRevoked' : 'settings.accessCreated'));
       } else {
         showToast(data?.error || t('settings.errAccessKey'));
@@ -413,7 +423,7 @@ function Settings({ user, onUpdateUser, showToast }) {
   };
 
   const origin = publicBaseUrl || `${window.location.protocol}//${window.location.host}`;
-  const activeTheme = theme || localStorage.getItem('theme') || 'dark';
+  const activeTheme = theme;
   const themeQuery = activeTheme !== 'dark' ? `&theme=${encodeURIComponent(activeTheme)}` : '';
   const shareUrl = `${origin}/share/${user?.share_token}${activeTheme !== 'dark' ? `?theme=${encodeURIComponent(activeTheme)}` : ''}`;
   const tradeUrl = `${origin}/share/${user?.share_token}?list=trade${themeQuery}`;
@@ -940,13 +950,8 @@ function Settings({ user, onUpdateUser, showToast }) {
               id="settings-theme"
               className="select-control"
               value={theme}
-              onChange={(e) => {
-                const val = e.target.value;
-                setTheme(val);
-                localStorage.setItem('theme', val);
-                document.documentElement.setAttribute('data-theme', val);
-                showToast(t('prefs.themeSet', { theme: t(`theme.${val}`) }));
-              }}
+              disabled={themeLoading}
+              onChange={(e) => handleThemeChange(e.target.value)}
             >
               <option value="dark">{t('theme.dark')}</option>
               <option value="light">{t('theme.light')}</option>

@@ -193,7 +193,7 @@ These screenshots show the fork's interfaces using sample data, not a personal c
 
 ### Jenny theme
 
-Choose **Settings → Theme → Jenny** for purple surfaces, lavender text, and warm orange accents. The choice is saved in the current browser; the native status-bar background also matches the theme.
+Choose **Settings → Theme → Jenny** for purple surfaces, lavender text, and warm orange accents. Themes are saved to your account and applied when you sign in on any device. Accounts without a saved choice use Dark; old browser-only choices are not imported. Signing out resets the app to Dark. Public share links can still override the theme for visitors with `?theme=...`; the native status-bar background also matches the active theme.
 
 ## Workflows
 

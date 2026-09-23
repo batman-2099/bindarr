@@ -13,7 +13,7 @@ async function authenticateToken(req, res, next) {
   }
 
   try {
-    const columns = `u.username, u.role, u.share_token, u.share_enabled, u.share_locations,
+    const columns = `u.username, u.role, u.theme, u.share_token, u.share_enabled, u.share_locations,
                      u.tcg_api_key, u.psa_api_token, u.graded_price_api_key, u.api_key, u.oidc_sub`;
     let session = await db.get(`
       SELECT s.user_id, ${columns}
@@ -44,6 +44,7 @@ async function authenticateToken(req, res, next) {
       id: session.user_id,
       username: session.username,
       role: session.role,
+      theme: session.theme,
       share_token: session.share_token,
       share_enabled: session.share_enabled,
       share_locations: session.share_locations,

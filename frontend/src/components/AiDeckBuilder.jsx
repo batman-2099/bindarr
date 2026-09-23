@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Eye, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowLeft, Sparkles, Trash2 } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { readProgressStream } from '../utils/importStream';
 import MultiSelectDropdown from './MultiSelectDropdown';
+import CardImage from './CardImage';
 
 const FORMATS = {
   collection: ['Commander / EDH', 'Standard', 'Modern', 'Pioneer', 'Legacy', 'Vintage', 'Pauper', 'Casual'],
@@ -50,7 +51,6 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
   const [prompt, setPrompt] = useState('');
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState(null);
-  const [query, setQuery] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [generationLog, setGenerationLog] = useState([]);
@@ -122,7 +122,6 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
     setMessages([]);
     setPrompt('');
     setGenerationLog([]);
-    setQuery('');
     setError('');
     const params = new URLSearchParams({ inventory_type: inventoryType });
     if (inventoryType === 'collection' && containerIds.length) params.set('container_ids', containerIds.join(','));
@@ -158,11 +157,6 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
   const counts = useMemo(() => filteredInventory.reduce((sum, card) => ({
     owned: sum.owned + card.owned_qty, available: sum.available + card.available_qty, locked: sum.locked + card.locked_qty,
   }), { owned: 0, available: 0, locked: 0 }), [filteredInventory]);
-  const matches = useMemo(() => {
-    const search = query.trim().toLowerCase();
-    return effectiveInventory.filter(card => !search || printingLabel(card).toLowerCase().includes(search));
-  }, [effectiveInventory, query]);
-  const quantities = new Map((draft?.cards || []).map(card => [String(card.card_id), card.quantity]));
   const total = (draft?.cards || []).reduce((sum, card) => sum + Number(card.quantity), 0);
   const invalidCards = draft?.cards.some(card => !Number.isInteger(card.quantity) || card.quantity < 1 || card.quantity > (cardById.get(String(card.card_id))?.available_qty || 0));
   const isCommander = /commander|edh|brawl/i.test(format);
@@ -170,7 +164,7 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
   const needsMessage = messages.length > 0 || !!draft;
 
   const restartConversation = () => { setMessages([]); setError(''); setGenerationLog([]); };
-  const clearDraft = () => { setDraft(null); restartConversation(); setPrompt(''); setQuery(''); };
+  const clearDraft = () => { setDraft(null); restartConversation(); setPrompt(''); };
   const clearInventory = () => {
     inventoryController.current?.abort();
     setInventoryLoading(true);
@@ -186,13 +180,6 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
     commander_card_id: String(current.commander_card_id) === id ? null : current.commander_card_id,
     cards: current.cards.filter(card => String(card.card_id) !== id),
   }));
-  const addCard = id => setDraft(current => {
-    const existing = current.cards.find(card => String(card.card_id) === id);
-    if ((Number(existing?.quantity) || 0) >= cardById.get(id).available_qty) return current;
-    return { ...current, cards: existing
-      ? current.cards.map(card => String(card.card_id) === id ? { ...card, quantity: (Number(card.quantity) || 0) + 1 } : card)
-      : [...current.cards, { card_id: id, quantity: 1 }] };
-  });
 
   const generate = async event => {
     event.preventDefault();
@@ -274,7 +261,7 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
   };
 
   return (
-    <section className="glass-panel" aria-labelledby="ai-deck-title" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', minWidth: 0 }}>
+    <section aria-labelledby="ai-deck-title" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', minWidth: 0 }}>
       <div style={rowStyle}>
         <button type="button" className="btn btn-secondary" onClick={onClose} aria-label={t('common.back')}><ArrowLeft size={18} /></button>
         <h2 id="ai-deck-title" style={{ margin: 0 }}><Sparkles size={20} /> {t(sourceDeck ? 'aiDeck.improve' : 'aiDeck.title')}</h2>
@@ -288,27 +275,11 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
         {accountError && <p role="alert" style={{ color: 'var(--status-error)' }}>{accountError}</p>}
       </section>
 
-      <form onSubmit={generate}>
-        <fieldset disabled={!!busy} style={fieldsetStyle}>
-          <div style={{ ...rowStyle, alignItems: 'start' }}>
-            <div className="form-group" style={{ flex: '1 1 180px' }}>
-              <label htmlFor="ai-inventory">{t('aiDeck.inventory')}</label>
-              <select id="ai-inventory" className="input-control" disabled={!!sourceDeck} value={inventoryType} onChange={event => { clearInventory(); setContainerIds([]); setColors([]); setSets([]); setIncludeCheckedOut(false); setInventoryType(event.target.value); setFormat(event.target.value === 'arena' ? 'Standard' : 'Commander / EDH'); setTargetSize(event.target.value === 'arena' ? 60 : 100); }}>
-                <option value="collection">{t('aiDeck.physical')}</option><option value="arena">MTG Arena</option>
-              </select>
-            </div>
-            <div className="form-group" style={{ flex: '1 1 180px' }}>
-              <label htmlFor="ai-format">{t('deck.format')}</label>
-              <select id="ai-format" className="input-control" disabled={!!sourceDeck} value={format} onChange={event => { clearDraft(); setFormat(event.target.value); setTargetSize(/commander|edh|brawl/i.test(event.target.value) ? 100 : 60); }}>
-                {sourceDeck && !FORMATS[inventoryType].includes(format) && <option>{format}</option>}
-                {FORMATS[inventoryType].map(value => <option key={value}>{value}</option>)}
-              </select>
-            </div>
-            <div className="form-group" style={{ flex: '1 1 100px' }}>
-              <label htmlFor="ai-target">{t('deck.targetSize')}</label>
-              <input id="ai-target" className="input-control" type="number" min="1" max="250" step="1" required readOnly={!!sourceDeck || isCommander} value={targetSize} onChange={event => { clearDraft(); setTargetSize(event.target.value === '' ? '' : Number(event.target.value)); }} />
-            </div>
-          </div>
+      <div>
+        <fieldset disabled={!!busy} style={{ ...fieldsetStyle, display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: '1.25rem', alignItems: 'start' }}>
+          <section className="glass-panel" aria-labelledby="ai-pool-title" style={{ minWidth: 0 }}>
+            <h3 id="ai-pool-title" style={{ marginBottom: '1rem' }}>{t('aiDeck.poolTitle')}</h3>
           {inventoryType === 'collection' && (
             <div className="form-group">
               <fieldset disabled={locationsLoading || !!locationsError} style={fieldsetStyle} aria-describedby="ai-container-hint">
@@ -364,16 +335,45 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
           </fieldset>
           <p id="ai-filter-hint" style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.filterHint')}</p>
           <p role="status">{inventoryLoading ? t('common.loading') : t('aiDeck.matchingCounts', counts)}</p>
-          <p style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.inventoryHint')}</p>
           {inventoryError && <p role="alert">{inventoryError} <button type="button" className="btn btn-secondary" onClick={() => { clearInventory(); setInventoryRevision(value => value + 1); }}>{t('aiDeck.retry')}</button></p>}
           {!inventoryLoading && !inventoryError && counts.available === 0 && <p>{t(colors.length || sets.length || containerIds.length ? 'aiDeck.emptyFilters' : 'aiDeck.emptyInventory')}</p>}
-          <section aria-labelledby="ai-conversation-title" style={{ marginTop: '1rem', minWidth: 0 }}>
+          </section>
+          <section className="glass-panel" aria-labelledby="ai-setup-title" style={{ minWidth: 0 }}>
+            <h3 id="ai-setup-title" style={{ marginBottom: '1rem' }}>{t('aiDeck.setupTitle')}</h3>
+          <div style={{ ...rowStyle, alignItems: 'start' }}>
+            <div className="form-group" style={{ flex: '1 1 180px' }}>
+              <label htmlFor="ai-inventory">{t('aiDeck.inventory')}</label>
+              <select id="ai-inventory" className="input-control" disabled={!!sourceDeck} value={inventoryType} onChange={event => { clearInventory(); setContainerIds([]); setColors([]); setSets([]); setIncludeCheckedOut(false); setInventoryType(event.target.value); setFormat(event.target.value === 'arena' ? 'Standard' : 'Commander / EDH'); setTargetSize(event.target.value === 'arena' ? 60 : 100); }}>
+                <option value="collection">{t('aiDeck.physical')}</option><option value="arena">MTG Arena</option>
+              </select>
+            </div>
+            <div className="form-group" style={{ flex: '1 1 180px' }}>
+              <label htmlFor="ai-format">{t('deck.format')}</label>
+              <select id="ai-format" className="input-control" disabled={!!sourceDeck} value={format} onChange={event => { clearDraft(); setFormat(event.target.value); setTargetSize(/commander|edh|brawl/i.test(event.target.value) ? 100 : 60); }}>
+                {sourceDeck && !FORMATS[inventoryType].includes(format) && <option>{format}</option>}
+                {FORMATS[inventoryType].map(value => <option key={value}>{value}</option>)}
+              </select>
+            </div>
+            <div className="form-group" style={{ flex: '1 1 100px' }}>
+              <label htmlFor="ai-target">{t('deck.targetSize')}</label>
+              <input id="ai-target" form="ai-conversation-form" className="input-control" type="number" min="1" max="250" step="1" required readOnly={!!sourceDeck || isCommander} value={targetSize} onChange={event => { clearDraft(); setTargetSize(event.target.value === '' ? '' : Number(event.target.value)); }} />
+            </div>
+          </div>
+            <p style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.inventoryHint')}</p>
+          </section>
+          </div>
+        </fieldset>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '1.25rem', alignItems: 'start' }}>
+      <form id="ai-conversation-form" onSubmit={generate} style={{ minWidth: 0 }}>
+        <fieldset disabled={!!busy} style={fieldsetStyle}>
+          <section className="glass-panel" aria-labelledby="ai-conversation-title" style={{ minWidth: 0 }}>
             <h3 id="ai-conversation-title">{t('aiDeck.conversationTitle')}</h3>
             <p id="ai-conversation-hint" style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.conversationHint')}</p>
             {messages.length > 0 && <>
-              <div ref={conversationContainer} role="log" aria-labelledby="ai-conversation-title" aria-live="polite" aria-relevant="additions" tabIndex={0} style={{ maxHeight: 'min(400px, 50dvh)', overflowY: 'auto', overflowWrap: 'anywhere', overscrollBehavior: 'contain', padding: '0.75rem', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)' }}>
+              <div ref={conversationContainer} role="log" aria-labelledby="ai-conversation-title" aria-live="polite" aria-relevant="additions" tabIndex={0} style={{ maxHeight: 'min(400px, 50dvh)', overflowY: 'auto', overflowWrap: 'anywhere', overscrollBehavior: 'contain', padding: '0.75rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-2)' }}>
                 {messages.map((message, index) => (
-                  <div key={index} style={{ marginBottom: '0.75rem' }}>
+                  <div key={index} className={message.role === 'assistant' ? 'ai-response' : undefined} style={{ marginBottom: '0.75rem' }}>
                     <strong>{t(message.role === 'user' ? 'aiDeck.you' : 'aiDeck.assistant')}</strong>
                     <p style={{ whiteSpace: 'pre-wrap', margin: '0.25rem 0 0' }}>{message.content}</p>
                   </div>
@@ -383,7 +383,6 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
               <button type="button" className="btn btn-secondary" onClick={restartConversation}>{t('aiDeck.restartConversation')}</button>
             </>}
             {conversationFull && <p role="status">{t('aiDeck.conversationFull')}</p>}
-          </section>
           <div className="form-group" style={{ marginTop: '0.75rem' }}>
             <label htmlFor="ai-prompt">{t(needsMessage ? 'aiDeck.followUp' : sourceDeck ? 'aiDeck.improvePrompt' : 'aiDeck.prompt')}</label>
             <textarea id="ai-prompt" className="input-control" rows={3} maxLength={4000} required={needsMessage} aria-describedby="ai-conversation-hint ai-prompt-limit" value={prompt} onChange={event => setPrompt(event.target.value)} placeholder={t(needsMessage ? 'aiDeck.followUpPlaceholder' : sourceDeck ? 'aiDeck.improvePromptPlaceholder' : 'aiDeck.promptPlaceholder')} />
@@ -392,40 +391,11 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
           <button className="btn btn-primary" type="submit" disabled={!!busy || !account?.connected || inventoryLoading || !!inventoryError || conversationFull || (needsMessage && !prompt.trim())}>
             <Sparkles size={16} /> {t(busy === 'generate' ? 'aiDeck.generating' : needsMessage || prompt.trim() ? 'aiDeck.send' : 'aiDeck.generate')}
           </button>
+          </section>
         </fieldset>
       </form>
-      {generationLog.length > 0 && (
-        <section aria-labelledby="ai-generation-log-title" style={{ minWidth: 0 }}>
-          <h3 id="ai-generation-log-title" style={{ margin: 0, fontSize: '0.9rem' }}>{t('aiDeckLog.title')}</h3>
-          <div
-            ref={logContainer}
-            role="log"
-            aria-labelledby="ai-generation-log-title"
-            aria-live="polite"
-            aria-relevant="additions"
-            tabIndex={0}
-            onScroll={event => {
-              const node = event.currentTarget;
-              followLog.current = node.scrollHeight - node.scrollTop - node.clientHeight < 24;
-            }}
-            style={{ maxHeight: 'min(240px, 35dvh)', overflowY: 'auto', overflowWrap: 'anywhere', overscrollBehavior: 'contain', padding: '0.6rem', marginTop: '0.4rem', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', fontSize: '0.8rem' }}
-          >
-            {generationLog.map(entry => (
-              <div key={entry.id} style={{ padding: '0.2rem 0', color: entry.stage === 'failed' ? 'var(--status-error)' : 'var(--text-secondary)' }}>
-                <time dateTime={new Date(entry.time).toISOString()} style={{ color: 'var(--text-muted)' }}>{timeFormat.format(entry.time)}</time>
-                {' · '}{t(`aiDeckLog.${entry.stage}`, entry)}
-                {entry.model && ` · ${t('aiDeck.model')}: ${entry.model}`}
-                {entry.effort && ` · ${t('aiDeck.thinkingLevel')}: ${t(EFFORT_KEYS[entry.effort])}`}
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-      {error && <p role="alert" style={{ color: 'var(--status-error)' }}>{error}</p>}
-      <p style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.reviewWarning')}</p>
-
       {draft && (
-        <form onSubmit={save}>
+        <form className="glass-panel" onSubmit={save}>
           <fieldset disabled={!!busy} style={fieldsetStyle}>
             <h3>{t('aiDeck.draftTitle')}</h3>
             <p>{t(sourceDeck ? 'aiDeck.improveDraftHint' : 'aiDeck.draftHint')}</p>
@@ -450,39 +420,23 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
             <p role="status"><strong>{t('aiDeck.total', { total, target: targetSize })}</strong></p>
             {total !== Number(targetSize) && <p>{t('aiDeck.sizeWarning')}</p>}
             {invalidCards && <p role="alert">{t('aiDeck.quantityWarning')}</p>}
-            <div style={{ maxHeight: '55vh', overflowY: 'auto', overscrollBehavior: 'contain' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '0.75rem', maxHeight: '55vh', overflowY: 'auto', overscrollBehavior: 'contain' }}>
               {draft.cards.map(card => {
                 const id = String(card.card_id);
                 const owned = cardById.get(id);
                 return (
-                  <div key={id} style={{ ...rowStyle, padding: '0.65rem 0', borderBottom: '1px solid var(--border-glass)' }}>
-                    <div style={{ flex: '1 1 220px', minWidth: 0, overflowWrap: 'anywhere' }}>
-                      <strong>{owned ? printingLabel(owned) : id}</strong>
-                      {owned && <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{t('aiDeck.cardCounts', { available: owned.available_qty, locked: owned.locked_qty })}</p>}
+                  <div key={id} style={{ position: 'relative', borderRadius: '6px', overflow: 'hidden', border: card.quantity > (owned?.available_qty || 0) ? '2px solid var(--accent-red)' : '1px solid var(--border-glass)', background: 'var(--surface-1)', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                    <button type="button" disabled={!owned} aria-label={`${t('deck.previewArt')}: ${owned?.name || id}`} onClick={() => onPreview(owned)} style={{ position: 'relative', width: '100%', aspectRatio: 0.718, padding: 0, border: 0, background: 'none', cursor: 'pointer' }}>
+                      <CardImage card={owned || { id, name: id }} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      {String(draft.commander_card_id) === id && <span style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'var(--accent-yellow)', color: 'var(--bg-primary)', padding: '4px', fontSize: '0.75rem', fontWeight: 800 }}>{t('deck.commander')}</span>}
+                      <span style={{ position: 'absolute', top: '4px', right: '4px', background: 'var(--bg-primary)', color: 'var(--accent-yellow)', fontSize: '0.75rem', fontWeight: 800, padding: '1px 6px', borderRadius: '10px', border: '1px solid var(--accent-yellow)' }}>x{card.quantity}</span>
+                    </button>
+                    <div title={owned ? printingLabel(owned) : id} style={{ padding: '4px', fontSize: '0.7rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{owned?.name || id}</div>
+                    {owned && <p style={{ padding: '0 4px', color: 'var(--text-secondary)', fontSize: '0.65rem' }}>{t('aiDeck.cardCounts', { available: owned.available_qty, locked: owned.locked_qty })}</p>}
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '0.25rem', padding: '4px', marginTop: 'auto', background: 'var(--surface-2)' }}>
+                      <input aria-label={t('aiDeck.quantityLabel', { name: owned?.name || id })} className="input-control" style={{ width: '3.5rem', minWidth: 0, padding: '0.25rem' }} type="number" min="1" max={owned?.available_qty || 0} step="1" required value={card.quantity} onChange={event => changeQuantity(id, event.target.value === '' ? '' : Number(event.target.value))} />
+                      <button type="button" className="btn btn-secondary btn-icon-only" style={{ padding: '0.25rem' }} aria-label={t('aiDeck.removeLabel', { name: owned?.name || id })} onClick={() => removeCard(id)}><Trash2 size={14} /></button>
                     </div>
-                    <button type="button" className="btn btn-secondary" disabled={!owned} title={t('deck.previewArt')} aria-label={`${t('deck.previewArt')}: ${owned?.name || id}`} onClick={() => onPreview(owned)}><Eye size={16} /></button>
-                    <input aria-label={t('aiDeck.quantityLabel', { name: owned?.name || id })} className="input-control" style={{ width: '5rem' }} type="number" min="1" max={owned?.available_qty || 0} step="1" required value={card.quantity} onChange={event => changeQuantity(id, event.target.value === '' ? '' : Number(event.target.value))} />
-                    <button type="button" className="btn btn-secondary" aria-label={t('aiDeck.removeLabel', { name: owned?.name || id })} onClick={() => removeCard(id)}><Trash2 size={16} /></button>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="form-group" style={{ marginTop: '1rem' }}>
-              <label htmlFor="ai-card-search">{t('aiDeck.search')}</label>
-              <input id="ai-card-search" type="search" className="input-control" value={query} onChange={event => setQuery(event.target.value)} placeholder={t('aiDeck.searchPlaceholder')} />
-            </div>
-            <p>{t('aiDeck.searchCount', { shown: Math.min(matches.length, 100), count: matches.length })}</p>
-            <div style={{ maxHeight: '35vh', overflowY: 'auto', overscrollBehavior: 'contain' }}>
-              {matches.slice(0, 100).map(card => {
-                const id = String(card.id);
-                const remaining = card.available_qty - (Number(quantities.get(id)) || 0);
-                return (
-                  <div key={id} style={{ ...rowStyle, padding: '0.65rem 0', borderBottom: '1px solid var(--border-glass)' }}>
-                    <div style={{ flex: '1 1 220px', minWidth: 0, overflowWrap: 'anywhere' }}>
-                      <span>{printingLabel(card)}</span>
-                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{t('aiDeck.cardCounts', { available: card.available_qty, locked: card.locked_qty })}</p>
-                    </div>
-                    <button type="button" className="btn btn-secondary" disabled={remaining <= 0} aria-label={t('aiDeck.addLabel', { name: printingLabel(card) })} onClick={() => addCard(id)}><Plus size={16} /> {t('aiDeck.addCard')}</button>
                   </div>
                 );
               })}
@@ -493,6 +447,37 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
           </fieldset>
         </form>
       )}
+      </div>
+      {generationLog.length > 0 && (
+        <details className="glass-panel" style={{ minWidth: 0 }}>
+          <summary id="ai-generation-log-title" style={{ cursor: 'pointer', fontWeight: 600 }}>{t('aiDeckLog.title')}</summary>
+          <div
+            ref={logContainer}
+            role="log"
+            aria-labelledby="ai-generation-log-title"
+            aria-live="polite"
+            aria-relevant="additions"
+            tabIndex={0}
+            onScroll={event => {
+              const node = event.currentTarget;
+              followLog.current = node.scrollHeight - node.scrollTop - node.clientHeight < 24;
+            }}
+            style={{ maxHeight: 'min(240px, 35dvh)', overflowY: 'auto', overflowWrap: 'anywhere', overscrollBehavior: 'contain', padding: '0.6rem', marginTop: '0.4rem', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', fontSize: '0.8rem' }}
+          >
+            {generationLog.map(entry => (
+              <div key={entry.id} style={{ padding: '0.2rem 0', color: entry.stage === 'failed' ? 'var(--status-error)' : 'var(--text-secondary)' }}>
+                <time dateTime={new Date(entry.time).toISOString()} style={{ color: 'var(--text-muted)' }}>{timeFormat.format(entry.time)}</time>
+                {' · '}{t(`aiDeckLog.${entry.stage}`, entry)}
+                {entry.model && ` · ${t('aiDeck.model')}: ${entry.model}`}
+                {entry.effort && ` · ${t('aiDeck.thinkingLevel')}: ${t(EFFORT_KEYS[entry.effort])}`}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+      {error && <p role="alert" style={{ color: 'var(--status-error)' }}>{error}</p>}
+      <p style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.reviewWarning')}</p>
+
     </section>
   );
 }

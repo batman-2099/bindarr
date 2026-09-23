@@ -934,6 +934,14 @@ button, input, select, textarea {
   border-color: var(--border-glass-hover);
 }
 
+.ai-response {
+  background: #000000;
+  color: #f8fafc;
+  padding: 1rem;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--accent-blue);
+}
+
 /* Glow Cards based on Pokemon Types */
 .type-glow-fire { border-color: rgba(248, 113, 113, 0.4); box-shadow: 0 4px 20px rgba(248, 113, 113, 0.15); }
 .type-glow-water { border-color: rgba(96, 165, 250, 0.4); box-shadow: 0 4px 20px rgba(96, 165, 250, 0.15); }

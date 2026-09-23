@@ -29,6 +29,7 @@ This is [batman-2099/bindarr](https://github.com/batman-2099/bindarr), a fork of
 - Made the active product Magic-only: removed Pokémon and Lorcana from core navigation, setup, controls, APIs, and product documentation. Legacy database records are retained rather than deleted.
 - Added separate **Arena** inventory and **Physical/Arena** deck types, with inventory-scoped ownership and availability checks. Arena decks cannot use physical checkout or storage workflows.
 - Added Arena-aware Dashboard views and statistics, plus inventory-type changes through deck properties when the destination owns sufficient copies.
+- Added **Collection growth**, **Deck performance**, and **Color identity/Mana value** comparisons to the Dashboard, scoped to **All Cards / Physical / Arena**, with English/German labels and accessible chart-data tables.
 - Added an explicit **Add to Wishlist** action and wishlist persistence; wishlist entries are excluded from owned-card statistics.
 - Added an **Unassigned Pile** collection view and filters for unfiled cards.
 - Added checked-out-card collection filters and Missing/Found tracking for individual cards and bulk selections, preserving their last known locations.
@@ -150,6 +151,13 @@ These screenshots show the fork's interfaces using sample data, not a personal c
 - Track values, price history, graded slabs, missing copies, and checked-out copies.
 - Import ManaBox exports and MTGJSON preconstructed decks; export CSV, JSON, decklists, and complete backups.
 - Run a private multi-user installation with roles, invite-only registration by default, API keys, and optional public shares.
+
+### Dashboard analytics
+
+- **Collection growth** shows the last 12 calendar months (UTC), split into Physical and Arena quantities. Each month sums the *current* quantities of retained owned records by their `added_at` month. This is not cumulative growth or an immutable acquisition history: quantity edits affect earlier months, deleted records disappear, and wishlist entries never count.
+- **Deck performance** compares saved Magic decks in the selected inventory using wins, losses, games (`wins + losses`), and win rate (`wins / games`). Decks without games have no win rate; fewer than 10 games carries a low-sample caution. Saved deck results remain visible even when the collection is empty. These counters do not contain opponent, matchup, or match-date information.
+- **Color identity and mana value** compare owned copies against saved deck-slot quantities in the same inventory. A card saved in multiple decks counts in each deck, not as unique allocated ownership. Multicolor cards count under every identity color, so color totals overlap. Colorless and missing metadata are separate. Mana charts exclude lands, distinguish zero from unknown, and group values of 7 or more into `7+`.
+- Expand **View chart data** for exact quantities without relying on chart colors or tooltips. Older servers and demo fixtures without analytics show an explicit unavailable state, never invented statistics.
 
 ## Recent changes
 

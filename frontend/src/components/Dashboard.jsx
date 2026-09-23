@@ -8,6 +8,7 @@ import { defaultGameFilter, gameOptions, showGamePicker, gameLabel } from '../ut
 import { useT } from '../utils/i18n';
 import CardInspectorModal from './CardInspectorModal';
 import CardImage from './CardImage';
+import DashboardAnalytics from './DashboardAnalytics';
 
 const COLORS = [
   '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', 
@@ -48,6 +49,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [statsRefresh, setStatsRefresh] = useState(0);
   const [timePeriod, setTimePeriod] = useState('30d');
   // '' | 'pokemon' | 'mtg'. Collapses to the only visible game when the other is
   // hidden in Settings, so the totals never include cards the user cannot see.
@@ -62,52 +64,53 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
   const [inspectorCard, setInspectorCard] = useState(null);
 
   useEffect(() => {
-    fetchStats();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statsTrigger, gameFilter, inventoryFilter]);
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+    const params = new URLSearchParams({ inventory: inventoryFilter });
+    if (gameFilter) params.set('game', gameFilter);
+    const load = async () => {
+      try {
+        const response = await fetch(`/api/stats?${params}`, { signal: controller.signal });
+        if (!response.ok) throw new Error(t('dash.errStats'));
+        const data = await response.json();
+        if (!controller.signal.aborted) setStats(data);
+      } catch (err) {
+        if (!controller.signal.aborted) setError(err.message);
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    };
+    load();
+    return () => controller.abort();
+  }, [statsTrigger, statsRefresh, gameFilter, inventoryFilter, t]);
 
   useEffect(() => {
-    if (stats && stats.summary.totalCards > 0) {
-      fetchTimelineHistory();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timePeriod, stats, gameFilter, inventoryFilter]);
-
-  const fetchStats = async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams({ inventory: inventoryFilter });
-      if (gameFilter) params.set('game', gameFilter);
-      const response = await fetch(`/api/stats?${params}`);
-      if (!response.ok) {
-        throw new Error(t('dash.errStats'));
-      }
-      const data = await response.json();
-      setStats(data);
-    } catch (err) {
-      console.error(err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchTimelineHistory = async () => {
-    try {
-      setLoadingHistory(true);
-      const params = new URLSearchParams({ period: timePeriod, inventory: inventoryFilter });
-      if (gameFilter) params.set('game', gameFilter);
-      const response = await fetch(`/api/stats/history?${params}`);
-      if (response.ok) {
-        const data = await response.json();
-        setHistoryData(data);
-      }
-    } catch (err) {
-      console.error('Error loading history timeline:', err);
-    } finally {
+    const controller = new AbortController();
+    setHistoryData([]);
+    if (loading || !stats || stats.summary.totalCards === 0) {
       setLoadingHistory(false);
+      return () => controller.abort();
     }
-  };
+    setLoadingHistory(true);
+    const params = new URLSearchParams({ period: timePeriod, inventory: inventoryFilter });
+    if (gameFilter) params.set('game', gameFilter);
+    const load = async () => {
+      try {
+        const response = await fetch(`/api/stats/history?${params}`, { signal: controller.signal });
+        if (response.ok) {
+          const data = await response.json();
+          if (!controller.signal.aborted) setHistoryData(data);
+        }
+      } catch (err) {
+        if (!controller.signal.aborted) console.error('Error loading history timeline:', err);
+      } finally {
+        if (!controller.signal.aborted) setLoadingHistory(false);
+      }
+    };
+    load();
+    return () => controller.abort();
+  }, [timePeriod, stats, loading, gameFilter, inventoryFilter]);
 
   const renderFilters = () => (
     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
@@ -115,6 +118,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
         <div className="sub-nav-tabs" style={{ margin: 0 }}>
           {[['', t('dash.allGames')], ...gameOptions().map(g => [g.value, g.short])].map(([val, label]) => (
             <button key={val || 'all'} type="button" className={`sub-nav-tab ${gameFilter === val ? 'active' : ''}`}
+              aria-pressed={gameFilter === val}
               style={{ padding: '0.35rem 0.85rem', fontSize: '0.75rem' }} onClick={() => setGameFilter(val)}>
               {label}
             </button>
@@ -124,6 +128,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
       <div className="sub-nav-tabs" style={{ margin: 0 }}>
         {[['all', t('dash.allCards')], ['collection', t('dash.physical')], ['arena', t('dash.arena')]].map(([value, label]) => (
           <button key={value} type="button" className={`sub-nav-tab ${inventoryFilter === value ? 'active' : ''}`}
+            aria-pressed={inventoryFilter === value}
             style={{ padding: '0.35rem 0.85rem', fontSize: '0.75rem' }} onClick={() => setInventoryFilter(value)}>
             {label}
           </button>
@@ -133,14 +138,17 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
   );
 
   if (loading) {
-    return <div className="spinner"></div>;
+    return <div>{renderFilters()}<div role="status" aria-label={t('dash.loading')} className="spinner"></div></div>;
   }
 
   if (error) {
     return (
-      <div className="glass-panel" style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
-        <p>{t('dash.errLoad', { error })}</p>
-        <button className="btn btn-primary" onClick={fetchStats} style={{ marginTop: '1rem' }}>{t('dash.retry')}</button>
+      <div>
+        {renderFilters()}
+        <div className="glass-panel" style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
+          <p role="alert">{t('dash.errLoad', { error })}</p>
+          <button className="btn btn-primary" onClick={() => setStatsRefresh(value => value + 1)} style={{ marginTop: '1rem' }}>{t('dash.retry')}</button>
+        </div>
       </div>
     );
   }
@@ -165,6 +173,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
             </div>
           </div>
         </div>
+        <DashboardAnalytics analytics={stats?.analytics} />
       </div>
     );
   }
@@ -351,6 +360,8 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
           )}
         </div>
       </div>
+
+      <DashboardAnalytics analytics={stats.analytics} />
 
       {/* Main Charts & Analytics Details */}
       <div className="dashboard-details">

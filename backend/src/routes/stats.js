@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { resolveCardPrice, isVintageSet, parseSqliteUtc } = require('../utils/priceHelpers');
+const { normalizeMtgColorIdentity } = require('../utils/mtgColors');
 
 const router = express.Router();
 
@@ -19,7 +20,7 @@ router.get('/stats', async (req, res) => {
       SELECT
         c.quantity, c.purchase_price, c.added_at, c.printing, c.condition, c.card_id, c.market_value, c.list_type,
         cc.types, cc.subtypes, cc.supertype, cc.game, cc.rarity, cc.set_name, cc.set_id, cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.price_1st_edition,
-        cc.price_avg1, cc.price_avg7, cc.price_avg30,
+        cc.price_avg1, cc.price_avg7, cc.price_avg30, cc.name, cc.color_identity, cc.cmc,
         l.name as location_name
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
@@ -43,6 +44,39 @@ router.get('/stats', async (req, res) => {
     const sevenDaysMs = 7 * oneDayMs;
     const thirtyDaysMs = 30 * oneDayMs;
 
+    const currentMonth = new Date(now);
+    const growth = Array.from({ length: 12 }, (_, i) => ({
+      month: new Date(Date.UTC(currentMonth.getUTCFullYear(), currentMonth.getUTCMonth() - 11 + i, 1)).toISOString().slice(0, 7),
+      physical: 0,
+      arena: 0
+    }));
+    const growthByMonth = new Map(growth.map(point => [point.month, point]));
+    const colors = ['White', 'Blue', 'Black', 'Red', 'Green', 'Colorless', 'Unknown']
+      .map(name => ({ name, owned: 0, decks: 0 }));
+    const mana = ['0', '1', '2', '3', '4', '5', '6', '7+', 'Unknown']
+      .map(name => ({ name, owned: 0, decks: 0 }));
+    const colorsByName = new Map(colors.map(point => [point.name, point]));
+
+    function addDistribution(card, quantity, source, types = JSON.parse(card.types || '[]'), subtypes = JSON.parse(card.subtypes || '[]')) {
+      let identity;
+      try { identity = JSON.parse(card.color_identity); } catch { /* malformed metadata remains unknown */ }
+      const knownIdentity = Array.isArray(identity);
+      const normalized = normalizeMtgColorIdentity(knownIdentity ? identity : [], subtypes.join(' '), card.name || '');
+      const names = normalized.length ? normalized : [knownIdentity ? 'Colorless' : 'Unknown'];
+      for (const name of new Set(names.map(name => colorsByName.has(name) ? name : 'Unknown'))) {
+        colorsByName.get(name)[source] += quantity;
+      }
+
+      // Lands do not belong in a spell mana curve, including older basic-land metadata.
+      const isLand = types.includes('Land') || subtypes.includes('Land') || card.supertype === 'Land'
+        || (types.length === 0 && subtypes.some(type => ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'].includes(type)));
+      if (!isLand) {
+        const value = card.cmc;
+        const index = typeof value !== 'number' || !Number.isFinite(value) || value < 0 ? 8
+          : value >= 7 ? 7 : Math.floor(value);
+        mana[index][source] += quantity;
+      }
+    }
     // Cardmarket's avg7/avg30 are the only genuine historical price data this
     // app can get (nothing goes back further than 30 days from any source).
     // Both the "now" and "then" totals below are summed over the SAME subset
@@ -57,7 +91,7 @@ router.get('/stats', async (req, res) => {
     const locationCounts = {};
 
     rows.forEach(row => {
-      const qty = row.quantity || 1;
+      const qty = row.quantity ?? 1;
       const price = resolveCardPrice(row);
       const addedTime = row.added_at ? parseSqliteUtc(row.added_at).getTime() : now;
 
@@ -95,6 +129,12 @@ router.get('/stats', async (req, res) => {
       const types = JSON.parse(row.types || '[]');
       const subtypes = JSON.parse(row.subtypes || '[]');
       const isMtg = row.game === 'mtg' || row.supertype === 'MTG';
+      addDistribution(row, qty, 'owned', types, subtypes);
+      // Current retained copies grouped by addition month, not an immutable ownership history.
+      if (row.added_at && Number.isFinite(addedTime)) {
+        const point = growthByMonth.get(new Date(addedTime).toISOString().slice(0, 7));
+        if (point) point[row.list_type === 'arena' ? 'arena' : 'physical'] += qty;
+      }
 
       if (isMtg) {
         const isLand = subtypes.includes('Land') || row.supertype === 'Land' || (types.length === 0 && subtypes.some(s => ['Plains','Island','Swamp','Mountain','Forest','Land'].includes(s)));
@@ -132,6 +172,31 @@ router.get('/stats', async (req, res) => {
       const loc = row.location_name || 'Unassigned';
       locationCounts[loc] = (locationCounts[loc] || 0) + qty;
     });
+    const deckFilter = inventory === 'collection' || inventory === 'arena'
+      ? ` AND COALESCE(d.inventory_type, 'collection') = ?` : '';
+    const deckRows = await db.all(`
+      SELECT d.id, d.name AS deck_name, COALESCE(d.inventory_type, 'collection') AS inventory_type,
+             d.wins, d.losses, dc.card_id, dc.quantity,
+             cc.name, cc.types, cc.subtypes, cc.supertype, cc.color_identity, cc.cmc
+      FROM decks d
+      LEFT JOIN deck_cards dc ON dc.deck_id = d.id
+      LEFT JOIN card_cache cc ON cc.id = dc.card_id
+      WHERE d.user_id = ? AND d.game = 'mtg'${deckFilter}
+      ORDER BY d.id DESC
+    `, deckFilter ? [req.user.id, inventory] : [req.user.id]);
+    const performanceByDeck = new Map();
+    for (const row of deckRows) {
+      if (!performanceByDeck.has(row.id)) {
+        const games = row.wins + row.losses;
+        performanceByDeck.set(row.id, {
+          id: row.id, name: row.deck_name, inventory_type: row.inventory_type,
+          wins: row.wins, losses: row.losses, games,
+          winRate: games ? row.wins / games * 100 : null
+        });
+      }
+      // Saved slots are counted per deck, never joined against owned collection stacks.
+      if (row.card_id) addDistribution(row, row.quantity ?? 1, 'decks');
+    }
 
     // Get top most valuable cards (scoped to user)
     const topValuableQuery = `
@@ -271,6 +336,7 @@ router.get('/stats', async (req, res) => {
         change5y: { available: false, abs: null, pct: null }
       },
       types: Object.keys(typeCounts).map(name => ({ name, value: typeCounts[name] })),
+      analytics: { growth, deckPerformance: [...performanceByDeck.values()], colors, mana },
       rarities: Object.keys(rarityCounts).map(name => ({ name, value: rarityCounts[name] })),
       sets: Object.keys(setCounts).map(id => ({
         id,

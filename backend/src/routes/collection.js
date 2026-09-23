@@ -928,6 +928,9 @@ router.get('/mtg-decks/:fileName', searchLimiter, async (req, res) => {
 });
 
 router.post('/mtg-decks/:fileName/import', searchLimiter, async (req, res) => {
+  if (req.body?.create_deck !== undefined && typeof req.body.create_deck !== 'boolean') {
+    return res.status(400).json({ error: 'create_deck must be a boolean' });
+  }
   try {
     const deck = await mtgjsonApi.getDeck(req.params.fileName);
     if (!deck) return res.status(404).json({ error: 'MTGJSON deck not found' });
@@ -936,12 +939,17 @@ router.post('/mtg-decks/:fileName/import', searchLimiter, async (req, res) => {
     if (!rows.length) return res.status(422).json({ error: 'This MTGJSON deck has no importable cards' });
     const total = rows.reduce((sum, row) => sum + row.quantity, 0);
     const { cards, pairs } = await scryfallApi.bulkFetchByIdentifier(rows, undefined, { localFirst: true });
+    const missing = total - pairs.reduce((sum, { row }) => sum + row.quantity, 0);
+    if (req.body?.create_deck && missing) {
+      return res.status(422).json({ error: 'All cards must resolve before creating and checking out a deck.' });
+    }
     await scryfallApi.cacheCards(cards);
 
+    const result = await db.withTransaction(async () => {
     let locationId = null;
     if (req.body?.create_container) {
       const existing = await db.get('SELECT id FROM locations WHERE name = ? AND user_id = ?', [deck.name, req.user.id]);
-      if (existing) return res.status(409).json({ error: `A storage container named "${deck.name}" already exists` });
+      if (existing) throw new AddCardError(409, `A storage container named "${deck.name}" already exists`);
       const plan = defaultCompartmentPlan('Deck Box');
       const location = await db.run(`
         INSERT INTO locations (name, type, game, user_id)
@@ -953,9 +961,18 @@ router.post('/mtg-decks/:fileName/import', searchLimiter, async (req, res) => {
 
     let added = 0;
     const failed = [];
+    let deckId = null;
+    if (req.body?.create_deck) {
+      const created = await db.run(
+        `INSERT INTO decks (name, game, format, target_size, inventory_type, user_id)
+         VALUES (?, 'mtg', ?, ?, 'collection', ?)`,
+        [deck.name, deck.commander?.length ? 'Commander / EDH' : 'Standard', total, req.user.id]
+      );
+      deckId = created.lastID;
+    }
     for (const { row, card } of pairs) {
       try {
-        await addCardToCollection(req.user, {
+        const addedCard = await addCardToCollection(req.user, {
           card_id: card.id,
           quantity: row.quantity,
           printing: row.printing,
@@ -963,22 +980,38 @@ router.post('/mtg-decks/:fileName/import', searchLimiter, async (req, res) => {
           game: 'mtg',
           location_id: locationId,
         });
+        if (deckId) {
+          const entry = await db.get('SELECT card_id FROM collection WHERE id = ? AND user_id = ?', [addedCard.id, req.user.id]);
+          await db.run(
+            `INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, ?, ?)
+             ON CONFLICT(deck_id, card_id) DO UPDATE SET quantity = quantity + EXCLUDED.quantity`,
+            [deckId, entry.card_id, row.quantity]
+          );
+        }
         added += row.quantity;
       } catch (error) {
+        if (deckId) throw error;
         if (!(error instanceof AddCardError)) console.error(error);
         failed.push({ name: row.name, error: error instanceof AddCardError ? error.message : 'Failed to add card' });
       }
     }
 
-    const missing = total - pairs.reduce((sum, { row }) => sum + row.quantity, 0);
+    if (deckId) {
+      await db.run('UPDATE decks SET checked_out = 1, checked_out_at = CURRENT_TIMESTAMP WHERE id = ?', [deckId]);
+    }
+    return { locationId, deckId, added, failed };
+    });
+    const { locationId, deckId, added, failed } = result;
     res.status(failed.length && !added ? 500 : 200).json({
       message: `Added ${added} of ${total} cards from ${deck.name}.`,
       location_id: locationId,
+      deck_id: deckId,
       added,
       missing,
       failed,
     });
   } catch (error) {
+    if (error instanceof AddCardError) return res.status(error.status).json({ error: error.message });
     console.error('MTGJSON deck import failed:', error.message);
     res.status(502).json({ error: 'Failed to import MTGJSON deck' });
   }

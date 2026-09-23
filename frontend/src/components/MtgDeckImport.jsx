@@ -11,6 +11,8 @@ export default function MtgDeckImport({ onAddSuccess, showToast, onChoose }) {
   const [adding, setAdding] = useState(null);
   const [details, setDetails] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(null);
+  const [containerSelections, setContainerSelections] = useState({});
+  const [deckSelections, setDeckSelections] = useState({});
 
   const search = async (event) => {
     event?.preventDefault();
@@ -35,13 +37,12 @@ export default function MtgDeckImport({ onAddSuccess, showToast, onChoose }) {
 
   const addDeck = async (deck) => {
     if (!window.confirm(t('mtgDeck.confirmAdd', { name: deck.name }))) return;
-    const createContainer = window.confirm(t('mtgDeck.createContainer', { name: deck.name }));
     setAdding(deck.fileName);
     try {
       const response = await fetch(`/api/mtg-decks/${encodeURIComponent(deck.fileName)}/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ create_container: createContainer }),
+        body: JSON.stringify({ create_container: containerSelections[deck.fileName] ?? true, create_deck: deckSelections[deck.fileName] ?? true }),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) return showToast?.(body?.error || t('mtgDeck.errAdd'));
@@ -117,6 +118,18 @@ export default function MtgDeckImport({ onAddSuccess, showToast, onChoose }) {
                     </button>
                   </div>
                 </div>
+                {!onChoose && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.75rem', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                    <input type="checkbox" checked={containerSelections[deck.fileName] ?? true} disabled={adding === deck.fileName} onChange={event => setContainerSelections(current => ({ ...current, [deck.fileName]: event.target.checked }))} />
+                    {t('mtgDeck.createContainer')}
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.75rem', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                    <input type="checkbox" checked={deckSelections[deck.fileName] ?? true} disabled={adding === deck.fileName} onChange={event => setDeckSelections(current => ({ ...current, [deck.fileName]: event.target.checked }))} />
+                    {t('mtgDeck.createDeck')}
+                  </label>
+                  </div>
+                )}
                 {detail && (
                   <div style={{ display: 'grid', gap: '0.75rem', marginTop: '1rem', paddingTop: '0.85rem', borderTop: '1px solid var(--border-glass)' }}>
                     {[

@@ -79,7 +79,7 @@ async function testMtgDeckImport() {
     });
 
     const importRes = response();
-    await importDeck({ params: { fileName: 'ExampleDeck_TST' }, body: { create_container: true }, user: { id: 1 } }, importRes);
+    await importDeck({ params: { fileName: 'ExampleDeck_TST' }, body: { create_container: true, create_deck: true }, user: { id: 1 } }, importRes);
     assert.strictEqual(importRes.statusCode, 200);
     assert.strictEqual(importRes.body.added, 5, 'commander, main board, and sideboard counts must all be added');
     assert.strictEqual(importRes.body.missing, 0);
@@ -91,11 +91,43 @@ async function testMtgDeckImport() {
       { name: 'Example Deck', type: 'Deck Box', game: 'mtg' }
     );
     assert.strictEqual((await db.get('SELECT COUNT(*) AS count FROM collection WHERE location_id = ?', [importRes.body.location_id])).count, 5);
+    const importedDeck = await db.get('SELECT name, checked_out, checked_out_at, user_id, inventory_type FROM decks WHERE id = ?', [importRes.body.deck_id]);
+    assert.strictEqual(importedDeck.name, 'Example Deck');
+    assert.strictEqual(importedDeck.checked_out, 1);
+    assert.ok(importedDeck.checked_out_at);
+    assert.strictEqual(importedDeck.user_id, 1);
+    assert.strictEqual(importedDeck.inventory_type, 'collection');
+    assert.deepStrictEqual(
+      await db.all('SELECT card_id, quantity FROM deck_cards WHERE deck_id = ? ORDER BY card_id', [importRes.body.deck_id]),
+      [{ card_id: 'mtg-1', quantity: 3 }, { card_id: 'mtg-2', quantity: 1 }, { card_id: 'mtg-3', quantity: 1 }]
+    );
     const unpackedRes = response();
     await importDeck({ params: { fileName: 'ExampleDeck_TST' }, body: { create_container: false }, user: { id: 1 } }, unpackedRes);
     assert.strictEqual(unpackedRes.statusCode, 200);
     assert.strictEqual(unpackedRes.body.location_id, null);
     assert.strictEqual((await db.get(`SELECT COUNT(*) AS count FROM locations WHERE user_id = 1 AND name = 'Example Deck'`)).count, 1);
+    assert.strictEqual(unpackedRes.body.deck_id, null);
+    const deckOnly = response();
+    await importDeck({ params: { fileName: 'ExampleDeck_TST' }, body: { create_deck: true }, user: { id: 1 } }, deckOnly);
+    assert.strictEqual(deckOnly.statusCode, 200);
+    assert.strictEqual(deckOnly.body.location_id, null);
+    assert.strictEqual((await db.get('SELECT checked_out FROM decks WHERE id = ?', [deckOnly.body.deck_id])).checked_out, 1);
+
+    const counts = () => db.get(`SELECT (SELECT COUNT(*) FROM collection) AS cards, (SELECT COUNT(*) FROM decks) AS decks`);
+    const beforeFailure = await counts();
+    await db.run(`CREATE TRIGGER fail_precon BEFORE INSERT ON deck_cards WHEN NEW.card_id = 'mtg-2' BEGIN SELECT RAISE(ABORT, 'test import failure'); END`);
+    const failedImport = response();
+    await importDeck({ params: { fileName: 'ExampleDeck_TST' }, body: { create_deck: true }, user: { id: 1 } }, failedImport);
+    assert.strictEqual(failedImport.statusCode, 502);
+    assert.deepStrictEqual(await counts(), beforeFailure, 'failed deck creation must roll back newly imported copies and deck');
+    await db.run('DROP TRIGGER fail_precon');
+    const fullFetch = scryfallApi.bulkFetchByIdentifier;
+    scryfallApi.bulkFetchByIdentifier = async rows => fullFetch(rows.slice(1));
+    const incomplete = response();
+    await importDeck({ params: { fileName: 'ExampleDeck_TST' }, body: { create_deck: true }, user: { id: 1 } }, incomplete);
+    assert.strictEqual(incomplete.statusCode, 422);
+    assert.deepStrictEqual(await counts(), beforeFailure);
+    scryfallApi.bulkFetchByIdentifier = fullFetch;
     const createRes = response();
     await createDeck({
       body: { name: 'Selected Precon', game: 'mtg', precon_file: 'ExampleDeck_TST' },

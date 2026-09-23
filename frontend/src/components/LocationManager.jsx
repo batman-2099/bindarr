@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { DndContext, DragOverlay, MouseSensor, useSensor, useSensors, useDraggable, useDroppable, pointerWithin } from '@dnd-kit/core';
-import { Plus, Minus, Trash2, X, MoreVertical, Settings, RefreshCw, Lock, LayoutGrid, List, MousePointerClick, ChevronDown, ChevronUp, Edit3, Upload, Search, SlidersHorizontal, Layers } from 'lucide-react';
+import { Plus, Minus, Trash2, X, MoreVertical, Settings, RefreshCw, Lock, LayoutGrid, List, MousePointerClick, ChevronDown, ChevronUp, Edit3, Download, Search, SlidersHorizontal, Layers } from 'lucide-react';
 import { sortCardsByOrder } from '../utils/cardSort';
 import { getFoilOverlayClass, getPrintingBadgeLabel, getPrintingBadgeStyle } from '../utils/cardPrinting';
 import { getCardRarityBorder, getRarityBadgeStyle, getRarityBadgeLabel } from '../utils/cardRarity';
@@ -1341,7 +1341,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
       </div>
       <footer style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
         <button className="btn btn-secondary" onClick={() => setShowGallery(false)}>{t('bulk.unassignedPile')}</button>
-        <button type="button" className="btn btn-secondary" disabled={importingContainer} aria-busy={importingContainer} onClick={() => containerImportInput.current?.click()}><Upload size={16} /> {t(importingContainer ? 'loc.importingContainer' : 'loc.importContainer')}</button>
+        <button type="button" className="btn btn-secondary" disabled={importingContainer} aria-busy={importingContainer} onClick={() => containerImportInput.current?.click()}><Download size={16} /> {t(importingContainer ? 'loc.importingContainer' : 'loc.importContainer')}</button>
         <input ref={containerImportInput} type="file" accept=".txt,text/plain" disabled={importingContainer} onChange={handleContainerImportFile} style={{ display: 'none' }} />
       </footer>
       {showCreate && <CreateContainerModal onClose={() => setShowCreate(false)} onCreate={handleCreateLocation} setsList={setsList} filterFieldOptions={filterFieldOptions} />}
@@ -1545,7 +1545,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
               <Plus size={14} />
             </button>
             <button type="button" className="btn btn-secondary btn-icon-only" disabled={importingContainer} aria-busy={importingContainer} aria-label={t(importingContainer ? 'loc.importingContainer' : 'loc.importContainer')} onClick={() => containerImportInput.current?.click()} style={{ width: '28px', height: '28px', padding: 0 }} title={t(importingContainer ? 'loc.importingContainer' : 'loc.importContainer')}>
-              {importingContainer ? <span className="spinner" style={{ width: '14px', height: '14px', margin: 0 }} /> : <Upload size={14} />}
+              {importingContainer ? <span className="spinner" style={{ width: '14px', height: '14px', margin: 0 }} /> : <Download size={14} />}
             </button>
             <input ref={containerImportInput} type="file" accept=".txt,text/plain" disabled={importingContainer} onChange={handleContainerImportFile} style={{ display: 'none' }} />
             {selectedLoc && !!selectedLoc.locked && (

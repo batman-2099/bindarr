@@ -250,7 +250,7 @@ Open a Physical deck and choose **Check Out for Play**. Bindarr creates a pull l
 
 ### Import a Magic preconstructed deck
 
-Open **Add Cards → Precon Deck**, search MTGJSON by name, set code, or type, inspect the details, and choose **Add Full Deck**. Bindarr resolves exact Scryfall printings and can create a correctly sized Deck Box for the imported physical cards.
+Open **Add Cards → Precon Deck**, search MTGJSON by name, set code, or type, inspect the details, and choose **Add deck**. **Create Storage Container** optionally creates a correctly sized Deck Box for the imported physical cards. **Create Deck** independently creates a Physical deck with all imported cards and checks it out. If Create Deck is selected, unresolved cards or a failed import prevent the operation from leaving a partial collection, container, or deck.
 
 ### Import a ManaBox storage container
 

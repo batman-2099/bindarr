@@ -4,7 +4,7 @@ const db = require('../db');
 const { parseThirdPartyCSV, parseManaboxText } = require('../utils/csvMappers');
 const scryfallApi = require('../scryfallApi');
 const { generateExportCSV } = require('../utils/csvExporters');
-const { resolveCardPrice } = require('../utils/priceHelpers');
+const { resolveCardPrice, rebalanceCompartmentPositions } = require('../utils/priceHelpers');
 const { isBinderType } = require('../utils/compartmentSort');
 
 function parseCsvRows(data) {
@@ -517,6 +517,122 @@ router.post('/import', async (req, res) => {
   }
 });
 
+// Storage reassignment preserves deck checkout state and owned copy counts.
+async function movableContainerEntries(userId, cardId, printing, locationId) {
+  const entries = await db.all(`
+    SELECT c.* FROM collection c
+    JOIN card_cache cc ON cc.id = c.card_id AND cc.game = 'mtg'
+    LEFT JOIN locations l ON l.id = c.location_id AND l.user_id = c.user_id
+    LEFT JOIN compartments cp ON cp.id = c.compartment_id AND cp.location_id = l.id
+    WHERE c.user_id = ? AND c.card_id = ?
+      AND c.game = 'mtg' AND c.list_type = 'collection'
+      AND COALESCE(c.missing, 0) = 0 AND c.quantity > 0
+      AND (c.location_id IS NULL OR (c.location_id != ? AND l.id IS NOT NULL AND l.locked = 0))
+      AND (c.compartment_id IS NULL OR (cp.id IS NOT NULL AND cp.locked = 0))
+    ORDER BY CASE WHEN ? != 'Any' AND c.printing = ? THEN 0 ELSE 1 END,
+      c.location_id, c.compartment_id, c.position, c.id
+  `, [userId, cardId, locationId, printing, printing]);
+  return entries.map(entry => ({
+    ...entry,
+    // A certified slab is one physical copy; a legacy certified stack cannot be
+    // split without inventing duplicate certificates or discarding its metadata.
+    available: entry.quantity > 1 && entry.cert_number
+      ? 0 : entry.quantity
+  })).filter(entry => entry.available > 0);
+}
+
+async function containerQuantity(userId, cardId, locationId) {
+  const current = await db.get(`
+    SELECT COALESCE(SUM(quantity), 0) AS quantity FROM collection
+    WHERE user_id = ? AND card_id = ? AND location_id = ?
+      AND game = 'mtg' AND list_type = 'collection' AND COALESCE(missing, 0) = 0 AND quantity > 0
+  `, [userId, cardId, locationId]);
+  return current.quantity;
+}
+
+async function containerItemReport(userId, cardId, printing, requested, locationId) {
+  const finishes = await db.all(`
+    SELECT printing, SUM(quantity) AS quantity FROM collection
+    WHERE user_id = ? AND card_id = ? AND location_id = ?
+      AND game = 'mtg' AND list_type = 'collection' AND COALESCE(missing, 0) = 0 AND quantity > 0
+    GROUP BY printing
+    ORDER BY CASE WHEN ? != 'Any' AND printing = ? THEN 0 ELSE 1 END, printing
+  `, [userId, cardId, locationId, printing, printing]);
+  let unmoved = requested;
+  const movedFinishes = [];
+  for (const finish of finishes) {
+    if (unmoved === 0) break;
+    const quantity = Math.min(unmoved, finish.quantity);
+    movedFinishes.push({ printing: finish.printing, quantity });
+    unmoved -= quantity;
+  }
+  const entries = await movableContainerEntries(userId, cardId, printing, locationId);
+  const locations = await db.all(`
+    SELECT c.location_id, l.name AS location_name, c.list_type, c.printing,
+      SUM(c.quantity) AS quantity, c.missing
+    FROM collection c
+    LEFT JOIN locations l ON l.id = c.location_id AND l.user_id = c.user_id
+    WHERE c.user_id = ? AND c.card_id = ? AND c.quantity > 0
+      AND (c.location_id IS NULL OR (c.location_id != ? AND l.id IS NOT NULL))
+    GROUP BY c.location_id, l.name, c.list_type, c.printing, c.missing
+    ORDER BY c.location_id, c.list_type, c.printing, c.missing
+  `, [userId, cardId, locationId]);
+  return {
+    card_id: cardId, printing, requested, moved: requested - unmoved, unmoved,
+    moved_finishes: movedFinishes,
+    movable: Math.min(unmoved, entries.reduce((total, entry) => total + entry.available, 0)),
+    locations
+  };
+}
+
+// The caller holds a transaction. Reuse whole single copies, split only the
+// selected quantity from legacy stacks, and leave remaining source copies intact.
+async function moveContainerCopies(userId, locationId, compartmentId, entries, quantity) {
+  if (quantity <= 0 || entries.length === 0) return;
+  await rebalanceCompartmentPositions(db, compartmentId, userId);
+  const occupied = await db.get(
+    `SELECT COUNT(*) AS count FROM collection WHERE compartment_id = ? AND user_id = ?`,
+    [compartmentId, userId]
+  );
+  let slot = occupied.count;
+  const sources = new Set();
+  for (const entry of entries) {
+    if (quantity <= 0) break;
+    const copies = Math.min(quantity, entry.available);
+    quantity -= copies;
+    const originalUsed = copies === entry.quantity;
+    if (originalUsed) {
+      await db.run(`
+        UPDATE collection SET quantity = 1, location_id = ?, compartment_id = ?, position = ?
+        WHERE id = ? AND user_id = ?
+      `, [locationId, compartmentId, ++slot * 1000, entry.id, userId]);
+    } else {
+      await db.run(`UPDATE collection SET quantity = quantity - ? WHERE id = ? AND user_id = ?`, [copies, entry.id, userId]);
+    }
+    for (let copy = originalUsed ? 1 : 0; copy < copies; copy++) {
+      await db.run(`
+        INSERT INTO collection (
+          card_id, user_id, quantity, condition, printing, language, purchase_price,
+          favorite, is_trade, list_type, game, added_at, notes, grader, grade,
+          cert_number, market_value, market_value_source, market_value_at, missing,
+          location_id, compartment_id, position
+        ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        entry.card_id, userId, entry.condition, entry.printing, entry.language, entry.purchase_price,
+        entry.favorite, entry.is_trade, entry.list_type, entry.game, entry.added_at, entry.notes, entry.grader,
+        entry.grade, entry.cert_number, entry.market_value, entry.market_value_source, entry.market_value_at, entry.missing,
+        locationId, compartmentId, ++slot * 1000
+      ]);
+    }
+    if (entry.compartment_id) sources.add(entry.compartment_id);
+  }
+  await db.run(`
+    UPDATE compartments SET capacity = MAX(capacity, ?) WHERE id = ?
+      AND location_id IN (SELECT id FROM locations WHERE user_id = ?)
+  `, [slot, compartmentId, userId]);
+  for (const source of sources) await rebalanceCompartmentPositions(db, source, userId);
+}
+
 // Build a physical box from matching, unfiled cards the user already owns.
 router.post('/import-container', async (req, res) => {
   const { data, name } = req.body;
@@ -528,58 +644,62 @@ router.post('/import-container', async (req, res) => {
   try {
     const items = parseManaboxText(data);
     if (items.length === 0) return res.status(400).json({ error: 'No ManaBox cards found' });
+    if (items.some(item => !Number.isSafeInteger(item.quantity) || item.quantity <= 0 || item.quantity > 2147483647)) {
+      return res.status(400).json({ error: 'Card quantities must be positive integers up to 2147483647' });
+    }
     const duplicate = await db.get(`SELECT id FROM locations WHERE name = ? AND user_id = ?`, [containerName, req.user.id]);
     if (duplicate) return res.status(400).json({ error: 'A location with this name already exists' });
 
-    const { pairs } = await scryfallApi.bulkFetchByIdentifier(items.map(item => ({
+    const rows = items.map(item => ({
       ...item,
       set_id: item.set_code,
       number: item.collector_number
-    })), undefined, { localFirst: true });
-    if (pairs.length === 0) return res.status(400).json({ error: 'No ManaBox cards matched Scryfall' });
+    }));
+    const { pairs } = await scryfallApi.bulkFetchByIdentifier(rows, undefined, { localFirst: true });
+    const resolved = new Map(pairs.map(({ row, card }) => [row, card]));
+    const report = [];
+    const byCardId = new Map();
+    for (const row of rows) {
+      const cardId = resolved.get(row)?.id || null;
+      const existing = cardId && byCardId.get(cardId);
+      if (existing) {
+        existing.requested += row.quantity;
+        existing.unmoved = existing.requested;
+        if (existing.printing !== row.printing) existing.printing = 'Any';
+        continue;
+      }
+      const item = {
+        card_id: cardId,
+        name: row.name,
+        set_code: row.set_code,
+        collector_number: row.collector_number,
+        printing: row.printing,
+        requested: row.quantity,
+        moved: 0,
+        unmoved: row.quantity,
+        movable: 0,
+        moved_finishes: [],
+        status: cardId ? 'resolved' : 'unresolved',
+        locations: []
+      };
+      report.push(item);
+      if (cardId) byCardId.set(cardId, item);
+    }
+    if (report.some(item => item.requested > 2147483647)) {
+      return res.status(400).json({ error: 'Card quantities must be positive integers up to 2147483647' });
+    }
+    const requested = items.reduce((total, item) => total + item.quantity, 0);
+    if (byCardId.size === 0) {
+      return res.status(400).json({
+        error: 'No ManaBox cards matched Scryfall',
+        id: null, name: containerName, requested, count: 0, missing: requested,
+        items: report, message: 'No ManaBox cards matched Scryfall; no container was created.'
+      });
+    }
 
-    const requested = pairs.reduce((total, { row }) => total + row.quantity, 0);
     let locationId;
     let count = 0;
     await db.withTransaction(async () => {
-      const entries = [];
-      for (const { row, card } of pairs) {
-        let remaining = row.quantity;
-        const owned = await db.all(`
-          SELECT * FROM collection
-          WHERE user_id = ? AND card_id = ? AND printing = ? AND list_type = 'collection'
-            AND location_id IS NULL AND quantity > 0
-          ORDER BY id
-        `, [req.user.id, card.id, row.printing || 'Normal']);
-        for (const entry of owned) {
-          if (remaining <= 0) break;
-          const copies = Math.min(remaining, entry.quantity);
-          remaining -= copies;
-          const originalUsed = copies === entry.quantity;
-          if (originalUsed) {
-            await db.run(`UPDATE collection SET quantity = 1 WHERE id = ?`, [entry.id]);
-            entries.push(entry.id);
-          } else {
-            await db.run(`UPDATE collection SET quantity = quantity - ? WHERE id = ?`, [copies, entry.id]);
-          }
-          for (let copy = originalUsed ? 1 : 0; copy < copies; copy++) {
-            const added = await db.run(`
-              INSERT INTO collection (
-                card_id, user_id, quantity, condition, printing, language, purchase_price,
-                favorite, is_trade, list_type, game, added_at, notes, grader, grade,
-                cert_number, market_value, market_value_source, market_value_at, missing
-              ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `, [
-              entry.card_id, entry.user_id, entry.condition, entry.printing, entry.language, entry.purchase_price,
-              entry.favorite, entry.is_trade, entry.list_type, entry.game, entry.added_at, entry.notes, entry.grader,
-              entry.grade, entry.cert_number, entry.market_value, entry.market_value_source, entry.market_value_at, entry.missing
-            ]);
-            entries.push(added.lastID);
-          }
-        }
-      }
-
-      count = entries.length;
       const location = await db.run(`
         INSERT INTO locations (name, type, sort_order, foil_sorting, rule_type, game, user_id)
         VALUES (?, 'Box', 'custom', 'normals_first', 'any', 'mtg', ?)
@@ -587,23 +707,67 @@ router.post('/import-container', async (req, res) => {
       locationId = location.lastID;
       const compartment = await db.run(
         `INSERT INTO compartments (location_id, idx, capacity) VALUES (?, 1, ?)`,
-        [locationId, Math.max(1, count)]
+        [locationId, 1]
       );
 
-      for (let index = 0; index < entries.length; index++) {
-        await db.run(
-          `UPDATE collection SET location_id = ?, compartment_id = ?, position = ? WHERE id = ? AND user_id = ?`,
-          [locationId, compartment.lastID, (index + 1) * 1000, entries[index], req.user.id]
-        );
+      for (const item of report) {
+        if (!item.card_id) continue;
+        const entries = await movableContainerEntries(req.user.id, item.card_id, item.printing, locationId);
+        await moveContainerCopies(req.user.id, locationId, compartment.lastID,
+          entries.filter(entry => entry.location_id === null), item.requested);
+        Object.assign(item, await containerItemReport(
+          req.user.id, item.card_id, item.printing, item.requested, locationId
+        ));
       }
+      count = report.reduce((total, item) => total + item.moved, 0);
     });
 
     const missing = requested - count;
     const skipped = missing ? ` ${missing} card${missing === 1 ? '' : 's'} not found in Unsorted.` : '';
-    res.status(201).json({ id: locationId, count, missing, message: `Created ${containerName} with ${count} cards.${skipped}` });
+    res.status(201).json({
+      id: locationId, name: containerName, requested, count, missing, items: report,
+      message: `Created ${containerName} with ${count} cards.${skipped}`
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to import container' });
+  }
+});
+
+router.post('/import-container/move', async (req, res) => {
+  const { location_id, card_id, printing, requested } = req.body || {};
+  if (!Number.isSafeInteger(location_id) || location_id <= 0 ||
+      typeof card_id !== 'string' || !card_id.trim() ||
+      !['Normal', 'Holofoil', 'Any'].includes(printing) ||
+      !Number.isSafeInteger(requested) || requested <= 0 || requested > 2147483647) {
+    return res.status(400).json({ error: 'A valid container, card, finish, and requested quantity are required' });
+  }
+  try {
+    const result = await db.withTransaction(async () => {
+      const destination = await db.get(`SELECT * FROM locations WHERE id = ? AND user_id = ?`, [location_id, req.user.id]);
+      if (!destination) throw Object.assign(new Error('Container not found'), { status: 404 });
+      const compartment = await db.get(`
+        SELECT cp.* FROM compartments cp JOIN locations l ON l.id = cp.location_id
+        WHERE cp.location_id = ? AND l.user_id = ? ORDER BY cp.idx, cp.id LIMIT 1
+      `, [location_id, req.user.id]);
+      if (destination.type !== 'Box' || destination.locked || destination.sort_order !== 'custom' ||
+          destination.rule_type !== 'any' || destination.game !== 'mtg' || destination.allow_stacking ||
+          !compartment || compartment.locked || compartment.rule_config) {
+        throw Object.assign(new Error('Container settings changed; cards cannot be moved into this import'), { status: 409 });
+      }
+      const card = await db.get(`SELECT id FROM card_cache WHERE id = ? AND game = 'mtg'`, [card_id]);
+      if (!card) throw Object.assign(new Error('Magic card not found'), { status: 404 });
+      const remaining = requested - await containerQuantity(req.user.id, card_id, location_id);
+      if (remaining > 0) {
+        const entries = await movableContainerEntries(req.user.id, card_id, printing, location_id);
+        await moveContainerCopies(req.user.id, location_id, compartment.id, entries, remaining);
+      }
+      return containerItemReport(req.user.id, card_id, printing, requested, location_id);
+    });
+    res.json(result);
+  } catch (error) {
+    if (!error.status) console.error(error);
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Failed to move matching cards' });
   }
 });
 

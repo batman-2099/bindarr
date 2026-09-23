@@ -55,10 +55,10 @@ function parseCardRow(row) {
 // chosen in the first place.
 async function rebalanceCompartmentPositions(db, compartmentId, userId) {
   if (!compartmentId) return;
-  const cards = await db.all(`SELECT id FROM collection WHERE compartment_id = ? AND user_id = ? ORDER BY position ASC`, [compartmentId, userId]);
+  const cards = await db.all(`SELECT id FROM collection WHERE compartment_id = ? AND user_id = ? ORDER BY position ASC, id ASC`, [compartmentId, userId]);
   for (let i = 0; i < cards.length; i++) {
     const cleanPos = (i + 1) * 1000;
-    await db.run(`UPDATE collection SET position = ? WHERE id = ?`, [cleanPos, cards[i].id]);
+    await db.run(`UPDATE collection SET position = ? WHERE id = ? AND user_id = ?`, [cleanPos, cards[i].id, userId]);
   }
 }
 

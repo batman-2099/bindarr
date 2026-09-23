@@ -74,6 +74,89 @@ function UnsortedDropZone({ enabled, children }) {
   );
 }
 
+function ContainerImportReview({ report, onClose, onMove, movingItem, expanded, onExpandedChange }) {
+  const { t } = useT();
+  const finishLabel = (printing) => printing === 'Any' ? t('loc.importAnyFinish') : printing === 'Normal' ? t('loc.importNormal') : printing === 'Holofoil' ? t('loc.importFoil') : printing;
+  const cellStyle = { padding: '0.6rem', verticalAlign: 'top', textAlign: 'left', borderBottom: '1px solid var(--border-glass)' };
+
+  return (
+    <dialog ref={element => { if (element && !element.open) { element.showModal(); element.querySelector('h2').focus(); } }} onCancel={onClose} aria-labelledby="container-import-review-title" style={{ margin: 'auto', width: 'min(1000px, 94vw)', maxHeight: '90dvh', overflowY: 'auto', background: 'var(--bg-secondary)', color: 'var(--text-strong)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '1.25rem' }}>
+      <h2 id="container-import-review-title" tabIndex={-1} style={{ marginTop: 0 }}>{t('loc.importReview')}</h2>
+      <p style={{ overflowWrap: 'anywhere' }}>{report.name}</p>
+      {report.error && <p role="alert" style={{ color: 'var(--accent-red)' }}>{report.error}</p>}
+      <p aria-live="polite">{t('loc.importTotals', { requested: report.requested, moved: report.count, unmoved: report.missing })}</p>
+      <details open={expanded} onToggle={event => onExpandedChange(event.currentTarget.open)}>
+        <summary style={{ cursor: 'pointer', color: 'var(--text-strong)', marginTop: '0.75rem' }}>{t('loc.importFullSummary')}</summary>
+      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{t('loc.importPolicy')}</p>
+      <div tabIndex={0} role="region" aria-label={t('loc.importReview')} style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+          <thead>
+            <tr>
+              {['importCard', 'importRequested', 'importMoved', 'importUnmoved', 'importLocations', 'importMove'].map(key => <th key={key} scope="col" style={cellStyle}>{t(`loc.${key}`)}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {report.items.map((item, index) => (
+              <tr key={item.card_id ? `${item.card_id}:${item.printing}` : `unresolved:${index}`}>
+                <th scope="row" style={{ ...cellStyle, minWidth: '160px', overflowWrap: 'anywhere' }}>
+                  {item.name}
+                  <div style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>{item.set_code?.toUpperCase()} · #{item.collector_number} · {finishLabel(item.printing)}</div>
+                </th>
+                <td style={cellStyle}>{item.requested}</td>
+                <td style={cellStyle}>
+                  {item.moved}
+                  {item.moved > 0 && item.moved_finishes.map(finish => (
+                    <div key={finish.printing} style={{ color: 'var(--text-secondary)' }}>{finish.quantity}× {finishLabel(finish.printing)}</div>
+                  ))}
+                </td>
+                <td style={cellStyle}>{item.unmoved}</td>
+                <td style={{ ...cellStyle, minWidth: '220px' }}>
+                  {item.status === 'unresolved' ? t('loc.importUnresolved') : item.locations.length === 0 ? t('loc.importNoOtherCopies') : (
+                    <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '0.5rem' }}>
+                      {item.locations.map((location, locationIndex) => (
+                        <li key={locationIndex} style={{ overflowWrap: 'anywhere' }}>
+                          <strong>{location.quantity}× {location.location_id == null ? t('loc.importUnsorted') : location.location_name}</strong>
+                          <div style={{ color: 'var(--text-secondary)' }}>
+                            {location.list_type === 'collection' ? t('dash.physical') : location.list_type === 'arena' ? t('collection.arena') : location.list_type === 'wishlist' ? t('collection.wishlist') : location.list_type}
+                            {' · '}{finishLabel(location.printing)}
+                            {!!location.missing && <> · {t('inspector.missing')}</>}
+                            {item.printing !== 'Any' && location.printing !== item.printing && <> · {t('loc.importDifferentFinish')}</>}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </td>
+                <td style={cellStyle}>
+                  {report.id && item.card_id && item.unmoved > 0 && (
+                    <div>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        disabled={!!movingItem || !item.movable}
+                        aria-label={t('loc.importMoveCard', { name: item.name, finish: finishLabel(item.printing) })}
+                        aria-describedby={!item.movable ? `container-import-unmovable-${index}` : undefined}
+                        onClick={() => onMove(item)}
+                      >
+                        {movingItem?.card_id === item.card_id && movingItem?.printing === item.printing ? t('loc.importMoving') : t('loc.importMove')}
+                      </button>
+                      {!item.movable && <div id={`container-import-unmovable-${index}`} style={{ color: 'var(--text-secondary)', marginTop: '0.25rem' }}>{t('loc.importNoMovable')}</div>}
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      </details>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+        <button type="button" autoFocus className="btn btn-primary" onClick={onClose}>{t('common.close')}</button>
+      </div>
+    </dialog>
+  );
+}
+
 function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId, setSelectedLocationId, focusEntryId }) {
   const { t } = useT();
   const [locations, setLocations] = useState([]);
@@ -114,6 +197,12 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
 
   const [showCreate, setShowCreate] = useState(false);
   const containerImportInput = useRef(null);
+  const containerImportBusy = useRef(false);
+  const [importingContainer, setImportingContainer] = useState(false);
+  const [containerImportReport, setContainerImportReport] = useState(null);
+  const [containerImportExpanded, setContainerImportExpanded] = useState(false);
+  const [containerImportMovingItem, setContainerImportMovingItem] = useState(null);
+  const containerImportMoveBusy = useRef(false);
 
   const [capacityUpdatePending, setCapacityUpdatePending] = useState(null);
   const [showKebabMenu, setShowKebabMenu] = useState(false);
@@ -534,31 +623,72 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
     }
   };
 
-  const handleContainerImportFile = (event) => {
+  const handleContainerImportFile = async (event) => {
     const file = event.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const response = await fetch('/api/import-container', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: String(reader.result || ''), name: file.name.replace(/\.[^.]+$/, '') })
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || t('loc.errCreate'));
-        showToast(data.message);
-        setActiveLocationId(data.id);
-        await refreshAll();
-        onUpdate();
-      } catch (error) {
-        console.error(error);
-        showToast(error.message);
-      }
-    };
-    reader.onerror = () => showToast(t('settings.errReadFile'));
-    reader.readAsText(file);
     event.target.value = '';
+    if (!file || containerImportBusy.current) return;
+    containerImportBusy.current = true;
+    setImportingContainer(true);
+    try {
+      const text = await file.text().catch(() => { throw new Error(t('settings.errReadFile')); });
+      const response = await fetch('/api/import-container', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: text, name: file.name.replace(/\.[^.]+$/, '') })
+      });
+      const data = await response.json();
+      if (Array.isArray(data.items)) {
+        setContainerImportExpanded(false);
+        setContainerImportReport(data);
+      }
+      if (!response.ok) throw new Error(data.error || t('loc.errCreate'));
+      showToast(data.message);
+      setActiveLocationId(data.id);
+      await refreshAll();
+      onUpdate();
+    } catch (error) {
+      console.error(error);
+      showToast(error.message);
+    } finally {
+      containerImportBusy.current = false;
+      setImportingContainer(false);
+    }
+  };
+
+  const handleContainerImportMove = async (item) => {
+    const report = containerImportReport;
+    if (!report?.id || !item.card_id || item.unmoved <= 0 || !item.movable || containerImportMoveBusy.current) return;
+    containerImportMoveBusy.current = true;
+    setContainerImportMovingItem(item);
+    try {
+      const response = await fetch('/api/import-container/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ location_id: report.id, card_id: item.card_id, printing: item.printing, requested: item.requested })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || t('loc.errMove'));
+      setContainerImportReport(current => {
+        if (current !== report) return current;
+        const items = current.items.map(row => row.card_id === data.card_id && row.printing === data.printing
+          ? { ...row, moved: data.moved, moved_finishes: data.moved_finishes, unmoved: data.unmoved, movable: data.movable, locations: data.locations }
+          : row);
+        return {
+          ...current,
+          items,
+          count: items.reduce((total, row) => total + row.moved, 0),
+          missing: items.reduce((total, row) => total + row.unmoved, 0)
+        };
+      });
+      await refreshAll();
+      onUpdate();
+    } catch (error) {
+      console.error(error);
+      showToast(error.message || t('loc.errMove'));
+    } finally {
+      containerImportMoveBusy.current = false;
+      setContainerImportMovingItem(null);
+    }
   };
 
   const handleDeleteLocation = async (locId, name) => {
@@ -1165,7 +1295,17 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
     }
   };
 
-  if (loading) return <div className="spinner" />;
+  useBackGuard(!!containerImportReport, () => setContainerImportReport(null));
+  const importReview = containerImportReport && <ContainerImportReview
+    report={containerImportReport}
+    onClose={() => setContainerImportReport(null)}
+    onMove={handleContainerImportMove}
+    movingItem={containerImportMovingItem}
+    expanded={containerImportExpanded}
+    onExpandedChange={setContainerImportExpanded}
+  />;
+
+  if (loading) return <><div className="spinner" />{importReview}</>;
 
   if (showGallery) return (
     <section>
@@ -1201,10 +1341,11 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
       </div>
       <footer style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
         <button className="btn btn-secondary" onClick={() => setShowGallery(false)}>{t('bulk.unassignedPile')}</button>
-        <button className="btn btn-secondary" onClick={() => containerImportInput.current?.click()}><Upload size={16} /> {t('loc.importContainer')}</button>
-        <input ref={containerImportInput} type="file" accept=".txt,text/plain" onChange={handleContainerImportFile} style={{ display: 'none' }} />
+        <button type="button" className="btn btn-secondary" disabled={importingContainer} aria-busy={importingContainer} onClick={() => containerImportInput.current?.click()}><Upload size={16} /> {t(importingContainer ? 'loc.importingContainer' : 'loc.importContainer')}</button>
+        <input ref={containerImportInput} type="file" accept=".txt,text/plain" disabled={importingContainer} onChange={handleContainerImportFile} style={{ display: 'none' }} />
       </footer>
       {showCreate && <CreateContainerModal onClose={() => setShowCreate(false)} onCreate={handleCreateLocation} setsList={setsList} filterFieldOptions={filterFieldOptions} />}
+      {importReview}
     </section>
   );
 
@@ -1219,6 +1360,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
       onDragCancel={() => setDraggingCard(null)}
       onDragEnd={handleDragEnd}
     >
+    {importReview}
     <div className="storage-workspace-grid">
       {coverLocation && (
         <dialog ref={element => { if (element && !element.open) element.showModal(); }} onCancel={() => setCoverLocation(null)} aria-label={t('loc.chooseCover')} style={{ margin: 'auto', width: 'min(700px, 90vw)', maxHeight: '80vh', overflowY: 'auto', background: 'var(--bg-secondary)', color: 'var(--text-strong)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '1.25rem' }}>
@@ -1402,10 +1544,10 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
             <button type="button" className="btn btn-secondary btn-icon-only" onClick={() => setShowCreate(s => !s)} style={{ width: '28px', height: '28px', padding: 0 }} title={t('loc.createContainer')}>
               <Plus size={14} />
             </button>
-            <button type="button" className="btn btn-secondary btn-icon-only" onClick={() => containerImportInput.current?.click()} style={{ width: '28px', height: '28px', padding: 0 }} title={t('loc.importContainer')}>
-              <Upload size={14} />
+            <button type="button" className="btn btn-secondary btn-icon-only" disabled={importingContainer} aria-busy={importingContainer} aria-label={t(importingContainer ? 'loc.importingContainer' : 'loc.importContainer')} onClick={() => containerImportInput.current?.click()} style={{ width: '28px', height: '28px', padding: 0 }} title={t(importingContainer ? 'loc.importingContainer' : 'loc.importContainer')}>
+              {importingContainer ? <span className="spinner" style={{ width: '14px', height: '14px', margin: 0 }} /> : <Upload size={14} />}
             </button>
-            <input ref={containerImportInput} type="file" accept=".txt,text/plain" onChange={handleContainerImportFile} style={{ display: 'none' }} />
+            <input ref={containerImportInput} type="file" accept=".txt,text/plain" disabled={importingContainer} onChange={handleContainerImportFile} style={{ display: 'none' }} />
             {selectedLoc && !!selectedLoc.locked && (
               <button type="button" onClick={handleToggleContainerLock} title={t('loc.lockedBadgeHint')} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.62rem', fontWeight: 800, padding: '0.15rem 0.45rem', borderRadius: '999px', cursor: 'pointer', background: 'rgba(255,193,7,0.15)', border: '1px solid var(--accent-yellow)', color: 'var(--accent-yellow)' }}>
                 <Lock size={11} /> Locked

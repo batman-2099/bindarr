@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { BASIC_LAND_COLORS } = require('./utils/mtgColors');
+const { AsyncLocalStorage } = require('async_hooks');
 
 // The app began life as "PokeKeep", a Pokémon-only tracker, so its database was
 // called pokemon_cards.db. It has handled Magic since v1.4.x, and the file name
@@ -60,52 +61,64 @@ const dbConnection = new sqlite3.Database(dbPath, (err) => {
   }
 });
 
+// One connection cannot interleave another request's statements into a transaction.
+// ponytail: serialize on this connection; use a connection pool if throughput needs it.
+const transactionContext = new AsyncLocalStorage();
+let queryQueue = Promise.resolve();
+function scheduleQuery(operation) {
+  if (transactionContext.getStore()?.active) return operation();
+  const result = queryQueue.then(operation);
+  queryQueue = result.catch(() => {});
+  return result;
+}
+
 // Helper wrappers for Promise-based SQL operations
 function run(sql, params = []) {
-  return new Promise((resolve, reject) => {
+  return scheduleQuery(() => new Promise((resolve, reject) => {
     dbConnection.run(sql, params, function (err) {
       if (err) reject(err);
       else resolve({ lastID: this.lastID, changes: this.changes });
     });
-  });
+  }));
 }
 
 function get(sql, params = []) {
-  return new Promise((resolve, reject) => {
+  return scheduleQuery(() => new Promise((resolve, reject) => {
     dbConnection.get(sql, params, (err, row) => {
       if (err) reject(err);
       else resolve(row);
     });
-  });
+  }));
 }
 
 function all(sql, params = []) {
-  return new Promise((resolve, reject) => {
+  return scheduleQuery(() => new Promise((resolve, reject) => {
     dbConnection.all(sql, params, (err, rows) => {
       if (err) reject(err);
       else resolve(rows);
     });
-  });
+  }));
 }
 
-// Run fn inside BEGIN IMMEDIATE / COMMIT, rolling back if it throws.
-//
-// fn takes no argument on purpose. It used to be handed a `tx` object, but that
-// object was `{ run, get, all, withTransaction }` — the module's own exports under
-// a different name. Callers gained nothing from it, and it read as statement-level
-// isolation this does not provide: there is ONE sqlite3 connection here, so every
-// query in the process is already inside whatever transaction is open. Use `db`
-// directly and the scope is honest.
-async function withTransaction(fn) {
-  await run('BEGIN IMMEDIATE TRANSACTION');
-  try {
-    const result = await fn();
-    await run('COMMIT');
-    return result;
-  } catch (error) {
-    await run('ROLLBACK');
-    throw error;
-  }
+// Queries within fn share its transaction; other requests wait until it settles.
+function withTransaction(fn) {
+  if (transactionContext.getStore()?.active) return Promise.reject(new Error('Nested transactions are not supported'));
+  return scheduleQuery(() => transactionContext.run({ active: true }, async () => {
+    const context = transactionContext.getStore();
+    try {
+      await run('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        const result = await fn();
+        await run('COMMIT');
+        return result;
+      } catch (error) {
+        await run('ROLLBACK');
+        throw error;
+      }
+    } finally {
+      context.active = false;
+    }
+  }));
 }
 
 const PBKDF2_ITERATIONS = 210000;

@@ -1462,7 +1462,6 @@ function DeckBuilder({ showToast }) {
                     <th style={{ padding: '0.75rem 1rem' }}>{t('admin.colStatus')}</th>
                     <th className="hide-mobile" style={{ padding: '0.75rem 1rem' }}>{t('admin.colCreated')}</th>
                     <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>{t('admin.colActions')}</th>
-                    <th style={{ padding: '0.75rem 1rem' }}>{t('deck.description')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1591,9 +1590,6 @@ function DeckBuilder({ showToast }) {
                             </button>
                           </div>
                         </td>
-                        <td style={{ padding: '0.75rem 1rem', minWidth: '180px', color: 'var(--text-secondary)', overflowWrap: 'anywhere' }}>
-                          {deck.description || '—'}
-                        </td>
                       </tr>
                     );
                   })}
@@ -1706,7 +1702,6 @@ function DeckBuilder({ showToast }) {
                     </span>
                   ) : null}
                 </h2>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{activeDeck.description || 'Custom deck build.'}</p>
                 {!!activeDeck.checked_out && activeDeck.checked_out_at && (
                   <p style={{ color: '#eab308', fontSize: '0.7rem', marginTop: '2px' }}>
                     Checked out since {new Date(activeDeck.checked_out_at).toLocaleString()}
@@ -1814,6 +1809,13 @@ function DeckBuilder({ showToast }) {
               </button>
             </div>
           </div>
+
+          <section className="glass-panel" aria-labelledby="deck-description-heading">
+            <h3 id="deck-description-heading" style={{ marginBottom: '0.75rem' }}>{t('deck.description')}</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+              {activeDeck.description || '—'}
+            </p>
+          </section>
 
           {/* Checked out info banner */}
           {!!activeDeck.checked_out && (

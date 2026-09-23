@@ -961,26 +961,28 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
           </div>
 
           {rapidLog.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '220px', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                 {t('search.addedThisSession', { count: rapidLog.length })}
               </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.75rem', maxHeight: '55vh', overflowY: 'auto' }}>
               {rapidLog.map(entry => (
-                <div key={entry.entryId} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', background: 'rgba(255,255,255,0.02)', padding: '0.35rem 0.6rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
-                  <CardImage card={entry.card} alt="" style={{ width: '28px', borderRadius: '3px' }} />
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-strong)', fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div key={entry.entryId} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minWidth: 0, background: 'var(--surface-2)', padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
+                  <CardImage card={entry.card} alt={displayName(entry.card)} style={{ width: '100%', aspectRatio: '0.718', objectFit: 'contain', borderRadius: 'var(--radius-sm)' }} />
+                  <span title={`#${entry.card.number} ${displayName(entry.card)}`} style={{ fontSize: '0.8rem', color: 'var(--text-strong)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     #{entry.card.number} {displayName(entry.card)}{entry.qty > 1 ? ` ×${entry.qty}` : ''}
                   </span>
                   <button
                     type="button"
                     className="btn btn-secondary"
-                    style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem' }}
+                    style={{ fontSize: '0.75rem', padding: '0.35rem 0.5rem', marginTop: 'auto', justifyContent: 'center' }}
                     onClick={() => undoRapidAdd(entry)}
                   >
                     <Undo2 size={12} /> {t('search.undo')}
                   </button>
                 </div>
               ))}
+              </div>
             </div>
           )}
         </div>

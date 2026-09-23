@@ -51,6 +51,33 @@ function containerIds(value = [], type, query = false) {
   return value;
 }
 
+function sourceDeckId(value, query = false) {
+  if (value === undefined) return undefined;
+  if (query) {
+    if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) fail('Source deck ID must be a positive safe integer.');
+    value = Number(value);
+  }
+  if (!Number.isSafeInteger(value) || value < 1) fail('Source deck ID must be a positive safe integer.');
+  return value;
+}
+
+async function sourceDeck(userId, id, request) {
+  if (id === undefined) return undefined;
+  sourceDeckId(id);
+  const source = await db.get(
+    `SELECT id, inventory_type, format, target_size, commander_card_id FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`,
+    [id, userId]);
+  if (!source) fail('Source deck not found.', 404);
+  if (!Object.hasOwn(FORMATS, source.format)) fail('The source deck has an unsupported Magic format. Edit its format before improving it with AI.');
+  if (['inventory_type', 'format', 'target_size'].some(key => request[key] !== undefined && source[key] !== request[key])) {
+    fail('The source deck inventory, format or target size changed. Reopen the AI builder to use its current settings.');
+  }
+  source.cards = await db.all(
+    `SELECT dc.card_id, cc.name, dc.quantity FROM deck_cards dc LEFT JOIN card_cache cc ON cc.id = dc.card_id
+     WHERE dc.deck_id = ? ORDER BY dc.card_id`, [id]);
+  return source;
+}
+
 function settings(body) {
   const inventory_type = inventoryType(body.inventory_type);
   const { include_checked_out = false } = body;
@@ -81,9 +108,7 @@ function preferencesRequest(body) {
 function suggestionRequest(body) {
   object(body, ['inventory_type', 'format', 'target_size', 'prompt', 'colors', 'sets', 'include_checked_out', 'source_deck_id', 'container_ids', 'messages', 'current_draft'], 'suggestion request');
   const { colors = [], sets = [], source_deck_id, messages = [], current_draft = null } = body;
-  if (source_deck_id !== undefined && (!Number.isSafeInteger(source_deck_id) || source_deck_id < 1)) {
-    fail('Source deck ID must be a positive safe integer.');
-  }
+  sourceDeckId(source_deck_id);
   if (!Array.isArray(colors) || colors.length > 6
     || colors.some(color => !['White', 'Blue', 'Black', 'Red', 'Green', 'Colorless'].includes(color))) {
     fail('Colors must be a list of at most six supported Magic colors.');
@@ -117,11 +142,12 @@ function suggestionRequest(body) {
 }
 
 function draftRequest(body, model = false, partial = false) {
-  object(body, ['name', 'description', 'inventory_type', 'format', 'target_size', 'commander_card_id', 'cards', ...(model ? ['warnings'] : ['include_checked_out'])], 'draft');
+  object(body, ['name', 'description', 'inventory_type', 'format', 'target_size', 'commander_card_id', 'cards', ...(model ? ['warnings'] : ['include_checked_out', 'source_deck_id'])], 'draft');
   const draft = {
     ...settings(body), name: text(body.name, 'Deck name', 120, !partial),
     description: text(body.description, 'Description', 4000), commander_card_id: body.commander_card_id,
   };
+  if (!model && body.source_deck_id !== undefined) draft.source_deck_id = sourceDeckId(body.source_deck_id);
   if (draft.commander_card_id !== null) text(draft.commander_card_id, 'Commander card ID', 120, true);
   if (!Array.isArray(body.cards) || (!partial && !body.cards.length) || body.cards.length > (partial ? 250 : draft.target_size)) {
     fail(partial ? 'Current draft cards must be a list of at most 250 printings.' : 'Cards must be a non-empty list no longer than the target size.');
@@ -155,7 +181,7 @@ function suggestionResponse(output) {
   };
 }
 
-async function inventory(userId, type, { include_checked_out = false, container_ids = [] } = {}) {
+async function inventory(userId, type, { include_checked_out = false, container_ids = [], sourceDeck: source } = {}) {
   inventoryType(type);
   containerIds(container_ids, type);
   let selected;
@@ -167,7 +193,7 @@ async function inventory(userId, type, { include_checked_out = false, container_
       SELECT id, card_id, quantity, missing FROM collection
       WHERE user_id = ? AND game = 'mtg' AND list_type = 'collection'
         AND quantity > 0 AND location_id IN (${placeholders})`, [userId, ...container_ids]);
-    const allocations = include_checked_out ? new Map() : await checkedOutAllocation(userId);
+    const allocations = include_checked_out ? new Map() : await checkedOutAllocation(userId, source?.id);
     selected = new Map();
     for (const entry of entries) {
       const quantities = selected.get(entry.card_id) || { owned_qty: 0, missing_qty: 0, locked_qty: 0 };
@@ -188,27 +214,37 @@ async function inventory(userId, type, { include_checked_out = false, container_
     ), locked AS (
       SELECT dc.card_id, SUM(dc.quantity) AS locked_qty FROM deck_cards dc JOIN decks d ON d.id = dc.deck_id
       WHERE ? = 'collection' AND d.user_id = ? AND d.game = 'mtg'
-        AND d.inventory_type = 'collection' AND d.checked_out = 1 AND dc.quantity > 0 GROUP BY dc.card_id
+        AND d.inventory_type = 'collection' AND d.checked_out = 1 AND dc.quantity > 0
+        AND (? IS NULL OR d.id != ?) GROUP BY dc.card_id
     )
     SELECT cc.id, cc.name, cc.printed_name, cc.set_id, cc.set_name, cc.number, cc.game,
       cc.supertype, cc.subtypes, cc.types, cc.color_identity, cc.cmc, cc.rarity, cc.image_url,
       owned.owned_qty, owned.missing_qty, COALESCE(locked.locked_qty, 0) AS locked_qty
     FROM owned JOIN card_cache cc ON cc.id = owned.card_id LEFT JOIN locked ON locked.card_id = cc.id
-    WHERE cc.game = 'mtg' ${selected ? `AND cc.id IN (
+    WHERE cc.game = 'mtg' ${selected ? `AND (cc.id IN (
       SELECT card_id FROM collection WHERE user_id = ? AND location_id IN (${placeholders})
         AND game = 'mtg' AND list_type = 'collection' AND quantity > 0
-    )` : ''} ORDER BY cc.name, cc.id LIMIT ?`,
-  [type, type, userId, type, type, userId, ...(selected ? [userId, ...container_ids] : []), MAX_INVENTORY + 1]);
+    ) OR cc.id IN (SELECT card_id FROM deck_cards WHERE deck_id = ?))` : ''} ORDER BY cc.name, cc.id LIMIT ?`,
+  [type, type, userId, type, type, userId, source?.id ?? null, source?.id ?? null,
+    ...(selected ? [userId, ...container_ids, source?.id ?? null] : []), MAX_INVENTORY + 1]);
   if (rows.length > MAX_INVENTORY) fail(`This inventory exceeds the ${MAX_INVENTORY}-printing AI limit; no cards were omitted or sent.`, 413);
+  const sourceQuantities = new Map(source?.cards.map(card => [card.card_id, card.quantity]));
   return rows.map(row => {
     const card = parseCardRow(row);
     const globalAvailable = Math.max(0, row.owned_qty - (type === 'collection' && include_checked_out ? 0 : row.locked_qty));
-    const quantities = selected?.get(card.id);
-    const available = quantities
+    const source_qty = sourceQuantities.get(card.id) || 0;
+    const quantities = selected?.get(card.id) || (selected ? { owned_qty: 0, missing_qty: 0, locked_qty: 0 } : undefined);
+    const normalAvailable = quantities
       ? Math.min(globalAvailable, Math.max(0, quantities.owned_qty - quantities.locked_qty))
       : globalAvailable;
+    const available = Math.max(normalAvailable, Math.min(globalAvailable, source_qty));
+    const owned = quantities ? Math.max(quantities.owned_qty, Math.min(row.owned_qty, source_qty)) : row.owned_qty;
     return {
-      ...card, ...(quantities ? { ...quantities, locked_qty: quantities.owned_qty - available } : {}), available_qty: available,
+      ...card, ...(quantities ? {
+        owned_qty: owned, locked_qty: Math.max(0, owned - available),
+        missing_qty: Math.max(quantities.missing_qty, Math.min(row.missing_qty, source_qty)),
+      } : {}),
+      available_qty: available, source_qty,
       color_identity: normalizeMtgColorIdentity(card.color_identity, card.subtypes.join(' '), card.name),
       color_identity_known: row.color_identity != null,
     };
@@ -235,14 +271,16 @@ async function cardRules(cards) {
 
 function filterInventory(cards, { colors = [], sets = [] }) {
   if (!colors.length && !sets.length) return cards;
-  return cards.filter(card => {
-    if (sets.length && !sets.includes(card.set_id)) return false;
-    if (!colors.length) return true;
+  const eligible = [];
+  for (const card of cards) {
     const identity = card.color_identity;
-    return identity.length
+    const matches = (!sets.length || sets.includes(card.set_id)) && (!colors.length || (identity.length
       ? identity.some(color => colors.includes(color))
-      : card.color_identity_known && colors.includes('Colorless');
-  });
+      : card.color_identity_known && colors.includes('Colorless')));
+    if (matches) eligible.push(card);
+    else if (card.source_qty > 0) eligible.push({ ...card, available_qty: Math.min(card.available_qty, card.source_qty) });
+  }
+  return eligible;
 }
 
 function validateDraft(draft, cards) {
@@ -290,7 +328,8 @@ function validateDraft(draft, cards) {
 
 function modelRequest(request, cards, sourceDeck) {
   const format = FORMATS[request.format];
-  const { container_ids, ...modelSettings } = request;
+  const { container_ids, source_deck_id, ...modelSettings } = request;
+  const { id: sourceId, ...sourceContext } = sourceDeck || {};
   const eligible = cards.filter(card => card.available_qty > 0
     && (!format || !card.legalities?.[format] || ['legal', 'restricted'].includes(card.legalities[format])));
   // Positional rows avoid repeating field names and unrelated format legalities
@@ -310,8 +349,8 @@ function modelRequest(request, cards, sourceDeck) {
     + `Commander and Brawl require exactly 100 cards, a single eligible commander in the cards list, singleton nonbasics and its color identity. A legendary creature or a card with explicit commander rules is eligible; Brawl also permits planeswalkers. Other formats require commander_card_id=null. Use cached legality where present; warn when metadata is incomplete. Do not claim guaranteed tournament legality.\n`
     + `If no valid deck is possible or more information is needed, return draft=null and explain or ask in message; never invent cards or quantities.\n`
     + `Catalog rows are [id,name,available_qty,type_line,mana_cost,mana_value,color_identity,oracle_text,format_legality]. Empty rules text means unavailable metadata, not a card without abilities. Exact IDs distinguish printings; never merge their available quantities.\n`
-    + (sourceDeck ? `When there is no current_draft, improve source_deck rather than building an unrelated deck. Its cards and commander describe the starting deck, not eligibility or available quantities: use ONLY the eligible catalog and respect selected filters. The original saved deck is retained.\n` : '')
-    + JSON.stringify({ request: modelSettings, catalog, ...(sourceDeck ? { source_deck: sourceDeck } : {}) });
+    + (sourceDeck ? `When there is no current_draft, improve source_deck rather than building an unrelated deck. The eligible catalog already includes its owned, nonmissing cards up to source quantities even outside selected colors, sets or containers, without counting copies twice. Its own checkout is allowed for planning; other decks' reservations remain excluded unless explicitly included. Source context never grants copies missing from the catalog or overrides format legality. The original saved deck and checkout state are retained.\n` : '')
+    + JSON.stringify({ request: modelSettings, catalog, ...(sourceDeck ? { source_deck: sourceContext } : {}) });
   if (Buffer.byteLength(prompt, 'utf8') > MAX_PROMPT_BYTES) {
     fail(`This inventory exceeds the ${MAX_PROMPT_BYTES}-byte AI request limit; no cards were omitted or sent.`, 413);
   }
@@ -339,4 +378,4 @@ function modelRequest(request, cards, sourceDeck) {
   } };
 }
 
-module.exports = { FORMATS, REVIEW_WARNING, fail, inventoryType, containerIds, preferencesRequest, suggestionRequest, suggestionResponse, draftRequest, inventory, cardRules, filterInventory, validateDraft, modelRequest };
+module.exports = { FORMATS, REVIEW_WARNING, fail, inventoryType, containerIds, sourceDeckId, sourceDeck, preferencesRequest, suggestionRequest, suggestionResponse, draftRequest, inventory, cardRules, filterInventory, validateDraft, modelRequest };

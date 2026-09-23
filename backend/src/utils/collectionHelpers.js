@@ -23,14 +23,14 @@ function defaultCompartmentPlan(type) {
 // checked-out decks, then allocates greedily onto their owned entries using the
 // same ordering the checkout locator uses (located copies first, newest first),
 // so storage greys out the same copies the wizard told them to grab.
-async function checkedOutAllocation(userId) {
+async function checkedOutAllocation(userId, excludeDeckId = null) {
   const required = await db.all(`
     SELECT dc.card_id, SUM(dc.quantity) AS req
     FROM deck_cards dc
     JOIN decks d ON dc.deck_id = d.id
-    WHERE d.user_id = ? AND d.checked_out = 1
+    WHERE d.user_id = ? AND d.checked_out = 1 AND (? IS NULL OR d.id != ?)
     GROUP BY dc.card_id
-  `, [userId]);
+  `, [userId, excludeDeckId, excludeDeckId]);
   const alloc = new Map();
   for (const { card_id, req } of required) {
     let need = req;

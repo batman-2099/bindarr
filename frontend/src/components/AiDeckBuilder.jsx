@@ -125,17 +125,15 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
     setError('');
     const params = new URLSearchParams({ inventory_type: inventoryType });
     if (inventoryType === 'collection' && containerIds.length) params.set('container_ids', containerIds.join(','));
+    if (sourceDeck?.id) params.set('source_deck_id', sourceDeck.id);
+    if (inventoryType === 'collection') params.set('include_checked_out', String(includeCheckedOut));
     request(`/inventory?${params}`, { signal: controller.signal }, t('aiDeck.errInventory'))
       .then(data => { if (!controller.signal.aborted) setInventory(data.cards); })
       .catch(err => { if (!controller.signal.aborted) setInventoryError(err.message); })
       .finally(() => { if (!controller.signal.aborted) setInventoryLoading(false); });
     return () => controller.abort();
-  }, [inventoryType, containerIds, inventoryRevision, t]);
+  }, [inventoryType, containerIds, includeCheckedOut, sourceDeck?.id, inventoryRevision, t]);
 
-  const effectiveInventory = useMemo(() => inventoryType === 'collection' && includeCheckedOut
-    ? inventory.map(card => ({ ...card, available_qty: card.owned_qty })) : inventory,
-  [inventory, inventoryType, includeCheckedOut]);
-  const cardById = useMemo(() => new Map(effectiveInventory.map(card => [String(card.id), card])), [effectiveInventory]);
   const colorOptions = useMemo(() => Array.from(new Set([...colors, ...inventory.flatMap(card =>
     card.color_identity.length ? card.color_identity : card.color_identity_known ? ['Colorless'] : []
   )])).sort().map(color => ({ value: color, label: color === 'Colorless' ? t('inspector.colorless') : color })), [inventory, colors, t]);
@@ -148,12 +146,15 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
   const containerOptions = useMemo(() => locations.map(location => ({
     value: location.id, label: location.name,
   })).sort((a, b) => a.label.localeCompare(b.label, locale)), [locations, locale]);
-  const filteredInventory = useMemo(() => effectiveInventory.filter(card =>
-    (sets.length === 0 || sets.includes(card.set_id))
-    && (colors.length === 0 || colors.some(color => color === 'Colorless'
-      ? card.color_identity_known && card.color_identity.length === 0
-      : card.color_identity.includes(color)))
-  ), [effectiveInventory, colors, sets]);
+  const filteredInventory = useMemo(() => inventory.flatMap(card => {
+    const matchesFilters = (sets.length === 0 || sets.includes(card.set_id))
+      && (colors.length === 0 || colors.some(color => color === 'Colorless'
+        ? card.color_identity_known && card.color_identity.length === 0
+        : card.color_identity.includes(color)));
+    if (matchesFilters) return [card];
+    return card.source_qty > 0 ? [{ ...card, available_qty: Math.min(card.available_qty, card.source_qty) }] : [];
+  }), [inventory, colors, sets]);
+  const cardById = useMemo(() => new Map(filteredInventory.map(card => [String(card.id), card])), [filteredInventory]);
   const counts = useMemo(() => filteredInventory.reduce((sum, card) => ({
     owned: sum.owned + card.owned_qty, available: sum.available + card.available_qty, locked: sum.locked + card.locked_qty,
   }), { owned: 0, available: 0, locked: 0 }), [filteredInventory]);
@@ -248,6 +249,7 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
         body: JSON.stringify({
           name: draft.name, description: draft.description, inventory_type: inventoryType,
           include_checked_out: inventoryType === 'collection' && includeCheckedOut,
+          ...(sourceDeck ? { source_deck_id: sourceDeck.id } : {}),
           format, target_size: targetSize, commander_card_id: isCommander ? draft.commander_card_id : null,
           cards: draft.cards,
         }),
@@ -301,7 +303,7 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
           {inventoryType === 'collection' && (
             <div className="form-group">
               <label style={rowStyle}>
-                <input type="checkbox" checked={includeCheckedOut} aria-describedby="ai-checked-out-hint" onChange={event => { clearDraft(); setIncludeCheckedOut(event.target.checked); }} />
+                <input type="checkbox" checked={includeCheckedOut} aria-describedby="ai-checked-out-hint" onChange={event => { clearInventory(); setIncludeCheckedOut(event.target.checked); }} />
                 {t('aiDeck.includeCheckedOut')}
               </label>
               <p id="ai-checked-out-hint" style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.includeCheckedOutHint')}</p>

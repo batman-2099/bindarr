@@ -323,9 +323,6 @@
   background: linear-gradient(90deg, #ef4444 0%, #facc15 100%);
 }
 
-:root[data-theme="pokemon"] ::-webkit-scrollbar-track { background: #0f070b; }
-:root[data-theme="pokemon"] ::-webkit-scrollbar-thumb { background: #b91c1c; border-color: #0f070b; }
-:root[data-theme="pokemon"] ::-webkit-scrollbar-thumb:hover { background: #ef4444; }
 
 /* Magic: The Gathering (MTG) — Planeswalker & Arcane Mana obsidian/slate with mythic gold & mana glows */
 :root[data-theme="mtg"] {
@@ -513,9 +510,6 @@
   background: linear-gradient(90deg, #ea580c 0%, #f59e0b 100%);
 }
 
-:root[data-theme="mtg"] ::-webkit-scrollbar-track { background: #0a0b10; }
-:root[data-theme="mtg"] ::-webkit-scrollbar-thumb { background: #92400e; border-color: #0a0b10; }
-:root[data-theme="mtg"] ::-webkit-scrollbar-thumb:hover { background: #f59e0b; }
 
 /* Disney Lorcana — Inkwell & Glimmer midnight royal indigo with glowing amber lore & amethyst ink */
 :root[data-theme="lorcana"] {
@@ -702,9 +696,6 @@
   background: linear-gradient(90deg, #7c3aed 0%, #fbbf24 100%);
 }
 
-:root[data-theme="lorcana"] ::-webkit-scrollbar-track { background: #070514; }
-:root[data-theme="lorcana"] ::-webkit-scrollbar-thumb { background: #5b21b6; border-color: #070514; }
-:root[data-theme="lorcana"] ::-webkit-scrollbar-thumb:hover { background: #a855f7; }
 
 /* LCARS (Star Trek) — palette + font reskin on the current layout. Amber text
    on black, colored accents, condensed uppercase headings, pill radii. */
@@ -855,6 +846,9 @@ body {
 }
 
 /* Scrollbar styling */
+* {
+  scrollbar-color: var(--accent-blue) var(--bg-primary);
+}
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -863,12 +857,12 @@ body {
   background: var(--bg-primary);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--bg-secondary);
+  background: var(--accent-blue);
   border-radius: var(--radius-sm);
   border: 2px solid var(--bg-primary);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
+  background: var(--text-secondary);
 }
 
 /* Typography & Layout Utilities */

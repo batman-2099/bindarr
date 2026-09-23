@@ -637,6 +637,8 @@ async function main() {
     for (const card of sourceCards) {
       await db.run('INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, ?, ?)', [source.lastID, card.card_id, card.quantity]);
     }
+    const otherSourceReservation = await db.run("INSERT INTO decks (user_id, name, game, inventory_type, checked_out) VALUES (5, 'Other reserved deck', 'mtg', 'collection', 1)");
+    await db.run('INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, ?, 1)', [otherSourceReservation.lastID, ids.locked]);
     const improvement = { ...requestBody, source_deck_id: source.lastID, prompt: 'Improve consistency and remove weak cards.', sets: ['tst'] };
     const sourceBefore = await db.get('SELECT * FROM decks WHERE id = ?', [source.lastID]);
     const sourceCardsBefore = await db.all('SELECT * FROM deck_cards WHERE deck_id = ? ORDER BY card_id', [source.lastID]);
@@ -646,12 +648,18 @@ async function main() {
     const callsBeforeInvalidSource = calls.length + ollamaCalls.length + otherOllamaCalls.length;
     for (const source_deck_id of [null, 0, -1, 1.5, '1', {}, Number.MAX_SAFE_INTEGER + 1]) {
       assert.strictEqual((await request('POST', '/ai/suggest', { ...requestBody, source_deck_id }, 6)).status, 400);
+      assert.strictEqual((await request('POST', '/ai', { ...draft(), source_deck_id }, 6)).status, 400);
     }
     assert.strictEqual((await request('POST', '/ai/suggest', improvement, 6)).status, 404, 'another user cannot read or improve the source');
+    assert.strictEqual((await request('GET', `/ai/inventory?inventory_type=collection&source_deck_id=${source.lastID}`, undefined, 6)).status, 404);
+    assert.strictEqual((await request('POST', '/ai', { ...draft(), source_deck_id: source.lastID }, 6)).status, 404);
+    assert.strictEqual((await request('GET', `/ai/inventory?inventory_type=arena&source_deck_id=${source.lastID}`, undefined, 5)).status, 400);
     assert.strictEqual((await request('POST', '/ai/suggest', { ...improvement, source_deck_id: Number.MAX_SAFE_INTEGER }, 5)).status, 404);
     for (const stale of [{ inventory_type: 'arena' }, { format: 'Modern' }, { target_size: 61 }]) {
       assert.strictEqual((await request('POST', '/ai/suggest', { ...improvement, ...stale }, 5)).status, 400,
         'source configuration cannot be silently changed by a stale client');
+      const staleCards = [{ card_id: ids.forest, quantity: stale.target_size || 60 }];
+      assert.strictEqual((await request('POST', '/ai', { ...draft(), ...stale, cards: staleCards, source_deck_id: source.lastID }, 5)).status, 400);
     }
     assert.strictEqual((await request('POST', '/ai/suggest', { ...improvement, source_deck: { cards: [] } }, 5)).status, 400,
       'clients cannot inject their own source context');
@@ -666,7 +674,10 @@ async function main() {
     assert.strictEqual(calls.length + ollamaCalls.length + otherOllamaCalls.length, callsBeforeInvalidSource,
       'invalid, inaccessible and stale sources are rejected before contacting either provider');
 
-    model = async () => ({ message: 'Here is the revised deck.', draft: { ...draft(), warnings: [] } });
+    const sourceEligibleDraft = draft({ cards: [
+      { card_id: ids.reprint, quantity: 1 }, { card_id: ids.locked, quantity: 1 }, { card_id: ids.forest, quantity: 58 },
+    ] });
+    model = async () => ({ message: 'Here is the revised deck.', draft: { ...sourceEligibleDraft, warnings: [] } });
     const improved = await request('POST', '/ai/suggest', improvement, 5);
     assert.strictEqual(improved.status, 200, JSON.stringify(improved.body));
     const improvedPayload = lastPayload();
@@ -681,31 +692,43 @@ async function main() {
     assert.ok(!Object.hasOwn(sent, 'source_deck'), 'ordinary generation keeps its original payload');
     assert.ok(['PRIVATE SOURCE NAME', 'PRIVATE SOURCE DESCRIPTION', 'PRIVATE CATEGORY', 'PRIVATE STORAGE NOTE']
       .every(value => !calls.at(-1).prompt.includes(value)));
-    assert.ok([ids.reprint, ids.locked, ids.tenant].every(cardId => !improvedPayload.catalog.some(row => row[0] === cardId)),
-      'source cards do not override filters, reservations or ownership');
-    for (const card_id of [ids.tenant, ids.reprint, ids.locked]) {
-      model = async () => ({ message: 'Here is the revised deck.', draft: { ...draft({ cards: [{ card_id, quantity: 1 }, { card_id: ids.forest, quantity: 59 }] }), warnings: [] } });
-      assert.strictEqual((await request('POST', '/ai/suggest', improvement, 5)).status, 502,
-        'source membership cannot authorize an ineligible model result');
-    }
+    assert.strictEqual(improvedPayload.catalog.find(row => row[0] === ids.reprint)[2], 1, 'source set exemption admits only source quantity');
+    assert.strictEqual(improvedPayload.catalog.find(row => row[0] === ids.locked)[2], 1, 'source checkout is exempt but other reservations remain locked');
+    assert.strictEqual(improvedPayload.catalog.find(row => row[0] === ids.forest)[2], 160, 'matching owned copies and source copies are not added twice');
+    assert.ok(!improvedPayload.catalog.some(row => row[0] === ids.tenant), 'source membership cannot create ownership');
+    const sourceInventory = await request('GET', `/ai/inventory?inventory_type=collection&source_deck_id=${source.lastID}`, undefined, 5);
+    assert.strictEqual(sourceInventory.status, 200);
+    const sourceLocked = sourceInventory.body.cards.find(card => card.id === ids.locked);
+    assert.deepStrictEqual([sourceLocked.source_qty, sourceLocked.available_qty, sourceLocked.oracle_text], [2, 1, 'Rules for Locked Creature.']);
+    assert.strictEqual(sourceInventory.body.cards.find(card => card.id === ids.island).source_qty, 0);
+    model = async () => ({ message: 'Here is the revised deck.', draft: { ...draft({ cards: [{ card_id: ids.tenant, quantity: 1 }, { card_id: ids.forest, quantity: 59 }] }), warnings: [] } });
+    assert.strictEqual((await request('POST', '/ai/suggest', improvement, 5)).status, 502,
+      'source membership cannot authorize an ineligible model result');
     model = async () => ({ message: 'Here is the revised deck.', draft: { ...reservedDraft, warnings: [] } });
+    assert.strictEqual((await request('POST', '/ai/suggest', improvement, 5)).status, 502, 'source exemption cannot spend another deck reservation');
+    assert.strictEqual((await request('POST', '/ai', { ...reservedDraft, source_deck_id: source.lastID }, 5)).status, 409);
+    const sourcePlanningInventory = await request('GET', `/ai/inventory?inventory_type=collection&source_deck_id=${source.lastID}&include_checked_out=true`, undefined, 5);
+    assert.strictEqual(sourcePlanningInventory.body.cards.find(card => card.id === ids.locked).available_qty, 2);
     const improvedReserved = await request('POST', '/ai/suggest', { ...improvement, include_checked_out: true }, 5);
     assert.strictEqual(improvedReserved.status, 200, JSON.stringify(improvedReserved.body));
     assert.strictEqual(improvedReserved.body.draft.include_checked_out, true);
     assert.deepStrictEqual(await db.get('SELECT COUNT(*) AS count FROM decks'), decksBeforeImprove, 'improvement only suggests, never saves');
-    const { warnings: improvementWarnings, ...improvementSave } = improvedReserved.body.draft;
-    const newDeck = await request('POST', '/ai', { ...improvementSave, name: 'Edited improvement' }, 5);
+    const { warnings: improvementWarnings, ...improvementSave } = improved.body.draft;
+    const newDeck = await request('POST', '/ai', { ...improvementSave, source_deck_id: source.lastID, name: 'Edited improvement' }, 5);
     assert.strictEqual(newDeck.status, 201, JSON.stringify(newDeck.body));
     assert.notStrictEqual(newDeck.body.id, source.lastID);
     const newLoaded = await request('GET', `/decks/${newDeck.body.id}`, undefined, 5);
     assert.strictEqual(newLoaded.body.name, 'Edited improvement');
     assert.strictEqual(newLoaded.body.checked_out, 0);
     assert.deepStrictEqual(newLoaded.body.cards.map(card => [card.id, card.quantity]).sort(),
-      reservedDraft.cards.map(card => [card.card_id, card.quantity]).sort());
+      sourceEligibleDraft.cards.map(card => [card.card_id, card.quantity]).sort());
     assert.deepStrictEqual(await db.get('SELECT * FROM decks WHERE id = ?', [source.lastID]), sourceBefore);
     assert.deepStrictEqual(await db.all('SELECT * FROM deck_cards WHERE deck_id = ? ORDER BY card_id', [source.lastID]), sourceCardsBefore);
     assert.deepStrictEqual(await db.all('SELECT id, checked_out, checked_out_at FROM decks WHERE checked_out = 1 ORDER BY id'), reservationsBefore);
     assert.deepStrictEqual(await db.all('SELECT * FROM collection ORDER BY id'), inventoryBeforeImprove);
+    assert.strictEqual(improvementSave.include_checked_out, false, 'source planning never enables broad reservation borrowing');
+    assert.strictEqual((await request('POST', '/ai', { ...reservedDraft, source_deck_id: source.lastID, include_checked_out: true }, 5)).status, 201,
+      'borrowing other reserved cards remains a separate explicit planning opt-in');
 
     const arenaCommander = { ...commander, inventory_type: 'arena' };
     const commanderSource = await request('POST', '/ai', arenaCommander, 5);
@@ -726,6 +749,39 @@ async function main() {
       }, 'both providers receive the same explicit commander source context');
       assert.ok(!payload.catalog.some(row => row[0] === ids.locked), 'Arena improvement never borrows physical cards');
     }
+
+    await db.run("INSERT INTO users (id, username, password_hash, share_token) VALUES (11, 'depleted-source-user', 'not-a-real-password', 'depleted-source-share')");
+    const depletedSource = await db.run(`INSERT INTO decks (user_id, name, game, inventory_type, format, target_size, checked_out)
+      VALUES (11, 'Depleted source', 'mtg', 'collection', 'Standard', 6, 1)`);
+    for (const [card, quantity] of [[ids.forest, 4], [ids.banned, 1], [ids.missing, 1]]) {
+      await db.run('INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, ?, ?)', [depletedSource.lastID, card, quantity]);
+    }
+    for (const [card, quantity, missing] of [[ids.forest, 2, 0], [ids.forest, 2, 1], [ids.banned, 1, 0], [ids.missing, 1, 1]]) {
+      await db.run("INSERT INTO collection (user_id, card_id, quantity, missing, game, list_type) VALUES (11, ?, ?, ?, 'mtg', 'collection')", [card, quantity, missing]);
+    }
+    const depletedOther = await db.run("INSERT INTO decks (user_id, name, game, inventory_type, checked_out) VALUES (11, 'Still reserved', 'mtg', 'collection', 1)");
+    await db.run('INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, ?, 1)', [depletedOther.lastID, ids.forest]);
+    const depletedRequest = { ...requestBody, source_deck_id: depletedSource.lastID, target_size: 6, colors: ['Black'], sets: ['none'] };
+    model = async () => ({ message: 'Not enough eligible cards remain.', draft: null });
+    assert.strictEqual((await request('POST', '/ai/suggest', depletedRequest, 11)).status, 200);
+    assert.deepStrictEqual(lastPayload().catalog.map(row => [row[0], row[2], row[7]]),
+      [[ids.forest, 1, 'Rules for Forest.']], 'depleted source uses remaining nonmissing ownership, excludes other reservations and retains legality/rules');
+    const depletedInventory = () => request('GET', `/ai/inventory?inventory_type=collection&source_deck_id=${depletedSource.lastID}`, undefined, 11);
+    const whileCheckedOut = await depletedInventory();
+    assert.strictEqual(whileCheckedOut.body.cards.find(card => card.id === ids.forest).available_qty, 1);
+    assert.strictEqual(whileCheckedOut.body.cards.find(card => card.id === ids.missing).available_qty, 0);
+    await db.run('UPDATE decks SET checked_out = 0 WHERE id = ?', [depletedSource.lastID]);
+    assert.deepStrictEqual((await depletedInventory()).body, whileCheckedOut.body, 'returning the source never fabricates extra copies or unlocks another deck');
+    assert.strictEqual((await request('POST', '/ai', draft({ target_size: 6, source_deck_id: depletedSource.lastID,
+      cards: [{ card_id: ids.forest, quantity: 6 }] }), 11)).status, 409);
+    const bannedSourceDraft = draft({ target_size: 6, source_deck_id: depletedSource.lastID, include_checked_out: true,
+      cards: [{ card_id: ids.banned, quantity: 1 }, { card_id: ids.forest, quantity: 5 }] });
+    assert.strictEqual((await request('POST', '/ai', bannedSourceDraft, 11)).status, 400, 'source membership and reservation opt-in never bypass legality');
+    await db.run("DELETE FROM collection WHERE user_id = 11 AND card_id = ?", [ids.forest]);
+    assert.ok(!(await depletedInventory()).body.cards.some(card => card.id === ids.forest), 'removed owned printings are not recreated from source context');
+    assert.strictEqual((await request('POST', '/ai', draft({ target_size: 6, source_deck_id: depletedSource.lastID,
+      cards: [{ card_id: ids.forest, quantity: 6 }] }), 11)).status, 400);
+
     const beforeFailure = await db.get('SELECT COUNT(*) AS count FROM decks');
     const cardsBeforeFailure = await db.get('SELECT COUNT(*) AS count FROM deck_cards');
     await db.run(`CREATE TRIGGER reject_ai_card BEFORE INSERT ON deck_cards WHEN NEW.card_id = '${ids.forest}' BEGIN SELECT RAISE(ABORT, 'deliberate card insert failure'); END`);
@@ -847,16 +903,23 @@ async function main() {
     const scopedImprove = { ...scopedRequest, source_deck_id: containerSource.lastID };
     assert.strictEqual((await request('POST', '/ai/suggest', scopedImprove, 7)).status, 200);
     assert.ok(lastPayload().source_deck.cards.some(card => card.card_id === ids.island));
-    assert.ok(!lastPayload().catalog.some(row => row[0] === ids.island), 'full source context does not expand selected eligibility');
+    assert.strictEqual(lastPayload().catalog.find(row => row[0] === ids.island)[2], 2, 'source printings outside selected containers are eligible only up to source quantity');
+    const scopedSourceInventory = await containerInventory(`&container_ids=${boxA}&source_deck_id=${containerSource.lastID}`);
+    assert.strictEqual(scopedSourceInventory.body.cards.find(card => card.id === ids.island).available_qty, 2);
+    assert.strictEqual(scopedSourceInventory.body.cards.find(card => card.id === ids.forest).available_qty, 5, 'source and normal pool overlap uses max, not sum');
+    model = async () => ({ message: 'Here is the revised deck.', draft: { ...draft({ target_size: 6, cards: [{ card_id: ids.island, quantity: 2 }, { card_id: ids.forest, quantity: 4 }] }), warnings: [] } });
+    assert.strictEqual((await request('POST', '/ai/suggest', { ...scopedImprove, colors: ['Red'], sets: ['tst'] }, 7)).status, 200);
+    assert.strictEqual(lastPayload().catalog.find(row => row[0] === ids.forest)[2], 4, 'off-color source cards are capped even if the normal container has more');
+    assert.strictEqual(lastPayload().catalog.find(row => row[0] === ids.island)[2], 2, 'source inclusion overrides color, set and container filters together');
     for (const invalidCards of [
-      [{ card_id: ids.island, quantity: 1 }, { card_id: ids.forest, quantity: 5 }],
+      [{ card_id: ids.island, quantity: 3 }, { card_id: ids.forest, quantity: 3 }],
       [{ card_id: ids.forest, quantity: 6 }],
       [{ card_id: ids.locked, quantity: 2 }, { card_id: ids.forest, quantity: 4 }],
       [{ card_id: ids.missing, quantity: 1 }, { card_id: ids.forest, quantity: 5 }],
     ]) {
       model = async () => ({ message: 'Here is the revised deck.', draft: { ...draft({ target_size: 6, cards: invalidCards }), warnings: [] } });
       assert.strictEqual((await request('POST', '/ai/suggest', scopedImprove, 7)).status, 502,
-        'model output cannot borrow from unselected containers, missing entries or checked-out quantities');
+        'model output cannot exceed source quantity outside selected containers or borrow missing and other reserved copies');
     }
     model = async () => ({ message: 'Here is the revised deck.', draft: { ...draft({ target_size: 6, cards: [{ card_id: ids.forest, quantity: 6 }] }), warnings: [] } });
     assert.strictEqual((await request('POST', '/ai/suggest', { ...scopedRequest, include_checked_out: true }, 7)).status, 200);

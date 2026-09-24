@@ -288,6 +288,8 @@ Open a Physical deck and choose **Check Out for Play**. Bindarr creates a pull l
 
 Open **Add Cards → Precon Deck**, search MTGJSON by name, set code, or type, and inspect the details. The side-by-side **Create Storage Container** and **Create Deck** checkboxes are both checked by default; uncheck either before choosing **Add deck** to skip that action. **Create Storage Container** creates a correctly sized Deck Box for the imported physical cards. **Create Deck** creates a Physical deck with all imported cards and checks it out. If Create Deck is selected, unresolved cards or a failed import prevent the operation from leaving a partial collection, container, or deck.
 
+The link at the bottom of **Add a Precon Deck** opens [mtg.wtf/deck](https://mtg.wtf/deck) in a new tab.
+
 ### Import a ManaBox storage container
 
 **Storage** opens a searchable container gallery with card-art covers, names, types, and card counts. Sort by name or quantity, use the **Create Container** tile or **Import ManaBox container** action, and click a container to open it. The **Storage** grid button returns to the gallery; **Unassigned Pile** opens unfiled cards.

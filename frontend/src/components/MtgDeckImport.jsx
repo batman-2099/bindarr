@@ -152,6 +152,9 @@ export default function MtgDeckImport({ onAddSuccess, showToast, onChoose }) {
         </div>
       )}
       {searched && !loading && decks.length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '1rem' }}>{t('mtgDeck.noResults')}</p>}
+      <a href="https://mtg.wtf/deck" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', marginTop: '1rem', color: 'var(--accent-yellow)', fontSize: '0.82rem' }}>
+        mtg.wtf/deck
+      </a>
     </div>
   );
 }

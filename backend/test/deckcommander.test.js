@@ -28,12 +28,61 @@ async function commander(id) {
   return res.body.commander_card_id;
 }
 
+async function testCommanderCreation() {
+  await db.run("INSERT INTO users (id, username, password_hash, share_token) VALUES (2, 'other', 'unused', 'other-token')");
+  await db.run(`
+    INSERT INTO collection (card_id, quantity, game, user_id, list_type) VALUES
+      ('first', 2, 'mtg', 1, 'collection'),
+      ('second', 3, 'mtg', 1, 'arena'),
+      ('outside', 1, 'mtg', 2, 'collection')
+  `);
+  const inventory = await db.all('SELECT * FROM collection ORDER BY id');
+  const body = { name: 'First', game: 'mtg', format: 'Commander / EDH', target_size: 100, commander_card_id: 'first' };
+  for (const [inventory_type, commander_card_id, name] of [['collection', 'first', 'First'], ['arena', 'second', 'Second']]) {
+    const created = await request('post', '/', null, { ...body, inventory_type, commander_card_id, name });
+    assert.strictEqual(created.statusCode, 201);
+    const details = await request('get', '/:id', created.body.id);
+    assert.strictEqual(details.statusCode, 200);
+    assert.strictEqual(details.body.name, name);
+    assert.strictEqual(details.body.format, 'Commander / EDH');
+    assert.strictEqual(details.body.target_size, 100);
+    assert.strictEqual(details.body.game, 'mtg');
+    assert.strictEqual(details.body.inventory_type, inventory_type);
+    assert.strictEqual(details.body.commander_card_id, commander_card_id);
+    assert.strictEqual(details.body.checked_out, 0);
+    assert.deepStrictEqual(details.body.cards.map(card => [card.id, card.quantity, card.checked_out]), [[commander_card_id, 1, 0]]);
+    assert.strictEqual((await request('get', '/:id', created.body.id, {}, 2)).statusCode, 404);
+  }
+  const decks = await db.all('SELECT * FROM decks ORDER BY id');
+  const cards = await db.all('SELECT * FROM deck_cards ORDER BY deck_id, card_id');
+  for (const invalid of [
+    { commander_card_id: null },
+    { commander_card_id: 12 },
+    { commander_card_id: ' ' },
+    { format: 'Standard' },
+    { decklist_text: '2 First' },
+    { precon_file: 'test-precon' },
+    { commander_card_id: 'unknown' },
+    { commander_card_id: 'outside' },
+    { inventory_type: 'arena' },
+    { commander_card_id: 'second', inventory_type: 'collection' }
+  ]) {
+    const rejected = await request('post', '/', null, { ...body, ...invalid });
+    assert.strictEqual(rejected.statusCode, 400, JSON.stringify(invalid));
+    assert.strictEqual(typeof rejected.body.error, 'string');
+    assert.deepStrictEqual(await db.all('SELECT * FROM decks ORDER BY id'), decks, 'failed creation must not leave a deck');
+    assert.deepStrictEqual(await db.all('SELECT * FROM deck_cards ORDER BY deck_id, card_id'), cards, 'failed creation must not leave cards');
+  }
+  assert.deepStrictEqual(await db.all('SELECT * FROM collection ORDER BY id'), inventory, 'creating a definition must not move or reserve inventory');
+}
+
 async function testCommander() {
   const getCardById = cardApi.getCardById;
   cardApi.getCardById = async () => { throw new Error('Commander selection must not fetch card metadata'); };
   try {
     await db.initDb();
     await db.run(`INSERT INTO card_cache (id, name, game) VALUES ('first', 'First', 'mtg'), ('second', 'Second', 'mtg'), ('outside', 'Outside', 'mtg')`);
+    await testCommanderCreation();
     const deck = (await db.run(`INSERT INTO decks (name, game, format, user_id) VALUES ('Commanders', 'mtg', 'cOmMaNdEr / eDh', 1)`)).lastID;
     const other = (await db.run(`INSERT INTO decks (name, game, format, user_id) VALUES ('Other', 'mtg', 'Standard', 1)`)).lastID;
     const legacy = (await db.run(`INSERT INTO decks (name, game, format, user_id) VALUES ('Legacy', 'pokemon', 'Commander', 1)`)).lastID;

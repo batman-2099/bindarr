@@ -730,6 +730,73 @@ async function main() {
     assert.strictEqual((await request('POST', '/ai', { ...reservedDraft, source_deck_id: source.lastID, include_checked_out: true }, 5)).status, 201,
       'borrowing other reserved cards remains a separate explicit planning opt-in');
 
+    const replacement = draft({ source_deck_id: source.lastID, name: 'Replace original', description: 'Improved in place',
+      cards: [{ card_id: ids.reprint, quantity: 4 }, { card_id: ids.forest, quantity: 55 }, { card_id: ids.island, quantity: 1 }] });
+    for (const include_checked_out of [false, true]) {
+      const checkedOutReplacement = await request('PUT', `/ai/${source.lastID}`, { ...replacement, include_checked_out }, 5);
+      assert.strictEqual(checkedOutReplacement.status, 409);
+      assert.match(checkedOutReplacement.body.error, /return.*deck/i);
+    }
+    assert.deepStrictEqual(await db.get('SELECT * FROM decks WHERE id = ?', [source.lastID]), sourceBefore);
+    assert.deepStrictEqual(await db.all('SELECT * FROM deck_cards WHERE deck_id = ? ORDER BY card_id', [source.lastID]), sourceCardsBefore);
+    assert.strictEqual((await request('PUT', `/decks/${source.lastID}/return`, {}, 5)).status, 200);
+    await db.run("UPDATE decks SET wins = 7, losses = 3, accent_color = '#123456', created_at = '2020-01-02' WHERE id = ?", [source.lastID]);
+    await db.run('UPDATE deck_cards SET checked_out = 1 WHERE deck_id = ? AND card_id = ?', [source.lastID, ids.forest]);
+    const replacementState = async () => ({
+      deck: await db.get('SELECT * FROM decks WHERE id = ?', [source.lastID]),
+      cards: await db.all('SELECT * FROM deck_cards WHERE deck_id = ? ORDER BY card_id', [source.lastID]),
+    });
+    const beforeReplacement = await replacementState();
+    const countBeforeReplacement = await db.get('SELECT COUNT(*) AS count FROM decks');
+    for (const routeId of ['0', '-1', '1.5', '1e1', String(Number.MAX_SAFE_INTEGER + 1)]) {
+      assert.strictEqual((await request('PUT', `/ai/${routeId}`, replacement, 5)).status, 400);
+    }
+    assert.strictEqual((await request('PUT', `/ai/${source.lastID}`, draft(), 5)).status, 400, 'replacement requires explicit source identity');
+    assert.strictEqual((await request('PUT', `/ai/${newDeck.body.id}`, replacement, 5)).status, 400, 'route and source must match');
+    assert.strictEqual((await request('PUT', `/ai/${source.lastID}`, replacement, 6)).status, 404, 'replacement cannot cross tenants');
+    assert.strictEqual((await request('PUT', `/ai/${Number.MAX_SAFE_INTEGER}`,
+      { ...replacement, source_deck_id: Number.MAX_SAFE_INTEGER }, 5)).status, 404);
+    for (const stale of [{ inventory_type: 'arena' }, { format: 'Modern' }, { target_size: 61 }]) {
+      assert.strictEqual((await request('PUT', `/ai/${source.lastID}`, { ...replacement, ...stale,
+        cards: [{ card_id: ids.forest, quantity: stale.target_size || 60 }] }, 5)).status, 400);
+    }
+    assert.strictEqual((await request('PUT', `/ai/${source.lastID}`, { ...reservedDraft, source_deck_id: source.lastID }, 5)).status, 409,
+      'replacement rechecks other decks’ reservations');
+    assert.strictEqual((await request('PUT', `/ai/${source.lastID}`, { ...replacement,
+      cards: [{ card_id: ids.tenant, quantity: 1 }, { card_id: ids.forest, quantity: 59 }] }, 5)).status, 400,
+    'old source membership never grants ownership');
+    assert.deepStrictEqual(await replacementState(), beforeReplacement, 'rejected replacements leave metadata, cards and pulled flags intact');
+
+    await db.run(`CREATE TRIGGER reject_ai_replacement BEFORE INSERT ON deck_cards
+      WHEN NEW.deck_id = ${source.lastID} AND NEW.card_id = '${ids.forest}'
+      BEGIN SELECT RAISE(ABORT, 'deliberate replacement failure'); END`);
+    try {
+      const rejectedReplacement = await request('PUT', `/ai/${source.lastID}`, replacement, 5);
+      assert.strictEqual(rejectedReplacement.status, 500);
+      assert.ok(!rejectedReplacement.body.error.includes('deliberate'));
+      assert.deepStrictEqual(await replacementState(), beforeReplacement,
+        'a late insert failure restores metadata, deleted cards, quantities and pulled flags');
+    } finally {
+      await db.run('DROP TRIGGER reject_ai_replacement');
+    }
+    const replaced = await request('PUT', `/ai/${source.lastID}`, replacement, 5);
+    assert.deepStrictEqual(replaced, { status: 200, body: { id: source.lastID } }, 'replacement retains its ID and releases the lock after rollback');
+    assert.deepStrictEqual(await db.get('SELECT COUNT(*) AS count FROM decks'), countBeforeReplacement);
+    const afterReplacement = await replacementState();
+    assert.deepStrictEqual(afterReplacement.deck, { ...beforeReplacement.deck, name: replacement.name, description: replacement.description,
+      commander_card_id: replacement.commander_card_id }, 'records, category, accent, timestamps and inventory settings survive');
+    assert.deepStrictEqual(afterReplacement.cards, replacement.cards.map(card => ({
+      deck_id: source.lastID, ...card, checked_out: card.card_id === ids.forest ? 1 : 0,
+    })).sort((a, b) => a.card_id.localeCompare(b.card_id)), 'cards are fully replaced; retained pulls survive and new cards start unpulled');
+    const copiedReplacement = await request('POST', '/ai', replacement, 5);
+    assert.strictEqual(copiedReplacement.status, 201);
+    assert.notStrictEqual(copiedReplacement.body.id, source.lastID);
+    assert.deepStrictEqual(await replacementState(), afterReplacement, 'save as new still leaves the source unchanged');
+    assert.deepStrictEqual(await db.all('SELECT card_id, quantity, checked_out FROM deck_cards WHERE deck_id = ? ORDER BY card_id', [copiedReplacement.body.id]),
+      replacement.cards.map(card => ({ ...card, checked_out: 0 })).sort((a, b) => a.card_id.localeCompare(b.card_id)));
+    assert.deepStrictEqual(await db.all('SELECT * FROM collection ORDER BY id'), inventoryBeforeImprove,
+      'replacement and copy-save never move physical storage or change owned quantities');
+
     const arenaCommander = { ...commander, inventory_type: 'arena' };
     const commanderSource = await request('POST', '/ai', arenaCommander, 5);
     assert.strictEqual(commanderSource.status, 201);
@@ -749,6 +816,19 @@ async function main() {
       }, 'both providers receive the same explicit commander source context');
       assert.ok(!payload.catalog.some(row => row[0] === ids.locked), 'Arena improvement never borrows physical cards');
     }
+    await db.run('UPDATE decks SET commander_card_id = NULL WHERE id = ?', [commanderSource.body.id]);
+    const arenaReplacement = { ...arenaCommander, source_deck_id: commanderSource.body.id, name: 'Improved Arena commander' };
+    assert.strictEqual((await request('PUT', `/ai/${commanderSource.body.id}`, { ...arenaReplacement,
+      cards: [{ card_id: ids.commander, quantity: 1 }, { card_id: ids.locked, quantity: 1 }, { card_id: ids.forest, quantity: 98 }] }, 5)).status, 400,
+    'Arena replacement cannot borrow a physically owned printing');
+    assert.deepStrictEqual(await request('PUT', `/ai/${commanderSource.body.id}`, arenaReplacement, 5),
+      { status: 200, body: { id: commanderSource.body.id } });
+    const replacedCommander = await request('GET', `/decks/${commanderSource.body.id}`, undefined, 5);
+    assert.strictEqual(replacedCommander.body.commander_card_id, ids.commander, 'replacement persists the newly designated commander');
+    assert.strictEqual(replacedCommander.body.inventory_type, 'arena');
+    assert.deepStrictEqual(replacedCommander.body.cards.map(card => [card.id, card.quantity]).sort(),
+      arenaReplacement.cards.map(card => [card.card_id, card.quantity]).sort());
+    assert.deepStrictEqual(await db.all('SELECT * FROM collection ORDER BY id'), inventoryBeforeImprove);
 
     await db.run("INSERT INTO users (id, username, password_hash, share_token) VALUES (11, 'depleted-source-user', 'not-a-real-password', 'depleted-source-share')");
     const depletedSource = await db.run(`INSERT INTO decks (user_id, name, game, inventory_type, format, target_size, checked_out)

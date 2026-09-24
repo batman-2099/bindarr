@@ -1,4 +1,8 @@
 {
+  "aiDeck.saveCurrent": "Guardar mazo",
+  "aiDeck.saveNew": "Guardar como nuevo mazo",
+  "aiDeck.returnBeforeSave": "Devuelve este mazo al almacenamiento antes de reemplazarlo. Puedes guardar la propuesta como un nuevo mazo sin modificar el original ni sus reservas de cartas retiradas.",
+  "aiDeck.saved": "¡Mazo guardado correctamente!",
   "importLog.local-lookup": "Buscando {total} filas en el catálogo local de Scryfall.",
   "importLog.local-resolved": "Catálogo local: {matched} encontradas, {unmatched} requieren la API.",
   "importLog.api-fallback": "Consultando la API de Scryfall para {total} filas.",
@@ -632,6 +636,7 @@
   "header.logOut": "Cerrar sesión",
   "inspector.addToDeck": "+ Añadir a un mazo…",
   "inspector.addedToDeck": "Añadida al mazo.",
+  "inspector.createCommanderDeck": "Crear mazo de Commander",
   "inspector.cardUpdated": "Carta actualizada.",
   "inspector.colorless": "Incolora",
   "inspector.copyValue": "Valor para esta copia",

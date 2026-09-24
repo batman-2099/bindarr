@@ -66,7 +66,8 @@ router.post('/', async (req, res) => {
     decklist_text = '',
     decklist_format = 'plain',
     precon_file = '',
-    inventory_type = 'collection'
+    inventory_type = 'collection',
+    commander_card_id
   } = req.body;
   
   if (!name) {
@@ -75,6 +76,18 @@ router.post('/', async (req, res) => {
   const deckGame = 'mtg';
   const targetSizeNum = parseInt(target_size, 10) || 60;
   const inventoryType = inventory_type === 'arena' ? 'arena' : 'collection';
+
+  if (commander_card_id !== undefined) {
+    if (typeof commander_card_id !== 'string' || !commander_card_id.trim()) {
+      return res.status(400).json({ error: 'commander_card_id must be a non-empty string' });
+    }
+    if (typeof format !== 'string' || !/commander|edh|brawl/i.test(format)) {
+      return res.status(400).json({ error: 'Only Commander / EDH or Brawl decks can designate a commander' });
+    }
+    if (decklist_text || precon_file) {
+      return res.status(400).json({ error: 'Commander creation cannot be combined with a decklist or precon import' });
+    }
+  }
 
   let newDeckId;
   try {
@@ -91,10 +104,19 @@ router.post('/', async (req, res) => {
       preconPairs = pairs;
     }
 
-    const result = await db.run(
-      `INSERT INTO decks (name, description, game, format, category, accent_color, target_size, inventory_type, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, description, deckGame, format, category, accent_color, targetSizeNum, inventoryType, req.user.id]
-    );
+    const result = await db.withTransaction(async () => {
+      const deck = await db.run(
+        `INSERT INTO decks (name, description, game, format, category, accent_color, target_size, inventory_type, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [name, description, deckGame, format, category, accent_color, targetSizeNum, inventoryType, req.user.id]
+      );
+      if (commander_card_id !== undefined) {
+        const check = await validateDeckAddition({ deckId: deck.lastID, userId: req.user.id, cardId: commander_card_id, newQty: 1 });
+        if (!check.ok) throw Object.assign(new Error(check.error), { status: 400 });
+        await db.run(`INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, ?, 1)`, [deck.lastID, commander_card_id]);
+        await db.run(`UPDATE decks SET commander_card_id = ? WHERE id = ? AND user_id = ?`, [commander_card_id, deck.lastID, req.user.id]);
+      }
+      return deck;
+    });
     newDeckId = result.lastID;
     const addDeckCard = async (cardId, quantity) => {
       if (inventoryType === 'arena') {

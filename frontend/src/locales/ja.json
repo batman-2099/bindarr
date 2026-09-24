@@ -1,4 +1,8 @@
 {
+  "aiDeck.saveCurrent": "デッキを保存",
+  "aiDeck.saveNew": "新しいデッキとして保存",
+  "aiDeck.returnBeforeSave": "このデッキを置き換える前に保管場所に戻してください。元のデッキや持ち出し中のカードの予約を変更せずに、提案を新しいデッキとして保存することはできます。",
+  "aiDeck.saved": "デッキを保存しました！",
   "importLog.local-lookup": "ローカルのScryfallカタログで{total}行を検索しています。",
   "importLog.local-resolved": "ローカルカタログ：{matched}行が一致、{unmatched}行はAPI検索が必要です。",
   "importLog.api-fallback": "{total}行をScryfall APIで検索しています。",
@@ -606,6 +610,7 @@
   "header.logOut": "ログアウト",
   "inspector.addToDeck": "＋ デッキに追加…",
   "inspector.addedToDeck": "デッキに追加しました。",
+  "inspector.createCommanderDeck": "統率者デッキを作成",
   "inspector.cardUpdated": "カードを更新しました。",
   "inspector.colorless": "無色",
   "inspector.copyValue": "このカードの個別評価額",

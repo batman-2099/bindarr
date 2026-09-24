@@ -1,4 +1,8 @@
 {
+  "aiDeck.saveCurrent": "保存套牌",
+  "aiDeck.saveNew": "另存为新套牌",
+  "aiDeck.returnBeforeSave": "请先将这副套牌放回存放处，再替换它。你仍可将建议另存为新套牌，不会更改原套牌或已取出卡牌的预留状态。",
+  "aiDeck.saved": "套牌保存成功！",
   "importLog.local-lookup": "正在本地 Scryfall 目录中查找 {total} 行。",
   "importLog.local-resolved": "本地目录：匹配 {matched} 行，{unmatched} 行需要查询 API。",
   "importLog.api-fallback": "正在通过 Scryfall API 查找 {total} 行。",
@@ -606,6 +610,7 @@
   "header.logOut": "退出登录",
   "inspector.addToDeck": "+ 添加到套牌…",
   "inspector.addedToDeck": "已添加到套牌。",
+  "inspector.createCommanderDeck": "创建指挥官套牌",
   "inspector.cardUpdated": "卡牌已更新。",
   "inspector.colorless": "无色",
   "inspector.copyValue": "此卡牌估值",

@@ -1,4 +1,8 @@
 {
+  "aiDeck.saveCurrent": "Salvar deck",
+  "aiDeck.saveNew": "Salvar como novo deck",
+  "aiDeck.returnBeforeSave": "Devolva este deck ao armazenamento antes de substituí-lo. Você ainda pode salvar a sugestão como um novo deck sem alterar o original nem suas reservas de cartas retiradas.",
+  "aiDeck.saved": "Deck salvo com sucesso!",
   "importLog.local-lookup": "Buscando {total} linhas no catálogo local do Scryfall.",
   "importLog.local-resolved": "Catálogo local: {matched} encontradas, {unmatched} precisam da API.",
   "importLog.api-fallback": "Consultando a API do Scryfall para {total} linhas.",
@@ -632,6 +636,7 @@
   "header.logOut": "Sair",
   "inspector.addToDeck": "+ Adicionar a um deck…",
   "inspector.addedToDeck": "Adicionada ao deck.",
+  "inspector.createCommanderDeck": "Criar deck de Commander",
   "inspector.cardUpdated": "Carta atualizada.",
   "inspector.colorless": "Incolor",
   "inspector.copyValue": "Valor para esta cópia",

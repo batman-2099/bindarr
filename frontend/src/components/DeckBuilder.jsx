@@ -988,6 +988,7 @@ function DeckBuilder({ showToast }) {
   };
 
   const totalDeckCardsCount = activeDeck ? activeDeck.cards.reduce((sum, c) => sum + c.quantity, 0) : 0;
+  const commanderCard = activeDeck?.cards.find(card => card.id === activeDeck.commander_card_id);
   const targetDeckCardsCount = activeDeck?.target_size || 60;
   const supertypeData = getSupertypeChartData();
   const energyData = getEnergyChartData();
@@ -1033,7 +1034,7 @@ function DeckBuilder({ showToast }) {
           onClose={closeAiBuilder}
           onSaved={async id => {
             closeAiBuilder();
-            showToast(t('deck.created'));
+            showToast(t(id === aiSourceDeck?.id ? 'aiDeck.saved' : 'deck.created'));
             await fetchDecks();
             await loadDeckDetails(id);
           }}
@@ -1710,7 +1711,7 @@ function DeckBuilder({ showToast }) {
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
               {activeDeck.game === 'mtg' && (
                 <button
                   className="btn btn-secondary"
@@ -1772,9 +1773,9 @@ function DeckBuilder({ showToast }) {
                   <LogOut size={14} /> Check Out for Play
                 </button>
               )}
-              <button className="btn btn-primary" onClick={startSimulator} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                <Play size={14} /> Draw Simulator
-              </button>
+                <button className="btn btn-primary" onClick={startSimulator} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Play size={14} /> Draw Simulator
+                </button>
             </div>
           </div>
 
@@ -1824,6 +1825,7 @@ function DeckBuilder({ showToast }) {
                   </div>
                 )}
 
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', minWidth: 0 }}>
                 {/* Bar Chart: Energy & Types Distribution */}
                 {energyData.length > 0 && (
                   <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -1911,6 +1913,18 @@ function DeckBuilder({ showToast }) {
                   </div>
                 )}
                 </div>
+                </div>
+                {commanderCard && (
+                  <button
+                    type="button"
+                    onClick={() => setPreviewCard(commanderCard)}
+                    aria-label={`${t('deck.commander')}: ${displayName(commanderCard)}`}
+                    title={`${t('deck.commander')}: ${displayName(commanderCard)}`}
+                    style={{ padding: 0, width: '100%', maxWidth: '350px', justifySelf: 'center', border: '1px solid var(--accent-yellow)', borderRadius: '8px', background: 'transparent', cursor: 'pointer' }}
+                  >
+                    <CardImage card={commanderCard} style={{ display: 'block', width: '100%', aspectRatio: '0.718', objectFit: 'contain', borderRadius: '7px' }} />
+                  </button>
+                )}
           </div>
 
           {/* Checked out info banner */}

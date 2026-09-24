@@ -61,6 +61,9 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
   const [localizedCard, setLocalizedCard] = useState(null);
   const [prevTargetId, setPrevTargetId] = useState(card?.entry_id || card?.id || null);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [creatingCommanderDeck, setCreatingCommanderDeck] = useState(false);
+  const [deckListVersion, setDeckListVersion] = useState(0);
+  const creatingCommanderDeckRef = useRef(false);
   const hasToggledRef = useRef(false);
 
   useBackGuard(isFullScreen, () => setIsFullScreen(false));
@@ -323,6 +326,39 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
     } catch (err) {
       console.error(err);
       showToast && showToast(t('inspector.errAddDeckGeneric'));
+    }
+  };
+
+  const handleCreateCommanderDeck = async () => {
+    if (creatingCommanderDeckRef.current) return;
+    creatingCommanderDeckRef.current = true;
+    setCreatingCommanderDeck(true);
+    try {
+      const response = await fetch('/api/decks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: activeCard.name,
+          format: 'Commander / EDH',
+          target_size: 100,
+          game: 'mtg',
+          inventory_type: activeCard.list_type,
+          commander_card_id: activeCard.card_id || activeCard.id,
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        showToast?.(`${t('deck.errCreate')}${data?.error ? ` ${data.error}` : ''}`);
+        return;
+      }
+      setDeckListVersion(version => version + 1);
+      showToast?.(t('deck.created'));
+    } catch (error) {
+      console.error(error);
+      showToast?.(t('deck.errCreateGeneric'));
+    } finally {
+      creatingCommanderDeckRef.current = false;
+      setCreatingCommanderDeck(false);
     }
   };
 
@@ -732,6 +768,25 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                   </div>
                 </div>
               )}
+              {activeCard.list_type === 'collection' && (
+                <AddToDeckSelect
+                  key={deckListVersion}
+                  onAdd={handleAddToDeck}
+                  placeholder={t('inspector.addToDeck')}
+                  style={{ fontSize: '0.8rem', padding: '0.45rem 0.5rem', width: '100%' }}
+                />
+              )}
+              {(activeCard.game === 'mtg' || activeCard.supertype === 'MTG') && ['collection', 'arena'].includes(activeCard.list_type) && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleCreateCommanderDeck}
+                  disabled={creatingCommanderDeck}
+                  style={{ width: '100%', fontSize: '0.8rem' }}
+                >
+                  {creatingCommanderDeck ? t('common.loading') : t('inspector.createCommanderDeck')}
+                </button>
+              )}
 
               {activeCard.notes && (
                 <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '0.6rem 0.75rem', fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
@@ -744,14 +799,6 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                 <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => setMode('edit')}>
                   {t('inspector.editCard')}
                 </button>
-
-                {activeCard.list_type === 'collection' && (
-                  <AddToDeckSelect
-                    onAdd={handleAddToDeck}
-                    placeholder={t('inspector.addToDeck')}
-                    style={{ fontSize: '0.8rem', padding: '0.45rem 0.5rem', maxWidth: '140px' }}
-                  />
-                )}
 
                 {activeCard.grader === 'Raw' && (
                   <button type="button" className="btn btn-secondary btn-icon-only" style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem' }} onClick={handleDuplicate} title={t('inspector.duplicateCard')}>

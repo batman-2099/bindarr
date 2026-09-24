@@ -1,4 +1,8 @@
 {
+  "aiDeck.saveCurrent": "Сохранить колоду",
+  "aiDeck.saveNew": "Сохранить как новую колоду",
+  "aiDeck.returnBeforeSave": "Верните эту колоду на хранение, прежде чем заменять её. Вы по-прежнему можете сохранить предложение как новую колоду, не меняя исходную колоду и резервирование выданных карт.",
+  "aiDeck.saved": "Колода успешно сохранена!",
   "importLog.local-lookup": "Поиск {total} строк в локальном каталоге Scryfall.",
   "importLog.local-resolved": "Локальный каталог: найдено {matched}, требуют API: {unmatched}.",
   "importLog.api-fallback": "Поиск {total} строк через API Scryfall.",
@@ -645,6 +649,7 @@
   "header.logOut": "Выйти",
   "inspector.addToDeck": "+ Добавить в колоду…",
   "inspector.addedToDeck": "Добавлена в колоду.",
+  "inspector.createCommanderDeck": "Создать колоду «Командир»",
   "inspector.cardUpdated": "Карта обновлена.",
   "inspector.colorless": "Бесцветная",
   "inspector.copyValue": "Стоимость этого экземпляра",

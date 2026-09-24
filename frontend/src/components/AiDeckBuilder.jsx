@@ -52,6 +52,7 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState('');
+  const saveInFlight = useRef(false);
   const [error, setError] = useState('');
   const [generationLog, setGenerationLog] = useState([]);
   const logContainer = useRef(null);
@@ -161,6 +162,7 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
   const total = (draft?.cards || []).reduce((sum, card) => sum + Number(card.quantity), 0);
   const invalidCards = draft?.cards.some(card => !Number.isInteger(card.quantity) || card.quantity < 1 || card.quantity > (cardById.get(String(card.card_id))?.available_qty || 0));
   const isCommander = /commander|edh|brawl/i.test(format);
+  const saveDisabled = !!busy || inventoryLoading || !!inventoryError || !draft || !draft.name.trim() || draft.cards.length === 0 || total !== Number(targetSize) || invalidCards || (isCommander && !draft.commander_card_id);
   const conversationFull = messages.length >= 40;
   const needsMessage = messages.length > 0 || !!draft;
 
@@ -239,13 +241,16 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
 
   const save = async event => {
     event.preventDefault();
-    if (busy || !draft || invalidCards) return;
+    if (saveInFlight.current || saveDisabled || inventoryController.current?.signal.aborted || !event.currentTarget.checkValidity()) return;
+    const replace = !!sourceDeck && event.nativeEvent.submitter?.value === 'replace';
+    if (replace && sourceDeck.checked_out) { setError(t('aiDeck.returnBeforeSave')); return; }
+    saveInFlight.current = true;
     setBusy('save');
     setError('');
     const signal = lifetime.current.signal;
     try {
-      const data = await request('', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
+      const data = await request(replace ? `/${sourceDeck.id}` : '', {
+        method: replace ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, signal,
         body: JSON.stringify({
           name: draft.name, description: draft.description, inventory_type: inventoryType,
           include_checked_out: inventoryType === 'collection' && includeCheckedOut,
@@ -258,6 +263,7 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
     } catch (err) {
       if (!signal.aborted) setError(err.message);
     } finally {
+      saveInFlight.current = false;
       if (!signal.aborted) setBusy('');
     }
   };
@@ -443,9 +449,17 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
                 );
               })}
             </div>
-            <button type="submit" className="btn btn-primary" style={{ marginTop: '1rem' }} disabled={!!busy || inventoryLoading || !!inventoryError || !draft.name.trim() || draft.cards.length === 0 || total !== Number(targetSize) || invalidCards || (isCommander && !draft.commander_card_id)}>
-              {t(busy === 'save' ? 'aiDeck.saving' : sourceDeck ? 'aiDeck.saveNew' : 'aiDeck.save')}
-            </button>
+            <div style={{ ...rowStyle, marginTop: '1rem' }}>
+              {sourceDeck && (
+                <button type="submit" value="replace" className="btn btn-primary" disabled={saveDisabled || !!sourceDeck.checked_out} aria-describedby={sourceDeck.checked_out ? 'ai-return-before-save' : undefined}>
+                  {t(busy === 'save' ? 'aiDeck.saving' : 'aiDeck.saveCurrent')}
+                </button>
+              )}
+              <button type="submit" value="new" className={sourceDeck ? 'btn btn-secondary' : 'btn btn-primary'} disabled={saveDisabled}>
+                {t(busy === 'save' ? 'aiDeck.saving' : sourceDeck ? 'aiDeck.saveNew' : 'aiDeck.save')}
+              </button>
+            </div>
+            {sourceDeck?.checked_out && <p id="ai-return-before-save" style={{ color: 'var(--text-secondary)' }}>{t('aiDeck.returnBeforeSave')}</p>}
           </fieldset>
         </form>
       )}

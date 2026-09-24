@@ -59,7 +59,7 @@ function ManaCounts({ deck }) {
           <svg aria-hidden="true" width="16" height="16" viewBox={`${x - 50} 0 100 100`}>
             <image href="/mana.svg" x="-945" y="-210.002" width="1045" height="730.002" />
           </svg>
-          <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{deck[field]}</span>
+          <span style={{ fontSize: 'var(--deck-mana-count-size, 0.7rem)', fontWeight: 700, color: 'var(--text-secondary)' }}>{deck[field]}</span>
         </span>
       ))}
     </span>
@@ -1450,18 +1450,16 @@ function DeckBuilder({ showToast }) {
           ) : (
             /* --- TABLE VIEW --- */
             <div className="glass-panel" style={{ overflowX: 'auto', padding: 0 }}>
-              <table className="collection-table deck-list-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
+              <table className="collection-table deck-list-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem', '--deck-mana-count-size': '1rem' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border-glass)', background: 'rgba(0,0,0,0.2)', color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    <th style={{ padding: '0.75rem 1rem' }}>{t('deck.colGameFormat')}</th>
-                    <th style={{ padding: '0.75rem 1rem' }}>{t('deck.inventoryType')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('deck.deckName')}</th>
-                    <th style={{ padding: '0.75rem 1rem' }}>{t('deck.wins')} / {t('deck.losses')}</th>
+                    <th style={{ padding: '0.75rem 1rem' }}>{t('deck.format')}</th>
+                    <th style={{ padding: '0.75rem 1rem' }}>{t('deck.inventoryType')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('filter.field.color_identity')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('deck.category')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('deck.colCapacity')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('admin.colStatus')}</th>
-                    <th className="hide-mobile" style={{ padding: '0.75rem 1rem' }}>{t('admin.colCreated')}</th>
                     <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>{t('admin.colActions')}</th>
                   </tr>
                 </thead>
@@ -1472,7 +1470,6 @@ function DeckBuilder({ showToast }) {
                     const totalCards = deck.total_cards || 0;
                     const isComplete = totalCards >= targetSize;
                     const percent = Math.min(100, Math.round((totalCards / targetSize) * 100));
-                    const accentColor = deck.accent_color || (isMtg ? '#ef4444' : '#eab308');
 
                     return (
                       <tr
@@ -1483,36 +1480,18 @@ function DeckBuilder({ showToast }) {
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                       >
                         <td style={{ padding: '0.75rem 1rem' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: accentColor, display: 'inline-block' }} />
-                              <span style={{
-                                fontSize: '0.65rem',
-                                fontWeight: 800,
-                                padding: '0.15rem 0.45rem',
-                                borderRadius: '4px',
-                                background: isMtg ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)',
-                                color: isMtg ? '#f87171' : 'var(--accent-yellow)',
-                                border: isMtg ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(234,179,8,0.3)',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '3px'
-                              }}>
-                                {isMtg ? <Swords size={10} /> : <Zap size={10} />}
-                                {isMtg ? 'MTG' : 'Pokémon'}
-                              </span>
-                            </div>
-
-                            {deck.format && (
-                              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                                {deck.format}
-                              </span>
-                            )}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>{deck.name}</span>
                           </div>
                         </td>
                         <td style={{ padding: '0.75rem 1rem' }}>
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>
+                            {deck.format}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem' }}>
                           <span style={{
-                            fontSize: '0.6rem',
+                            fontSize: 'inherit',
                             fontWeight: 700,
                             padding: '1px 6px',
                             borderRadius: '4px',
@@ -1524,26 +1503,18 @@ function DeckBuilder({ showToast }) {
                           </span>
                         </td>
                         <td style={{ padding: '0.75rem 1rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>{deck.name}</span>
-                          </div>
-                        </td>
-                        <td style={{ padding: '0.75rem 1rem', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-                          {isMtg ? `${deck.wins ?? 0} / ${deck.losses ?? 0}` : '—'}
-                        </td>
-                        <td style={{ padding: '0.75rem 1rem' }}>
                           {isMtg && <ManaCounts deck={deck} />}
                         </td>
                         <td style={{ padding: '0.75rem 1rem' }}>
                           {deck.category && (
-                            <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'rgba(59,130,246,0.12)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.25)' }}>
+                            <span style={{ fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'rgba(59,130,246,0.12)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.25)' }}>
                               {deck.category}
                             </span>
                           )}
                         </td>
                         <td style={{ padding: '0.75rem 1rem', width: '160px' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: isComplete ? '#4ade80' : 'var(--text-strong)' }}>
+                            <div style={{ fontWeight: 700, color: isComplete ? '#4ade80' : 'var(--text-strong)' }}>
                               {totalCards} / {targetSize} Cards
                             </div>
                             <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
@@ -1553,34 +1524,31 @@ function DeckBuilder({ showToast }) {
                         </td>
                         <td style={{ padding: '0.75rem 1rem' }}>
                           {deck.checked_out ? (
-                            <span style={{ fontSize: '0.7rem', fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: 'rgba(234,179,8,0.15)', color: '#eab308', border: '1px solid rgba(234,179,8,0.4)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: 'rgba(234,179,8,0.15)', color: '#eab308', border: '1px solid rgba(234,179,8,0.4)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                               <Gamepad2 size={11} /> {t('deck.inPlay')}
                             </span>
                           ) : isComplete ? (
-                            <span style={{ fontSize: '0.7rem', fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: 'rgba(74, 222, 128, 0.15)', color: '#4ade80', border: '1px solid rgba(74, 222, 128, 0.3)' }}>
+                            <span style={{ fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: 'rgba(74, 222, 128, 0.15)', color: '#4ade80', border: '1px solid rgba(74, 222, 128, 0.3)' }}>
                               {t('deck.statusReady')}
                             </span>
                           ) : (
-                            <span style={{ fontSize: '0.7rem', fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)', border: '1px solid var(--border-glass)' }}>
+                            <span style={{ fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)', border: '1px solid var(--border-glass)' }}>
                               {t('deck.statusBuilding')}
                             </span>
                           )}
                         </td>
-                        <td className="hide-mobile" style={{ padding: '0.75rem 1rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          {new Date(deck.created_at).toLocaleDateString()}
-                        </td>
                         <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
                           <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}>
                             {deck.checked_out ? (
-                              <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', color: '#eab308' }} onClick={() => handleReturn(deck)} disabled={checkingOut}>
+                              <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: 'inherit', color: '#eab308' }} onClick={() => handleReturn(deck)} disabled={checkingOut}>
                                 {t('deck.return')}
                               </button>
                             ) : (
-                              <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleCheckout(deck)} disabled={checkingOut}>
+                              <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: 'inherit' }} onClick={() => handleCheckout(deck)} disabled={checkingOut}>
                                 {t('deck.checkout')}
                               </button>
                             )}
-                            <button className="btn btn-primary" style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem' }} onClick={() => loadDeckDetails(deck.id)}>
+                            <button className="btn btn-primary" style={{ padding: '0.25rem 0.6rem', fontSize: 'inherit' }} onClick={() => loadDeckDetails(deck.id)}>
                               {t('deck.open')}
                             </button>
                             <button className="btn btn-secondary btn-icon-only" style={{ padding: '0.25rem' }} onClick={() => handleDuplicateDeck(deck.id)} title={t('deck.duplicateDeck')}>

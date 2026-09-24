@@ -134,7 +134,7 @@ These screenshots show the fork's interfaces using sample data, not a personal c
 
 ![Inside the sample Draft Staples box in grid/gallery view, showing its card carousel and selected card details](docs/images/container-grid.png)
 
-**Deck Builder — table view** — compare sample Physical and Arena decks, formats, categories, capacity, and play status in one overview.
+**Deck Builder — table view** — deck names appear first, followed by format (without a game badge); other columns and action labels use larger text while deck names retain their existing size. Compare sample Physical and Arena decks, categories, capacity, and play status in one overview; creation dates are shown only in grid view.
 
 ![Deck Builder table showing sample Physical and Arena decks, card counts, readiness, and deck actions](docs/images/deck-builder-table.png)
 
@@ -234,7 +234,7 @@ Decklist import accepts plain lines and MTG Arena-style lines such as `4 Llanowa
 
 Use **Duplicate deck** for a new deck with the same card list. Use **Edit Properties** to adjust metadata or change its deck type after inventory validation.
 
-Track a Physical or Arena deck's **Wins** and **Losses** under **Deck Health & Rules** with the **+** controls; use **−** to undo a result (counts cannot go below zero). The record appears in both table and grid deck lists, persists across reloads, and is preserved in complete backups. New decks, including duplicates and AI-created decks, start at 0 wins and 0 losses.
+Track a Physical or Arena deck's **Wins** and **Losses** under **Deck Health & Rules** with the **+** controls; use **−** to undo a result (counts cannot go below zero). The record appears in grid deck lists, but not the table view, persists across reloads, and is preserved in complete backups. New decks, including duplicates and AI-created decks, start at 0 wins and 0 losses.
 
 For **Commander / EDH** and **Brawl** decks, check **Commander** on a deck card in list or grid view. Only one card can be selected; checking another replaces the previous commander, and unchecking clears it. The selected card displays a **Commander** banner. The choice persists in duplicates and complete backups, and is cleared if that card is removed or the format changes away from these formats.
 

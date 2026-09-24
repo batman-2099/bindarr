@@ -1799,6 +1799,14 @@ button, input, select, textarea {
   }
 }
 
+.deck-list-table th:not(:first-child) {
+  font-size: 0.9rem !important;
+}
+
+.deck-list-table td:not(:first-child) {
+  font-size: 1rem !important;
+}
+
 .collection-card-row-info {
   display: flex;
   align-items: center;

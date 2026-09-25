@@ -4,6 +4,7 @@ import { useT } from '../utils/i18n';
 import { readProgressStream } from '../utils/importStream';
 import MultiSelectDropdown from './MultiSelectDropdown';
 import CardImage from './CardImage';
+import RelatedTokens from './RelatedTokens';
 
 const FORMATS = {
   collection: ['Commander / EDH', 'Standard', 'Modern', 'Pioneer', 'Legacy', 'Vintage', 'Pauper', 'Casual'],
@@ -449,6 +450,7 @@ export default function AiDeckBuilder({ sourceDeck = null, onClose, onSaved, onP
                 );
               })}
             </div>
+            <RelatedTokens cardIds={draft.cards.map(card => card.card_id)} title={t('tokens.title')} inventoryType={inventoryType} />
             <div style={{ ...rowStyle, marginTop: '1rem' }}>
               {sourceDeck && (
                 <button type="submit" value="replace" className="btn btn-primary" disabled={saveDisabled || !!sourceDeck.checked_out} aria-describedby={sourceDeck.checked_out ? 'ai-return-before-save' : undefined}>

@@ -785,6 +785,67 @@ async function getCardById(cardId) {
   return null;
 }
 
+async function getRelatedTokens(cardIds) {
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!Array.isArray(cardIds) || cardIds.length > 500
+    || cardIds.some(id => typeof id !== 'string' || !id.startsWith('mtg-') || !uuid.test(id.slice(4)))) {
+    throw Object.assign(new Error('card_ids must be an array of at most 500 mtg-UUID IDs'), { status: 400 });
+  }
+  const sourceIds = [...new Set(cardIds.map(id => id.slice(4).toLowerCase()))];
+  if (!sourceIds.length) return [];
+
+  // card_cache omits all_parts: even previously cached cards need raw data.
+  // Reference tokens never enter that cache or the user's inventory.
+  async function rawCards(ids) {
+    const { pairs } = await scryfallBulk.resolveRows(ids.map(id => ({ id })));
+    const cards = new Map(pairs.map(({ row, raw }) => [row.id, raw]));
+    for (const id of ids) {
+      if (!cards.has(id)) {
+        try {
+          const { data } = await scryGetRetried(`/cards/${id}`);
+          cards.set(id, data);
+        } catch (error) {
+          if (error.response?.status === 404) {
+            throw Object.assign(new Error(`Card not found: mtg-${id}`), { status: 404 });
+          }
+          throw error;
+        }
+      }
+      const raw = cards.get(id);
+      if (!raw || raw.object !== 'card' || raw.id?.toLowerCase() !== id || typeof raw.name !== 'string') {
+        throw new Error('Invalid Scryfall card response');
+      }
+    }
+    return cards;
+  }
+
+  const sources = await rawCards(sourceIds);
+  const producers = new Map();
+  for (const id of sourceIds) {
+    const parts = sources.get(id).all_parts;
+    if (parts != null && !Array.isArray(parts)) throw new Error('Invalid Scryfall related parts');
+    for (const part of parts || []) {
+      if (part?.component !== 'token') continue;
+      if (typeof part.id !== 'string' || !uuid.test(part.id)) throw new Error('Invalid Scryfall token ID');
+      const tokenId = part.id.toLowerCase();
+      if (!producers.has(tokenId)) producers.set(tokenId, new Set());
+      producers.get(tokenId).add(`mtg-${id}`);
+    }
+  }
+  if (!producers.size) return [];
+  const tokens = await rawCards([...producers.keys()]);
+  return [...producers].map(([id, sourceIds]) => {
+    const raw = tokens.get(id);
+    const images = raw.image_uris || raw.card_faces?.[0]?.image_uris || {};
+    return {
+      id: `mtg-${id}`,
+      name: raw.name,
+      image_url: images.normal || images.large || images.small || null,
+      source_cards: [...sourceIds].map(sourceId => ({ id: sourceId, name: sources.get(sourceId.slice(4)).name })),
+    };
+  });
+}
+
 // `client` and `fetchWindow` are exported for tests (stub the axios adapter),
 // mirroring how tcgApi exposes tcgClient.
-module.exports = { searchCards, normalizeCard, cacheCards, getCardsBySet, fetchAndCacheSets, updateCollectionPrices, getCardById, getPrintingInLang, scryGetRetried, bulkFetchByIdentifier, client, fetchWindow };
+module.exports = { searchCards, normalizeCard, cacheCards, getCardsBySet, fetchAndCacheSets, updateCollectionPrices, getCardById, getRelatedTokens, getPrintingInLang, scryGetRetried, bulkFetchByIdentifier, client, fetchWindow };

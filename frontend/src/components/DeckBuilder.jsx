@@ -13,6 +13,7 @@ import CardImage from './CardImage';
 import { useT } from '../utils/i18n';
 import MtgDeckImport from './MtgDeckImport';
 import AiDeckBuilder from './AiDeckBuilder';
+import RelatedTokens from './RelatedTokens';
 
 // Basic Energy (Pokémon) & Basic Lands (MTG) are exempt from the "max 4 of a card" deck rule.
 const isBasicEnergyOrLand = (card, game = 'mtg') => {
@@ -2134,6 +2135,7 @@ function DeckBuilder({ showToast }) {
                     })
                   )}
                 </div>
+                <RelatedTokens cardIds={activeDeck.cards.map(card => card.id)} title={t('tokens.title')} inventoryType={activeDeck.inventory_type} />
               </div>
 
               {/* Mana Curve */}

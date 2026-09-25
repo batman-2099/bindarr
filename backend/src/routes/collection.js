@@ -812,6 +812,48 @@ async function addCardToCollection(user, body) {
   }
 }
 
+router.post('/cards/related-tokens', async (req, res) => {
+  try {
+    const inventoryType = req.body?.inventory_type === undefined ? 'collection' : req.body.inventory_type;
+    if (!['collection', 'arena'].includes(inventoryType)) {
+      return res.status(400).json({ error: 'inventory_type must be collection or arena' });
+    }
+    const tokens = await scryfallApi.getRelatedTokens(req.body?.card_ids);
+    const byId = new Map(tokens.map(token => [token.id, { ...token, owned: false, locations: [] }]));
+    if (tokens.length) {
+      const rows = await db.all(`
+        SELECT DISTINCT c.card_id, l.name AS location_name, l.type AS location_type,
+               l.id AS location_id, cp.idx, cp.label, c.position
+        FROM collection c
+        LEFT JOIN compartments cp ON cp.id = c.compartment_id
+        LEFT JOIN locations l ON l.id = COALESCE(cp.location_id, c.location_id)
+          AND l.user_id = c.user_id AND l.inventory_type = 'collection'
+        WHERE c.user_id = ? AND c.list_type = ? AND c.quantity > 0
+          AND c.card_id IN (${tokens.map(() => '?').join(',')})
+        ORDER BY l.name, cp.idx, c.position
+      `, [req.user.id, inventoryType, ...byId.keys()]);
+      for (const row of rows) {
+        const token = byId.get(row.card_id);
+        token.owned = true;
+        if (inventoryType === 'collection') {
+          token.locations.push({
+            location_name: row.location_name,
+            compartment_display: row.location_id && row.idx != null
+              ? compartmentLabel(row, row.location_type) : null,
+            position: row.location_id ? row.position : null,
+          });
+        }
+      }
+    }
+    res.json({ tokens: [...byId.values()] });
+  } catch (error) {
+    const status = [400, 404].includes(error.status) ? error.status : 502;
+    res.status(status).json({
+      error: status === 502 ? 'Unable to load related tokens from Scryfall. Try again later.' : error.message,
+    });
+  }
+});
+
 // 2b. Localize card to a specific language printing
 router.get('/cards/:id/printing', async (req, res) => {
   try {

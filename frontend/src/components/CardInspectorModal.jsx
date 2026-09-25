@@ -11,8 +11,10 @@ import CardEntryFields from './CardEntryFields';
 import PriceHistoryChart from './PriceHistoryChart';
 import AddToDeckSelect from './AddToDeckSelect';
 import CardArtEditor from './CardArtEditor';
+import RelatedTokens from './RelatedTokens';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useT } from '../utils/i18n';
+import { getSlotNumber } from '../utils/getSlotNumber';
 
 // MTG color identity pip colors (WUBRG), approximating the printed mana colors.
 const MTG_COLOR_BG = {
@@ -21,18 +23,6 @@ const MTG_COLOR_BG = {
 const MTG_COLOR_FG = {
   White: '#3a3520', Blue: '#fff', Black: '#fff', Red: '#fff', Green: '#fff'
 };
-
-function getSlotNumber(c) {
-  if (!c) return null;
-  if (c.slot != null) return c.slot;
-  if (c.slot_number != null) return c.slot_number;
-  if (c.__slotNumber != null) return c.__slotNumber;
-  if (typeof c.position === 'number') {
-    if (c.position >= 1000) return Math.floor(c.position / 1000);
-    return Math.floor(c.position) + 1;
-  }
-  return null;
-}
 
 // Shared card detail popup used by Dashboard, CollectionList and LocationManager.
 // Self-contained: owns its edit form (PUT) and delete (DELETE) so every screen
@@ -815,6 +805,8 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                   {activeCard.notes}
                 </div>
               )}
+
+              <RelatedTokens cardIds={[activeCard.card_id || activeCard.id]} inventoryType={activeCard.list_type === 'arena' ? 'arena' : 'collection'} />
 
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                 {activeCard.list_type === 'graveyard' ? (

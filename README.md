@@ -66,6 +66,8 @@ This is [batman-2099/bindarr](https://github.com/batman-2099/bindarr), a fork of
 - Added mana/color identity and category information to deck lists.
 - Added single-commander selection for Commander decks using card checkboxes and banners, with persistence in deck copies and complete backups.
 - Added per-deck wins/losses and reorganized the detail view: description, overview panels, then full-width card list/grid. Record controls live in **Deck Health & Rules**.
+- Added **Related tokens** in the card inspector and a **Tokens** section after deck cards in both list/grid views and AI drafts. Compact rows show token name, whether its exact Scryfall printing is in the selected inventory, and physical storage locations (container, row/page, slot, or Unassigned Pile). Physical and Arena ownership stay separate; wishlist and Graveyard entries do not count. Repeated token IDs appear once, and references never change deck size, ownership, checkout, or exports. Lookups use the local Scryfall catalog when available, with API fallback and retryable errors. An empty result means no linked token objects, not proof that the card cannot create copies or variable tokens.
+  Tokens use a responsive card grid with artwork above the name, ownership status, and location; missing artwork uses the standard card-back fallback. **Created by** lists the inspected card or all linked cards from the current deck/draft, using Scryfall relationships and showing repeated names once.
 
 **Storage and containers**
 

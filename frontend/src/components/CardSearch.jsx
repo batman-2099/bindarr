@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, Plus, X, ShieldAlert, Check, MousePointerClick, Zap, Undo2, Maximize2, Upload, Download } from 'lucide-react';
+import { Search, Plus, X, ShieldAlert, Check, MousePointerClick, Zap, Undo2, Maximize2, Download } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { priceText } from '../utils/formatPrice';
 import { resolveCardPrice } from '../utils/resolveCardPrice';
@@ -871,19 +871,28 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
               {t(rapidMode ? 'search.rapidOn' : 'search.rapid')}
             </button>
             <button type="button" className="btn btn-secondary" onClick={() => textImportInput.current?.click()} disabled={importingText} style={{ flex: '0 1 auto' }}>
-              <Upload size={18} />
+              <Download size={18} />
               {importingText ? t('settings.importing') : t('deck.chooseManaBoxFile')}
             </button>
             <input ref={textImportInput} type="file" accept=".txt,text/plain" onChange={event => handleImportFile(event, 'manabox')} style={{ display: 'none' }} />
             <button type="button" className="btn btn-secondary" onClick={() => csvImportInput.current?.click()} disabled={importingText} style={{ flex: '0 1 auto' }}>
-              <Upload size={18} />
+              <Download size={18} />
               {importingText ? t('settings.importing') : t('search.chooseCsvFile')}
             </button>
             <input ref={csvImportInput} type="file" accept=".csv,text/csv" onChange={event => handleImportFile(event, 'internal')} style={{ display: 'none' }} />
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-secondary)', fontSize: '0.8rem', cursor: 'pointer' }}>
-              <input type="checkbox" checked={addToArena} onChange={(e) => setAddToArena(e.target.checked)} />
+            <button
+              type="button"
+              role="switch"
+              aria-checked={addToArena}
+              className="btn btn-secondary"
+              style={addToArena ? { background: 'var(--type-grass)', borderColor: 'var(--type-grass)', color: 'var(--bg-primary)' } : undefined}
+              onClick={() => setAddToArena(current => !current)}
+            >
               {t('search.addToArena')}
-            </label>
+              <span aria-hidden="true" style={{ width: 28, height: 16, borderRadius: 999, background: addToArena ? 'var(--text-on-accent)' : 'var(--text-muted)', position: 'relative', flexShrink: 0 }}>
+                <span style={{ position: 'absolute', top: 2, left: addToArena ? 14 : 2, width: 12, height: 12, borderRadius: '50%', background: addToArena ? 'var(--type-grass)' : 'var(--bg-primary)', transition: 'left 0.2s' }} />
+              </span>
+            </button>
           </div>
         </form>
       </div>

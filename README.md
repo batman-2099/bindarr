@@ -28,6 +28,7 @@ This is [batman-2099/bindarr](https://github.com/batman-2099/bindarr), a fork of
 
 - Made the active product Magic-only: removed Pokémon and Lorcana from core navigation, setup, controls, APIs, and product documentation. Legacy database records are retained rather than deleted.
 - Added separate **Arena** inventory and **Physical/Arena** deck types, with inventory-scoped ownership and availability checks. Arena decks cannot use physical checkout or storage workflows.
+- **Add to Arena** uses a keyboard-accessible on/off toggle instead of a checkbox, highlighted green when enabled; its existing inventory-destination behavior is unchanged.
 - Added Arena-aware Dashboard views and statistics, plus inventory-type changes through deck properties when the destination owns sufficient copies.
 - Added **Collection growth**, **Deck performance**, and **Color identity/Mana value** comparisons to the Dashboard, scoped to **All Cards / Physical / Arena**, with English/German labels and accessible chart-data tables.
 - Added an explicit **Add to Wishlist** action and wishlist persistence; wishlist entries are excluded from owned-card statistics.

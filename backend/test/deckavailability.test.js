@@ -48,6 +48,19 @@ async function testCheckedOutCardsAreUnavailable() {
     assert.strictEqual(res.body.cards[0].checked_out, 1, 'pulled status must survive a deck reload');
     assert.strictEqual(res.body.cards[0].quantity > res.body.cards[0].owned_qty - res.body.cards[0].locked_qty, true,
       'Testing must mark cards in checked-out Goblin Stampede unavailable');
+
+    await db.run(`INSERT INTO collection (card_id, quantity, game, user_id, list_type) VALUES ('goblin', 1, 'mtg', 1, 'arena')`);
+    const arena = await db.run(`INSERT INTO decks (name, game, user_id, inventory_type) VALUES ('Arena Goblins', 'mtg', 1, 'arena')`);
+    await db.run(`INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, 'goblin', 1)`, [arena.lastID]);
+    await getDeck({ params: { id: arena.lastID }, user: { id: 1 } }, res);
+    assert.strictEqual(res.body.cards[0].owned_qty, 1, 'Arena ownership excludes physical copies');
+    assert.strictEqual(res.body.cards[0].locked_qty, 0, 'physical checkout cannot reserve Arena copies');
+    assert.strictEqual(res.body.cards[0].locked_decks, null, 'Arena warnings cannot name physical decks');
+    assert.strictEqual(res.body.cards[0].quantity > res.body.cards[0].owned_qty - res.body.cards[0].locked_qty, false);
+    await db.run(`DELETE FROM collection WHERE list_type = 'arena'`);
+    await getDeck({ params: { id: arena.lastID }, user: { id: 1 } }, res);
+    assert.strictEqual(res.body.cards[0].owned_qty, 0, 'physical copies cannot cover an Arena shortage');
+    assert.strictEqual(res.body.cards[0].quantity > res.body.cards[0].owned_qty - res.body.cards[0].locked_qty, true);
   } finally {
     try { db.dbConnection.close(); } catch { /* already closed */ }
     for (const suffix of ['', '-wal', '-shm']) {

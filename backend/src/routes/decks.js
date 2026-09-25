@@ -240,6 +240,7 @@ router.get('/:id', async (req, res) => {
     if (!deck) {
       return res.status(404).json({ error: 'Deck not found' });
     }
+    const inventoryType = deck.inventory_type === 'arena' ? 'arena' : 'collection';
 
     const cardsQuery = `
       SELECT
@@ -258,15 +259,15 @@ router.get('/:id', async (req, res) => {
         (SELECT COALESCE(SUM(quantity), 0) FROM collection WHERE card_id = cc.id AND user_id = ? AND list_type = ?) AS owned_qty,
         (SELECT COALESCE(SUM(dc2.quantity), 0)
          FROM deck_cards dc2 JOIN decks d2 ON dc2.deck_id = d2.id
-         WHERE d2.checked_out = 1 AND d2.user_id = ? AND d2.id != ? AND dc2.card_id = cc.id) AS locked_qty,
+         WHERE d2.checked_out = 1 AND d2.inventory_type = ? AND d2.user_id = ? AND d2.id != ? AND dc2.card_id = cc.id) AS locked_qty,
         (SELECT GROUP_CONCAT(d2.name, ', ')
          FROM deck_cards dc2 JOIN decks d2 ON dc2.deck_id = d2.id
-         WHERE d2.checked_out = 1 AND d2.user_id = ? AND d2.id != ? AND dc2.card_id = cc.id) AS locked_decks
+         WHERE d2.checked_out = 1 AND d2.inventory_type = ? AND d2.user_id = ? AND d2.id != ? AND dc2.card_id = cc.id) AS locked_decks
       FROM deck_cards dc
       JOIN card_cache cc ON dc.card_id = cc.id
       WHERE dc.deck_id = ?
     `;
-    const cards = await db.all(cardsQuery, [req.user.id, deck.inventory_type === 'arena' ? 'arena' : 'collection', req.user.id, id, req.user.id, id, id]);
+    const cards = await db.all(cardsQuery, [req.user.id, inventoryType, inventoryType, req.user.id, id, inventoryType, req.user.id, id, id]);
     const formatted = cards.map(parseCardRow);
 
     res.json({
@@ -638,7 +639,7 @@ router.put('/:id/checkout', async (req, res) => {
         cc.name, cc.printed_name, 
         dc.quantity AS required_qty,
         (SELECT COALESCE(SUM(quantity), 0) FROM collection WHERE card_id = dc.card_id AND user_id = ? AND list_type = 'collection') AS owned_qty,
-        (SELECT COALESCE(SUM(dc2.quantity), 0) FROM deck_cards dc2 JOIN decks d2 ON dc2.deck_id = d2.id WHERE d2.checked_out = 1 AND d2.user_id = ? AND d2.id != ? AND dc2.card_id = dc.card_id) AS locked_qty
+        (SELECT COALESCE(SUM(dc2.quantity), 0) FROM deck_cards dc2 JOIN decks d2 ON dc2.deck_id = d2.id WHERE d2.checked_out = 1 AND d2.inventory_type = 'collection' AND d2.user_id = ? AND d2.id != ? AND dc2.card_id = dc.card_id) AS locked_qty
       FROM deck_cards dc
       JOIN card_cache cc ON dc.card_id = cc.id
       WHERE dc.deck_id = ?

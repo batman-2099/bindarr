@@ -56,7 +56,7 @@ This is [batman-2099/bindarr](https://github.com/batman-2099/bindarr), a fork of
 - Added MTGJSON precon imports with independent **Create Storage Container** and **Create Deck** checkboxes, both enabled by default; deck creation imports every card and checks out the new Physical deck atomically.
 - Added editable deck properties, a Deck Type column, deck duplication, and inventory-aware Physical/Arena switching.
 - Added card storage locations and sorting by container, compartment, and slot.
-- Added unavailable-copy warnings and the names of checked-out decks reserving those copies; corrected checked-out availability calculations.
+- Added unavailable-copy warnings and the names of checked-out decks reserving those copies. Ownership and reservations are scoped to the deck's inventory type: checked-out Physical decks never make Arena cards unavailable.
 - Added persistent pulled-card checkboxes and resizable deck grid cards.
 - Added mana/color identity and category information to deck lists.
 - Added single-commander selection for Commander decks using card checkboxes and banners, with persistence in deck copies and complete backups.

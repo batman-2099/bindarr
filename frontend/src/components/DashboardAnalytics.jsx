@@ -5,32 +5,37 @@ const cellStyle = { padding: '0.65rem', borderBottom: '1px solid var(--border-gl
 const tableStyle = { width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', fontVariantNumeric: 'tabular-nums', color: 'var(--text-primary)' };
 const noteStyle = { color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.5, margin: '0.75rem 0' };
 
-export default function DashboardAnalytics({ analytics }) {
+export default function DashboardAnalytics({ analytics, inventory = 'all' }) {
   const { t, locale } = useT();
+  const isArchive = inventory === 'graveyard';
   const number = (value) => value.toLocaleString(locale);
-  const distributionSeries = [
+  const distributionSeries = isArchive ? [
+    { key: 'owned', label: t('dash.archivedCopies'), color: '#8b5cf6' },
+  ] : [
     { key: 'owned', label: t('dash.ownedCopies'), color: 'var(--accent-blue)' },
     { key: 'decks', label: t('dash.savedDeckSlots'), color: 'var(--accent-yellow)' },
   ];
   const charts = [
     {
-      key: 'growth', title: t('dash.growthTitle'), note: t('dash.growthNote'),
+      key: 'growth', title: t(isArchive ? 'dash.archiveGrowthTitle' : 'dash.growthTitle'), note: t(isArchive ? 'dash.archiveGrowthNote' : 'dash.growthNote'),
       rows: analytics?.growth?.map(row => ({ ...row, name: new Date(`${row.month}-01T00:00:00Z`).toLocaleDateString(locale, { month: 'short', year: '2-digit', timeZone: 'UTC' }) })),
-      category: t('dash.month'), empty: t('dash.noGrowth'), stacked: true,
-      series: [
+      category: t('dash.month'), empty: t(isArchive ? 'dash.noArchiveGrowth' : 'dash.noGrowth'), stacked: true,
+      series: isArchive ? [
+        { key: 'graveyard', label: t('dash.archivedCopies'), color: '#8b5cf6' },
+      ] : [
         { key: 'physical', label: t('dash.physical'), color: 'var(--accent-blue)' },
         { key: 'arena', label: t('dash.arena'), color: 'var(--accent-yellow)' },
       ],
     },
     {
-      key: 'colors', title: t('dash.colorComparison'), note: t('dash.colorNote'),
+      key: 'colors', title: t(isArchive ? 'dash.archiveColorDistribution' : 'dash.colorComparison'), note: t('dash.colorNote'),
       rows: analytics?.colors?.map(row => ({ ...row, name: t(`dash.color.${row.name}`) })),
-      category: t('dash.colorLabel'), empty: t('dash.noDistribution'), series: distributionSeries,
+      category: t('dash.colorLabel'), empty: t(isArchive ? 'dash.noArchiveDistribution' : 'dash.noDistribution'), series: distributionSeries,
     },
     {
-      key: 'mana', title: t('dash.manaComparison'), note: t('dash.manaNote'),
+      key: 'mana', title: t(isArchive ? 'dash.archiveManaDistribution' : 'dash.manaComparison'), note: t('dash.manaNote'),
       rows: analytics?.mana?.map(row => ({ ...row, name: row.name === 'Unknown' ? t('dash.color.Unknown') : row.name })),
-      category: t('dash.manaValue'), empty: t('dash.noDistribution'), series: distributionSeries,
+      category: t('dash.manaValue'), empty: t(isArchive ? 'dash.noArchiveDistribution' : 'dash.noDistribution'), series: distributionSeries,
     },
   ];
   const decks = analytics?.deckPerformance;
@@ -41,7 +46,7 @@ export default function DashboardAnalytics({ analytics }) {
         <section key={chart.key} className="glass-panel" aria-labelledby={`analytics-${chart.key}`} style={{ minWidth: 0 }}>
           <h3 id={`analytics-${chart.key}`} className="chart-title">{chart.title}</h3>
           <p style={noteStyle}>{chart.note}</p>
-          {chart.key !== 'growth' && <p style={noteStyle}>{t('dash.deckSlotsNote')}</p>}
+          {chart.key !== 'growth' && !isArchive && <p style={noteStyle}>{t('dash.deckSlotsNote')}</p>}
           {!chart.rows ? <p style={noteStyle}>{t('dash.analyticsUnavailable')}</p> : (
             <>
               {!chart.rows.some(row => chart.series.some(series => row[series.key] > 0)) ? <p style={noteStyle}>{chart.empty}</p> : (
@@ -80,7 +85,7 @@ export default function DashboardAnalytics({ analytics }) {
           )}
         </section>
       ))}
-      <section className="glass-panel" aria-labelledby="analytics-decks" style={{ minWidth: 0 }}>
+      {!isArchive && <section className="glass-panel" aria-labelledby="analytics-decks" style={{ minWidth: 0 }}>
         <h3 id="analytics-decks" className="chart-title">{t('dash.deckPerformance')}</h3>
         <p style={noteStyle}>{t('dash.deckPerformanceNote')}</p>
         {decks?.length > 0 && <p style={noteStyle}>{t('dash.lowSampleNote')}</p>}
@@ -104,7 +109,7 @@ export default function DashboardAnalytics({ analytics }) {
             </table>
           </div>
         )}
-      </section>
+      </section>}
     </div>
   );
 }

@@ -53,6 +53,8 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
   const [timePeriod, setTimePeriod] = useState('30d');
   const gameFilter = defaultGameFilter();
   const [inventoryFilter, setInventoryFilter] = useState('all');
+  const isArchive = inventoryFilter === 'graveyard';
+  const valueColor = isArchive ? '#8b5cf6' : 'var(--type-grass)';
   
   // Timeline Chart State
   const [historyData, setHistoryData] = useState([]);
@@ -113,7 +115,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
   const renderFilters = () => (
     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
       <div className="sub-nav-tabs" style={{ margin: 0 }}>
-        {[['all', t('dash.allCards')], ['collection', t('dash.physical')], ['arena', t('dash.arena')]].map(([value, label]) => (
+        {[['all', t('dash.allCards')], ['collection', t('dash.physical')], ['arena', t('dash.arena')], ['graveyard', t('collection.graveyard')]].map(([value, label]) => (
           <button key={value} type="button" className={`sub-nav-tab ${inventoryFilter === value ? 'active' : ''}`}
             aria-pressed={inventoryFilter === value}
             style={{ padding: '0.35rem 0.85rem', fontSize: '0.75rem' }} onClick={() => setInventoryFilter(value)}>
@@ -149,18 +151,18 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
         <div className="glass-panel" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-secondary)' }}>
           <TrendingUp size={48} style={{ color: 'var(--accent-red)', marginBottom: '1.5rem', opacity: 0.8 }} />
           <h2 style={{ color: 'var(--text-strong)', marginBottom: '0.5rem' }}>
-            {isFiltered ? t('dash.emptyFilteredTitle', { game: gameName }) : t('dash.emptyTitle')}
+            {isArchive ? t('dash.emptyArchiveTitle') : isFiltered ? t('dash.emptyFilteredTitle', { game: gameName }) : t('dash.emptyTitle')}
           </h2>
           <p style={{ maxWidth: '400px', margin: '0 auto 1.5rem auto' }}>
-            {isFiltered ? t('dash.emptyFilteredBody', { game: gameName }) : t('dash.emptyBody')}
+            {isArchive ? (isFiltered ? t('dash.emptyArchiveFilteredBody', { game: gameName }) : t('dash.emptyArchiveBody')) : isFiltered ? t('dash.emptyFilteredBody', { game: gameName }) : t('dash.emptyBody')}
           </p>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem' }}>
+          {!isArchive && <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem' }}>
             <div style={{ display: 'inline-block' }}>
               <button className="btn btn-primary" onClick={() => onNavigate && onNavigate('add-cards')}>{t('dash.goToAddCards')}</button>
             </div>
-          </div>
+          </div>}
         </div>
-        <DashboardAnalytics analytics={stats?.analytics} />
+        <DashboardAnalytics analytics={stats?.analytics} inventory={inventoryFilter} />
       </div>
     );
   }
@@ -181,6 +183,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
   return (
     <div>
       {renderFilters()}
+      {isArchive && <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem', lineHeight: 1.5 }}>{t('dash.archiveValueNote')}</p>}
 
       {/* Metrics Summary Grid */}
       <div className="metrics-grid">
@@ -189,7 +192,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
           <div className="metric-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
               <span className="metric-icon" style={{ width: '28px', height: '28px' }}><TrendingUp size={16} /></span>
-              {t('dash.netWorth')}
+              {t(isArchive ? 'dash.archivedValue' : 'dash.netWorth')}
             </span>
             <div style={{ display: 'flex', gap: '4px', background: 'rgba(255,255,255,0.05)', padding: '2px', borderRadius: '4px' }}>
               {['7d', '30d', '1y', '5y'].map(p => (
@@ -202,7 +205,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
                     fontSize: '0.65rem',
                     border: 'none',
                     borderRadius: '3px',
-                    background: timePeriod === p ? 'var(--type-grass)' : 'transparent',
+                    background: timePeriod === p ? valueColor : 'transparent',
                     color: 'var(--text-strong)',
                     cursor: 'pointer',
                     fontWeight: 700,
@@ -244,7 +247,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
         {/* Total Invested (cost basis) */}
         <div className="glass-panel metric-card accent-invested">
           <div className="metric-header">
-            <span>{t('dash.totalInvested')}</span>
+            <span>{t(isArchive ? 'dash.archivedCost' : 'dash.totalInvested')}</span>
             <span className="metric-icon"><Coins size={18} /></span>
           </div>
           <div className="metric-value">{currencySymbol()}{money(summary.totalSpent)}</div>
@@ -260,14 +263,14 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
           return (
             <div className={`glass-panel metric-card ${isPositive ? 'accent-gain-up' : 'accent-gain-down'}`}>
               <div className="metric-header">
-                <span>{t('dash.unrealizedGain')}</span>
+                <span>{t(isArchive ? 'dash.archivedValueDifference' : 'dash.unrealizedGain')}</span>
                 <span className="metric-icon"><ArrowUpRight size={18} style={{ transform: isPositive ? 'none' : 'rotate(90deg)' }} /></span>
               </div>
               <div className="metric-value" style={{ color: isPositive ? '#22c55e' : '#ef4444' }}>
                 {isPositive ? '+' : '−'}{currencySymbol()}{money(Math.abs(roi.abs || 0))}
               </div>
               <div className="metric-footer">
-                <span>{roi.pct === null ? t('dash.roiUnset') : t('dash.roiVsCost', { pct: `${isPositive ? '+' : ''}${roi.pct}` })}</span>
+                <span>{roi.pct === null ? t(isArchive ? 'dash.archivedCostUnset' : 'dash.roiUnset') : t('dash.roiVsCost', { pct: `${isPositive ? '+' : ''}${roi.pct}` })}</span>
               </div>
             </div>
           );
@@ -310,16 +313,29 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
             </div>
           </div>
         )}
+        {isArchive && (
+          <div className="glass-panel metric-card accent-cards">
+            <div className="metric-header">
+              <span>{t('dash.archivedCards')}</span>
+              <span className="metric-icon"><Library size={18} /></span>
+            </div>
+            <div className="metric-value">{summary.archivedCards}</div>
+            <div className="metric-footer">
+              <span>{t('dash.uniqueCount', { count: summary.uniqueCards })}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Net Worth History Timeline Chart */}
       <div className="glass-panel" style={{ marginBottom: '1.5rem', padding: '1.5rem 1.75rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h3 className="chart-title" style={{ margin: 0 }}>{t('dash.timelineTitle')}</h3>
+          <h3 className="chart-title" style={{ margin: 0 }}>{t(isArchive ? 'dash.archiveTimelineTitle' : 'dash.timelineTitle')}</h3>
           <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-            {t('dash.timelineRange', { range: timePeriod.toUpperCase() })}
+            {t(isArchive ? 'dash.archiveTimelineRange' : 'dash.timelineRange', { range: timePeriod.toUpperCase() })}
           </span>
         </div>
+        {isArchive && <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1rem' }}>{t('dash.archiveTimelineNote')}</p>}
         <div className="chart-container" style={{ height: '240px', position: 'relative' }}>
           {loadingHistory ? (
             <div className="spinner" style={{ position: 'absolute', top: '45%', left: '45%' }}></div>
@@ -330,8 +346,8 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
               <AreaChart data={historyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--type-grass)" stopOpacity={0.4}/>
-                    <stop offset="95%" stopColor="var(--type-grass)" stopOpacity={0.0}/>
+                    <stop offset="5%" stopColor={valueColor} stopOpacity={0.4}/>
+                    <stop offset="95%" stopColor={valueColor} stopOpacity={0.0}/>
                   </linearGradient>
                 </defs>
                 <XAxis dataKey="date" stroke="var(--text-secondary)" style={{ fontSize: '0.7rem' }} />
@@ -339,16 +355,16 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
                 <Tooltip 
                   contentStyle={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-glass)' }}
                   labelStyle={{ color: 'var(--text-primary)' }}
-                  formatter={(v) => [`${currencySymbol()}${v}`, t('dash.portfolioValue')]}
+                  formatter={(v) => [`${currencySymbol()}${v}`, t(isArchive ? 'dash.archivedValue' : 'dash.portfolioValue')]}
                 />
-                <Area type="monotone" dataKey="value" stroke="var(--type-grass)" strokeWidth={2} fillOpacity={1} fill="url(#colorVal)" />
+                <Area type="monotone" dataKey="value" stroke={valueColor} strokeWidth={2} fillOpacity={1} fill="url(#colorVal)" />
               </AreaChart>
             </ResponsiveContainer>
           )}
         </div>
       </div>
 
-      <DashboardAnalytics analytics={stats.analytics} />
+      <DashboardAnalytics analytics={stats.analytics} inventory={inventoryFilter} />
 
       {/* Main Charts & Analytics Details */}
       <div className="dashboard-details">
@@ -357,7 +373,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
           
           {/* Card Value by Set Chart */}
           <div className="glass-panel">
-            <h3 className="chart-title">{t('dash.valueBySet')}</h3>
+            <h3 className="chart-title">{t(isArchive ? 'dash.archiveValueBySet' : 'dash.valueBySet')}</h3>
             <div className="chart-container">
               {sets.length === 0 ? (
                 <div className="chart-empty">{t('dash.noSetData')}</div>
@@ -470,7 +486,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
           <div className="glass-panel" style={{ flex: 1 }}>
             <h3 className="chart-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Trophy size={18} style={{ color: 'var(--accent-yellow)' }} />
-              {t('dash.topValuable')}
+              {t(isArchive ? 'dash.archiveTopValuable' : 'dash.topValuable')}
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.25rem' }}>
               {topValuable.map((card, idx) => (
@@ -520,7 +536,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
             <div className="glass-panel" style={{ flex: 1 }}>
               <h3 className="chart-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Plus size={18} style={{ color: 'var(--accent-blue)' }} />
-                {t('dash.recentAdditions')}
+                {t(isArchive ? 'dash.archiveRecentAdditions' : 'dash.recentAdditions')}
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '1.25rem' }}>
                 {recentAdditions.map((card, idx) => (
@@ -557,7 +573,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
           {/* Set Completion progress tracker */}
           {setProgress.length > 0 && (
             <div className="glass-panel">
-              <h3 className="chart-title">{t('dash.setProgress')}</h3>
+              <h3 className="chart-title">{t(isArchive ? 'dash.archiveSetProgress' : 'dash.setProgress')}</h3>
               <div className="set-progress-grid" style={{ marginTop: '1rem' }}>
                 {setProgress.map((set, idx) => (
                   <div key={idx} className="set-progress-item">

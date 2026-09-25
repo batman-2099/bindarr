@@ -13,7 +13,8 @@ router.get('/stats', async (req, res) => {
     const statsParams = [req.user.id];
     const listFilter = inventory === 'collection' ? ` AND c.list_type = 'collection'`
       : inventory === 'arena' ? ` AND c.list_type = 'arena'`
-        : ` AND c.list_type IN ('collection', 'arena')`;
+        : inventory === 'graveyard' ? ` AND c.list_type = 'graveyard'`
+          : ` AND c.list_type IN ('collection', 'arena')`;
 
     // Retrieve all collection items to compute statistics
     const query = `
@@ -38,6 +39,7 @@ router.get('/stats', async (req, res) => {
     let vintageCount = 0;
     let physicalCards = 0;
     let digitalCards = 0;
+    let archivedCards = 0;
 
     const now = Date.now();
     const oneDayMs = 24 * 60 * 60 * 1000;
@@ -48,7 +50,8 @@ router.get('/stats', async (req, res) => {
     const growth = Array.from({ length: 12 }, (_, i) => ({
       month: new Date(Date.UTC(currentMonth.getUTCFullYear(), currentMonth.getUTCMonth() - 11 + i, 1)).toISOString().slice(0, 7),
       physical: 0,
-      arena: 0
+      arena: 0,
+      graveyard: 0
     }));
     const growthByMonth = new Map(growth.map(point => [point.month, point]));
     const colors = ['White', 'Blue', 'Black', 'Red', 'Green', 'Colorless', 'Unknown']
@@ -97,10 +100,11 @@ router.get('/stats', async (req, res) => {
 
       totalCards += qty;
       if (row.list_type === 'arena') digitalCards += qty;
-      else physicalCards += qty;
+      else if (row.list_type === 'collection') physicalCards += qty;
+      else if (row.list_type === 'graveyard') archivedCards += qty;
       totalValue += qty * price;
       totalSpent += qty * (row.purchase_price || 0);
-      if (row.list_type !== 'arena' && !row.location_name) unsortedCount += qty;
+      if (row.list_type === 'collection' && !row.location_name) unsortedCount += qty;
 
       if (row.condition === 'Near Mint') {
         nearMintCount += qty;
@@ -133,7 +137,7 @@ router.get('/stats', async (req, res) => {
       // Current retained copies grouped by addition month, not an immutable ownership history.
       if (row.added_at && Number.isFinite(addedTime)) {
         const point = growthByMonth.get(new Date(addedTime).toISOString().slice(0, 7));
-        if (point) point[row.list_type === 'arena' ? 'arena' : 'physical'] += qty;
+        if (point) point[row.list_type === 'collection' ? 'physical' : row.list_type] += qty;
       }
 
       if (isMtg) {
@@ -174,7 +178,7 @@ router.get('/stats', async (req, res) => {
     });
     const deckFilter = inventory === 'collection' || inventory === 'arena'
       ? ` AND COALESCE(d.inventory_type, 'collection') = ?` : '';
-    const deckRows = await db.all(`
+    const deckRows = inventory === 'graveyard' ? [] : await db.all(`
       SELECT d.id, d.name AS deck_name, COALESCE(d.inventory_type, 'collection') AS inventory_type,
              d.wins, d.losses, dc.card_id, dc.quantity,
              cc.name, cc.types, cc.subtypes, cc.supertype, cc.color_identity, cc.cmc
@@ -254,7 +258,8 @@ router.get('/stats', async (req, res) => {
                   FROM sets s WHERE s.id = cc.set_id) AS size
         FROM collection c
         JOIN card_cache cc ON c.card_id = cc.id
-        WHERE c.user_id = ?${listFilter} AND cc.set_id IN (${holes})
+        WHERE c.user_id = ?${listFilter}${gameFilter} AND cc.set_id IN (${holes})
+        GROUP BY cc.set_id
       `, [req.user.id, ...setIds]);
 
       for (const row of rows) {
@@ -308,6 +313,7 @@ router.get('/stats', async (req, res) => {
         totalCards,
         physicalCards,
         digitalCards,
+        archivedCards,
         uniqueCards,
         totalValue: parseFloat(totalValue.toFixed(2)),
         totalSpent: parseFloat(totalSpent.toFixed(2)),
@@ -363,7 +369,8 @@ router.get('/stats/history', async (req, res) => {
     const params = [req.user.id];
     const listFilter = inventory === 'collection' ? ` AND c.list_type = 'collection'`
       : inventory === 'arena' ? ` AND c.list_type = 'arena'`
-        : ` AND c.list_type IN ('collection', 'arena')`;
+        : inventory === 'graveyard' ? ` AND c.list_type = 'graveyard'`
+          : ` AND c.list_type IN ('collection', 'arena')`;
 
     // Retrieve all collection items to compute history
     const query = `

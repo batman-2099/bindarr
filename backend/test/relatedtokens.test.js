@@ -85,6 +85,10 @@ async function main() {
     for (const inventory_type of ['wishlist', 'graveyard', '', null, 1]) {
       assert.match((await request({ card_ids: [cardId(1)], inventory_type }, 400)).error, /inventory_type/);
     }
+    for (const commander_card_id of [false, 0, 1, {}, [], ' ', 'mtg-../../sets', id(1), 'pokemon-1', cardId(2)]) {
+      assert.match((await request({ card_ids: [cardId(1)], commander_card_id }, 400)).error, /commander_card_id/);
+    }
+    assert.match((await request({ card_ids: [], commander_card_id: cardId(1) }, 400)).error, /commander_card_id/);
     assert.deepStrictEqual(await request({ card_ids: [] }), { tokens: [] });
     assert.deepStrictEqual(calls, [], 'rejected and empty inputs never call the provider');
     assert.deepStrictEqual(await request({ card_ids: [cardId(1), cardId(2), cardId(1)] }), expected,
@@ -115,6 +119,7 @@ async function main() {
     assert.deepStrictEqual(await request({ card_ids: [cardId(5)] }), { tokens: [] });
     assert.deepStrictEqual(await snapshot(), before, 'token references never change cached cards, inventory or deck quantities');
     await api.cacheCards(cards.map(raw => api.normalizeCard(raw)));
+    await db.run(`UPDATE card_cache SET image_url = 'https://cards.scryfall.io/owned-soldier.jpg' WHERE id = ?`, [cardId(7)]);
     await db.run(`INSERT INTO users (id, username, password_hash, share_token) VALUES (2, 'other', 'unused', 'other-share')`);
     const binder = (await db.run(`INSERT INTO locations (name, type, user_id) VALUES ('Binder', 'Binder', 1)`)).lastID;
     const box = (await db.run(`INSERT INTO locations (name, type, user_id) VALUES ('Box', 'Box', 1)`)).lastID;
@@ -147,21 +152,97 @@ async function main() {
     const physical = [3, 4, 8, 9, 11, 12, 13, 14, 15].map(unowned);
     physical[0] = { ...physical[0], owned: true, locations: [
       { location_name: null, compartment_display: null, position: null },
+      { location_name: null, compartment_display: null, position: null },
       { location_name: 'Binder', compartment_display: 'Page 2', position: 3000.001 },
       { location_name: 'Box', compartment_display: 'Token Row', position: 7000 },
     ] };
+    physical[0].matched_card_id = cardId(3);
+    physical[7] = { ...physical[7], owned: true, matched_card_id: cardId(3),
+      image_url: 'https://cards.scryfall.io/soldier.jpg', locations: physical[0].locations };
     physical[8] = { ...physical[8], owned: true, locations: [
       { location_name: null, compartment_display: null, position: null },
     ] };
+    physical[8].matched_card_id = cardId(15);
+    physical[8].image_url = '';
     assert.deepStrictEqual(await request({ card_ids: [cardId(10)] }), { tokens: physical },
-      'physical ownership uses exact token IDs, positive quantities and current user, with all owned storage locations');
+      'physical ownership matches names across printings while preserving user and quantity scopes');
     assert.deepStrictEqual(await request({ card_ids: [cardId(10)], inventory_type: 'collection' }), { tokens: physical });
     const arena = [3, 4, 8, 9, 11, 12, 13, 14, 15].map(unowned);
     arena[1].owned = true;
+    arena[1].matched_card_id = cardId(4);
+    arena[1].image_url = 'https://cards.scryfall.io/day.jpg';
     assert.deepStrictEqual(await request({ card_ids: [cardId(10)], inventory_type: 'arena' }), { tokens: arena },
       'Arena ownership is separate and has no physical storage, even on stale located rows');
     assert.deepStrictEqual(await snapshot(), inventoryBefore, 'ownership lookups never mutate inventory or cached cards');
-    console.log('relatedtokens.test.js: validation, offline relations, scoped ownership, storage and reference-only checks passed');
+    await db.run(`DELETE FROM collection WHERE user_id = 1 AND card_id = ?`, [cardId(3)]);
+    const alternate = (await request({ card_ids: [cardId(1)] })).tokens[0];
+    assert.strictEqual(alternate.owned, true);
+    assert.strictEqual(alternate.matched_card_id, cardId(7));
+    assert.strictEqual(alternate.image_url, 'https://cards.scryfall.io/owned-soldier.jpg');
+
+    await own(3, 'collection', 1, 1, binder, page, 3000.001);
+    await own(3, 'arena');
+    await own(7, 'arena');
+    await db.run(`UPDATE collection SET location_id = ?, compartment_id = ?, position = 7000
+      WHERE card_id = ? AND user_id = 1 AND list_type = 'collection'`, [box, row, cardId(7)]);
+    await db.run(`UPDATE card_cache SET set_id = 'CMDR' WHERE id = ?`, [cardId(1)]);
+    await db.run(`UPDATE card_cache SET set_id = 'other' WHERE id = ?`, [cardId(3)]);
+    await db.run(`UPDATE card_cache SET set_id = 'cmdr' WHERE id = ?`, [cardId(7)]);
+    const commanderBody = { card_ids: [cardId(1)], commander_card_id: cardId(1) };
+    const soldier = { ...expected.tokens[0], owned: true, source_cards: [expected.tokens[0].source_cards[0]] };
+    const binderLocation = { location_name: 'Binder', compartment_display: 'Page 2', position: 3000.001 };
+    const boxLocation = { location_name: 'Box', compartment_display: 'Token Row', position: 7000 };
+    const preferredSoldier = { ...soldier, matched_card_id: cardId(7),
+      image_url: 'https://cards.scryfall.io/owned-soldier.jpg', locations: [boxLocation] };
+    const fallbackSoldier = { ...soldier, matched_card_id: cardId(3), locations: [binderLocation, boxLocation] };
+    assert.deepStrictEqual((await request(commanderBody)).tokens[0], preferredSoldier,
+      'same-set name match beats an exact linked printing from another set, including image and storage');
+    assert.deepStrictEqual((await request({ ...commanderBody, inventory_type: 'arena' })).tokens[0],
+      { ...preferredSoldier, locations: [] }, 'Arena applies the same preferred set pool without physical storage');
+    for (const commander_card_id of [undefined, null, '']) {
+      assert.deepStrictEqual((await request({ card_ids: [cardId(1)], commander_card_id })).tokens[0], fallbackSoldier,
+        'absent or empty commander keeps exact-print preference and all matching locations');
+    }
+    for (const set of [null, '']) {
+      await db.run('UPDATE card_cache SET set_id = ? WHERE id = ?', [set, cardId(1)]);
+      assert.deepStrictEqual((await request(commanderBody)).tokens[0], fallbackSoldier,
+        'missing commander set metadata keeps the existing any-set behavior');
+    }
+    await db.run(`UPDATE card_cache SET set_id = 'CMDR' WHERE id = ?`, [cardId(1)]);
+    await db.run('DELETE FROM card_cache WHERE id = ?', [cardId(2)]);
+    const uncachedCommanderBody = { card_ids: [cardId(1), cardId(2)], commander_card_id: cardId(2) };
+    assert.deepStrictEqual(await request(uncachedCommanderBody),
+      await request({ card_ids: uncachedCommanderBody.card_ids }),
+      'an uncached commander falls back without fetching or caching extra metadata');
+    assert.strictEqual(await db.get('SELECT id FROM card_cache WHERE id = ?', [cardId(2)]), undefined);
+
+    await db.run(`UPDATE card_cache SET set_id = 'TCMDR' WHERE id = ?`, [cardId(7)]);
+    assert.deepStrictEqual((await request(commanderBody)).tokens[0], preferredSoldier,
+      'the conventional t-prefixed token set joins the preferred pool case-insensitively');
+    await db.run(`UPDATE card_cache SET set_id = 'cmdr' WHERE id = ?`, [cardId(3)]);
+    assert.deepStrictEqual((await request(commanderBody)).tokens[0], fallbackSoldier,
+      'exact linked printing still wins within the combined same-set and token-set pool');
+    await db.run(`UPDATE card_cache SET set_id = 'other' WHERE id IN (?, ?)`, [cardId(3), cardId(7)]);
+    await db.run(`UPDATE card_cache SET set_id = 'cmdr' WHERE id = ?`, [cardId(14)]);
+    await own(14, 'wishlist');
+    await own(14, 'graveyard');
+    for (const list of ['collection', 'arena']) {
+      await own(14, list, 0);
+      await own(14, list, -1);
+      await own(14, list, 1, 2, foreign, foreignRow, 1000);
+    }
+    await own(14, 'arena');
+    assert.deepStrictEqual((await request(commanderBody)).tokens[0], fallbackSoldier,
+      'unowned preferred printings and excluded users, quantities, lists and Arena cannot override physical fallback');
+    await db.run(`UPDATE collection SET quantity = 0 WHERE card_id = ? AND user_id = 1 AND list_type = 'arena'`, [cardId(14)]);
+    await own(14);
+    assert.deepStrictEqual((await request({ ...commanderBody, inventory_type: 'arena' })).tokens[0],
+      { ...fallbackSoldier, locations: [] },
+      'physical preferred printings and excluded users, quantities and lists cannot override Arena fallback');
+    await db.run(`DELETE FROM collection WHERE card_id = ? AND user_id = 1 AND list_type = 'arena'`, [cardId(3)]);
+    assert.deepStrictEqual((await request({ ...commanderBody, inventory_type: 'arena' })).tokens[0],
+      { ...preferredSoldier, locations: [] }, 'any-set fallback still accepts another printing with the same name');
+    console.log('relatedtokens.test.js: validation, offline relations, scoped ownership, commander-set preference, storage and reference-only checks passed');
   } finally {
     api.client.get = originalGet;
     bulk.client.get = originalBulkGet;

@@ -818,30 +818,53 @@ router.post('/cards/related-tokens', async (req, res) => {
     if (!['collection', 'arena'].includes(inventoryType)) {
       return res.status(400).json({ error: 'inventory_type must be collection or arena' });
     }
+    const commanderId = req.body?.commander_card_id;
+    if (commanderId != null && commanderId !== ''
+      && (typeof commanderId !== 'string'
+        || !/^mtg-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(commanderId)
+        || !Array.isArray(req.body?.card_ids) || !req.body.card_ids.includes(commanderId))) {
+      return res.status(400).json({ error: 'commander_card_id must be an mtg-UUID ID included in card_ids' });
+    }
     const tokens = await scryfallApi.getRelatedTokens(req.body?.card_ids);
     const byId = new Map(tokens.map(token => [token.id, { ...token, owned: false, locations: [] }]));
     if (tokens.length) {
+      const commander = commanderId
+        ? await db.get(`SELECT set_id FROM card_cache WHERE id = ? AND game = 'mtg'`, [commanderId])
+        : null;
+      const commanderSet = commander?.set_id?.toLowerCase();
+      const names = [...new Set(tokens.flatMap(token => [token.name, token.name.split(' // ')[0]]))];
       const rows = await db.all(`
-        SELECT DISTINCT c.card_id, l.name AS location_name, l.type AS location_type,
+        SELECT DISTINCT c.card_id, cc.name, cc.image_url, cc.set_id, l.name AS location_name, l.type AS location_type,
                l.id AS location_id, cp.idx, cp.label, c.position
         FROM collection c
+        JOIN card_cache cc ON cc.id = c.card_id AND cc.game = 'mtg'
         LEFT JOIN compartments cp ON cp.id = c.compartment_id
         LEFT JOIN locations l ON l.id = COALESCE(cp.location_id, c.location_id)
           AND l.user_id = c.user_id AND l.inventory_type = 'collection'
         WHERE c.user_id = ? AND c.list_type = ? AND c.quantity > 0
-          AND c.card_id IN (${tokens.map(() => '?').join(',')})
-        ORDER BY l.name, cp.idx, c.position
-      `, [req.user.id, inventoryType, ...byId.keys()]);
-      for (const row of rows) {
-        const token = byId.get(row.card_id);
+          AND cc.name COLLATE NOCASE IN (${names.map(() => '?').join(',')})
+        ORDER BY l.name, cp.idx, c.position, c.card_id
+      `, [req.user.id, inventoryType, ...names]);
+      for (const token of byId.values()) {
+        const matches = rows.filter(row => [token.name.toLowerCase(), token.name.split(' // ')[0].toLowerCase()].includes(row.name.toLowerCase()));
+        if (!matches.length) continue;
+        const preferred = commanderSet
+          ? matches.filter(row => [commanderSet, `t${commanderSet}`].includes(row.set_id?.toLowerCase()))
+          : [];
+        const pool = preferred.length ? preferred : matches;
+        const selected = pool.find(row => row.card_id === token.id) || pool[0];
+        token.matched_card_id = selected.card_id;
+        token.image_url = selected.image_url;
         token.owned = true;
-        if (inventoryType === 'collection') {
-          token.locations.push({
-            location_name: row.location_name,
-            compartment_display: row.location_id && row.idx != null
-              ? compartmentLabel(row, row.location_type) : null,
-            position: row.location_id ? row.position : null,
-          });
+        for (const row of pool) {
+          if (inventoryType === 'collection') {
+            token.locations.push({
+              location_name: row.location_name,
+              compartment_display: row.location_id && row.idx != null
+                ? compartmentLabel(row, row.location_type) : null,
+              position: row.location_id ? row.position : null,
+            });
+          }
         }
       }
     }

@@ -5,13 +5,13 @@ import { useT } from '../utils/i18n';
 
 const MTG_CARD_ID = /^mtg-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export default function RelatedTokens({ cardIds = [], title, inventoryType = 'collection' }) {
+export default function RelatedTokens({ cardIds = [], title, inventoryType = 'collection', commanderCardId }) {
   const { t } = useT();
   const headingId = useId();
   const idsKey = [...new Set((Array.isArray(cardIds) ? cardIds : [])
     .filter(id => typeof id === 'string' && MTG_CARD_ID.test(id))
     .map(id => id.toLowerCase()))].sort().join(',');
-  const resultKey = `${inventoryType}:${idsKey}`;
+  const resultKey = `${inventoryType}:${commanderCardId || ''}:${idsKey}`;
   const [result, setResult] = useState({ key: '', status: 'loading', tokens: [] });
   const [attempt, setAttempt] = useState(0);
 
@@ -24,7 +24,11 @@ export default function RelatedTokens({ cardIds = [], title, inventoryType = 'co
         const response = await fetch('/api/cards/related-tokens', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ card_ids: idsKey.split(','), inventory_type: inventoryType }),
+          body: JSON.stringify({
+            card_ids: idsKey.split(','),
+            inventory_type: inventoryType,
+            ...(commanderCardId ? { commander_card_id: commanderCardId } : {}),
+          }),
           signal: controller.signal,
         });
         if (!response.ok) throw new Error('Token lookup failed');
@@ -41,7 +45,7 @@ export default function RelatedTokens({ cardIds = [], title, inventoryType = 'co
     }
     load();
     return () => controller.abort();
-  }, [idsKey, inventoryType, resultKey, attempt]);
+  }, [idsKey, inventoryType, commanderCardId, resultKey, attempt]);
 
   if (!idsKey) return null;
   const status = result.key === resultKey ? result.status : 'loading';
@@ -62,7 +66,7 @@ export default function RelatedTokens({ cardIds = [], title, inventoryType = 'co
         <ul className="card-grid" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
           {result.tokens.map(token => (
             <li key={token.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minWidth: 0, background: 'var(--surface-1)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '0.5rem', overflowWrap: 'anywhere' }}>
-              <CardImage card={token} game="mtg" loading="lazy" style={{ width: '100%', aspectRatio: '5 / 7', objectFit: 'contain', borderRadius: 'var(--radius-sm)' }} />
+              <CardImage card={{ ...token, id: token.matched_card_id || token.id }} game="mtg" loading="lazy" style={{ width: '100%', aspectRatio: '5 / 7', objectFit: 'contain', borderRadius: 'var(--radius-sm)' }} />
               <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{token.name}</span>

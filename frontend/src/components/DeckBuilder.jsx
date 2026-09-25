@@ -2135,7 +2135,7 @@ function DeckBuilder({ showToast }) {
                     })
                   )}
                 </div>
-                <RelatedTokens cardIds={activeDeck.cards.map(card => card.id)} title={t('tokens.title')} inventoryType={activeDeck.inventory_type} />
+                <RelatedTokens cardIds={activeDeck.cards.map(card => card.id)} title={t('tokens.title')} inventoryType={activeDeck.inventory_type} commanderCardId={activeDeck.commander_card_id} />
               </div>
 
               {/* Mana Curve */}

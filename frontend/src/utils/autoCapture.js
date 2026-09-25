@@ -83,3 +83,74 @@ export function autoStatusKey({ armed, busy, blocked, reading, now, minSteady, m
   if (reading.steady < minSteady) return 'hold';
   return 'ready';
 }
+
+export const SCAN_MATCH_MIN_SCORE = 0.55;
+export const SCAN_MATCH_MIN_INLIERS = 12;
+export const SCAN_MATCH_MIN_MARGIN = 0.02;
+
+// Server safety is required as well as the existing visual confidence gates.
+export function scanMatchReasons({ verified, candidates = [], notInCatalog, safety }) {
+  const reasons = new Set(safety?.reasons || []);
+  const [top, second] = candidates;
+  if (!top || !(verified ? top.inliers >= SCAN_MATCH_MIN_INLIERS : top.score >= SCAN_MATCH_MIN_SCORE)
+      || (!verified && second && top.score - second.score < SCAN_MATCH_MIN_MARGIN)) reasons.add('low_confidence');
+  if (top && second && top.name === second.name
+      && (top.set !== second.set || top.number !== second.number)
+      && (verified ? second.inliers >= top.inliers * 0.7 : second.score >= top.score - 0.02)) {
+    reasons.add('ambiguous_printing');
+  }
+  if (notInCatalog) reasons.add('not_in_catalog');
+  if (safety?.quality?.blurry) reasons.add('blur');
+  if (safety?.quality?.glare) reasons.add('glare');
+  if (safety?.context?.setFallback) reasons.add('set_fallback');
+  if (safety?.context?.languageFallback) reasons.add('language_fallback');
+  if (['conflict', 'unavailable', 'error'].includes(safety?.ocr?.status)) {
+    reasons.add(`ocr_${safety.ocr.status}`);
+  }
+  if (safety?.autoAddSafe !== true && reasons.size === 0) reasons.add('review_required');
+  return [...reasons];
+}
+
+// A disagreement or unsafe pass cannot be outvoted later in the same scan.
+// A new capture session starts with null, never with the previous card's count.
+export function recordScanPass(previous, { frame, cardId, safe }) {
+  const changed = !!previous && previous.cardId !== cardId;
+  const fresh = Number.isFinite(frame) && (!previous || frame > previous.frame);
+  const blocked = !!previous?.blocked || !safe || !cardId || !fresh;
+  const disagreed = !!previous?.disagreed || changed;
+  const count = safe && fresh && cardId ? (changed ? 1 : (previous?.count || 0) + 1) : 0;
+  return { frame, cardId, count, blocked, disagreed, ready: count >= 2 && !blocked && !disagreed };
+}
+
+// Wait for a decoded video frame, not merely another render of the same pixels.
+export function waitForVideoFrame(video, signal) {
+  return new Promise((resolve, reject) => {
+    const startTime = video.currentTime;
+    const videoCallback = typeof video.requestVideoFrameCallback === 'function';
+    let callback;
+    let timer;
+    const finish = (error, time) => {
+      clearTimeout(timer);
+      if (callback !== undefined) {
+        if (videoCallback) video.cancelVideoFrameCallback(callback);
+        else cancelAnimationFrame(callback);
+      }
+      signal.removeEventListener('abort', abort);
+      if (error) reject(error);
+      else resolve(time);
+    };
+    const abort = () => finish(new DOMException('Scan cancelled', 'AbortError'));
+    const schedule = () => {
+      callback = videoCallback ? video.requestVideoFrameCallback(check) : requestAnimationFrame(check);
+    };
+    const check = (_, metadata) => {
+      const time = metadata?.mediaTime ?? video.currentTime;
+      if (video.readyState >= 2 && !video.paused && time > startTime) finish(null, time);
+      else schedule();
+    };
+    if (signal.aborted) { abort(); return; }
+    signal.addEventListener('abort', abort, { once: true });
+    timer = setTimeout(() => finish(new Error('fresh_frame_unavailable')), 2500);
+    schedule();
+  });
+}

@@ -2,6 +2,7 @@ import assert from 'node:assert';
 import {
   shouldCapture, shouldRearm, autoStatusKey, worstCornerDrift,
   REARM_EMPTY_FRAMES, REARM_DRIFT, MIN_RECAPTURE_MS,
+  recordScanPass, scanMatchReasons,
 } from './autoCapture.js';
 
 const GATE = { minSteady: 3, minFill: 0.55 };
@@ -75,5 +76,43 @@ for (const reading of [good, { ...good, steady: 1 }, { ...good, fill: 0.1 }, { n
     autoStatusKey(args) === 'ready', shouldCapture(args),
     `status and trigger agree for ${JSON.stringify(reading)}`);
 }
+
+const safeResponse = {
+  candidates: [{ name: 'Island', set: 'tst', number: '1', score: 0.9 }],
+  safety: { autoAddSafe: true, reasons: [], ocr: { status: 'unreadable' } },
+};
+const firstPass = recordScanPass(null, { frame: 1, cardId: 'tst-1', safe: scanMatchReasons(safeResponse).length === 0 });
+assert.strictEqual(firstPass.ready, false, 'one photo never authorizes auto-add, including Turbo');
+assert.strictEqual(recordScanPass(firstPass, { frame: 2, cardId: 'tst-1', safe: true }).ready, true,
+  'two fresh safe photos agree on one printing; unreadable footer alone does not exclude legacy cards');
+assert.strictEqual(recordScanPass(firstPass, { frame: 1, cardId: 'tst-1', safe: true }).ready, false,
+  'reusing the same decoded frame cannot confirm a printing');
+const changedPass = recordScanPass(firstPass, { frame: 2, cardId: 'tst-2', safe: true });
+assert.strictEqual(changedPass.count, 1, 'a changed printing resets agreement');
+assert.strictEqual(recordScanPass(changedPass, { frame: 3, cardId: 'tst-2', safe: true }).ready, false,
+  'a disagreement cannot be outvoted within the same scan');
+assert.strictEqual(recordScanPass(null, { frame: 3, cardId: 'tst-1', safe: true }).ready, false,
+  'a new context does not inherit the previous scan agreement');
+
+const ambiguous = { ...safeResponse, candidates: [
+  safeResponse.candidates[0], { name: 'Island', set: 'old', number: '2', score: 0.89 },
+] };
+assert.ok(scanMatchReasons(ambiguous).includes('ambiguous_printing'), 'similar printings require manual selection');
+assert.strictEqual(recordScanPass(firstPass, { frame: 2, cardId: 'tst-1', safe: scanMatchReasons(ambiguous).length === 0 }).ready, false);
+for (const status of ['conflict', 'unavailable', 'error']) {
+  const unsafe = { ...safeResponse, safety: { ...safeResponse.safety, ocr: { status } } };
+  assert.ok(scanMatchReasons(unsafe).includes(`ocr_${status}`));
+  assert.strictEqual(recordScanPass(firstPass, { frame: 2, cardId: 'tst-1', safe: scanMatchReasons(unsafe).length === 0 }).ready, false,
+    `OCR ${status} cannot be averaged away by an earlier safe response`);
+}
+const unsafeFirst = recordScanPass(null, { frame: 1, cardId: 'tst-1', safe: false });
+assert.strictEqual(recordScanPass(unsafeFirst, { frame: 2, cardId: 'tst-1', safe: true }).ready, false,
+  'a later safe response cannot erase an unsafe first pass');
+assert.strictEqual(recordScanPass(firstPass, {
+  frame: 2, cardId: 'tst-1', safe: scanMatchReasons({ ...safeResponse, safety: { autoAddSafe: false } }).length === 0,
+}).ready, false, 'an explicit server veto is respected without reason codes');
+assert.strictEqual(recordScanPass(firstPass, {
+  frame: 2, cardId: 'tst-1', safe: scanMatchReasons({ ...safeResponse, safety: undefined }).length === 0,
+}).ready, false, 'missing safety cannot authorize auto-add');
 
 console.log('PASS: autoCapture.test.js');

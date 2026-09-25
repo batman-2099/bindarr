@@ -346,7 +346,7 @@ In **Settings → Collection Backup & Data Options**, select **Export Complete B
 
 ## Card scanning
 
-Scanning matches card artwork from the camera image; it does not use OCR. It needs both models and a catalog.
+Scanning first matches artwork with local ONNX models, then uses footer OCR to check the set code and collector number against visually plausible candidates. It needs models, a catalog, and native Tesseract with English language data for OCR.
 
 1. Fetch models after deployment:
 
@@ -357,6 +357,14 @@ Scanning matches card artwork from the camera image; it does not use OCR. It nee
    From source, run the same command in `backend/`.
 
 2. Build a game/language catalog under **Admin → Catalogs**. A catalog downloads card data and fingerprints card artwork. It can take hours for a large catalog; stopping and resuming retains completed work.
+
+3. Source installations need `tesseract` on the server's PATH with `eng` trained data (`tesseract --list-langs` should list `eng`). On Debian/Ubuntu, install `tesseract-ocr tesseract-ocr-eng`. Source-built Docker images include both; rebuild the image to pick up this change.
+
+**Hold the card still until verification finishes.** Auto-add, including Turbo, requires two fresh photos to agree on the same printing and pass all safety checks. Changing scan settings, pausing, or leaving the scanner cancels pending verification. A failed request is not automatically retried.
+
+The scanner asks for manual review when printings look alike, the image appears blurry or affected by glare, the card may be missing from the catalog, OCR conflicts with the image match, or the selected set/language cannot be honored. These warnings appear inside the candidate picker, with suggestions for correcting the photo or selecting a printing. Set/language choices narrow the search but never prove a match; a fallback language is shown as its actual printing rather than silently relabeled.
+
+OCR reads the footer, not the card name. Older layouts, tiny or obscured text, unusual collector numbers, and sleeves may remain unreadable. OCR resolves ambiguity only when a confident set-and-number pair agrees with a visually plausible candidate. Missing/failed OCR disables auto-add but still permits manual review. Blur/glare checks are conservative heuristics, not condition or foil detection; physical-camera accuracy still depends on lighting and focus.
 
 Scanning from a phone requires HTTPS. Use the built-in HTTPS port or terminate TLS with a reverse proxy. The detailed pipeline and its limitations are in [PROJECT.md](PROJECT.md#image-identification-pipeline).
 

@@ -18,6 +18,7 @@ const path = require('path');
 const sharp = require('sharp');
 const ort = require('onnxruntime-node');
 const { loadNpz } = require('./utils/npz');
+const languages = require('./utils/languages');
 
 const MODEL_DIR = process.env.CV_MODEL_DIR || path.join(__dirname, '..', 'data', 'models');
 const CORN_SIZE = 384;     // cornelius input
@@ -388,6 +389,50 @@ function searchTopK(emb, cat, n, dim, k, allow) {
   return top.map(i => ({ i, sim: sims[i] }));
 }
 
+// Conservative retake hints, not a photographic diagnosis. Normalise resolution
+// before measuring focus; Cornelius sharpness measures corner confidence, not blur.
+async function imageQuality(rgb) {
+  const width = 224;
+  const pixels = await sharp(rgb, { raw: { width: EMBED_SIZE, height: EMBED_SIZE, channels: 3 } })
+    .resize(width, width).raw().toBuffer();
+  const gray = await sharp(pixels, { raw: { width, height: width, channels: 3 } })
+    .greyscale().raw().toBuffer();
+  let sum = 0, squares = 0, count = 0, clipped = 0, artPixels = 0, solidTiles = 0;
+  for (let y = 14; y < width - 14; y++) {
+    for (let x = 14; x < width - 14; x++) {
+      const p = y * width + x;
+      const lap = 4 * gray[p] - gray[p - 1] - gray[p + 1] - gray[p - width] - gray[p + width];
+      sum += lap;
+      squares += lap * lap;
+      count++;
+    }
+  }
+  // Ignore white borders/text boxes. A large, nearly solid neutral-white patch
+  // within the art suggests glare; white artwork can still trigger this and
+  // coloured reflections can escape it. Manual review always remains available.
+  for (let ty = 32; ty < 144; ty += 16) {
+    for (let tx = 32; tx < 192; tx += 16) {
+      let tileClipped = 0;
+      for (let y = ty; y < ty + 16; y++) {
+        for (let x = tx; x < tx + 16; x++) {
+          const p = (y * width + x) * 3;
+          if (pixels[p] >= 250 && pixels[p + 1] >= 250 && pixels[p + 2] >= 250) tileClipped++;
+        }
+      }
+      clipped += tileClipped;
+      artPixels += 256;
+      if (tileClipped >= 250) solidTiles++;
+    }
+  }
+  // ponytail: synthetic sharp/blur/overexposure calibration only; tune these
+  // conservative floors on labelled camera captures, not model corner scores.
+  const variance = squares / count - (sum / count) ** 2;
+  return {
+    blurry: variance < Number(process.env.CV_SCAN_BLUR_VARIANCE || 18),
+    glare: solidTiles >= 2 && clipped / artPixels >= Number(process.env.CV_SCAN_GLARE_FRACTION || 0.08),
+  };
+}
+
 // Identify a card. Same return shape as scanMatch.match so the route and the
 // client are unchanged: { game, verified, candidates, crop, lang }.
 // `inliers` carries a 0-100 confidence derived from cosine, because the client
@@ -416,8 +461,8 @@ async function match(imageBuffer, game = 'mtg', topK = 8, opts = {}) {
     search.push({ c, allow: (i) => setOf[i] && want.has(setOf[i]) });
     scoped = { sets: wanted, rows: (scoped ? scoped.rows : 0) + rows };
   }
-  // Every catalog empty in scope: ignoring the filter beats returning nothing at
-  // all, which reads to the user as "your card could not be identified".
+  // Retain recovery candidates if the preference has no catalog rows, but mark
+  // the fallback explicitly: an ignored set preference must never auto-add.
   if (wanted.length && !search.length) {
     console.warn(`cvScan: no ${game} catalog rows in sets [${wanted}] — scanning unscoped`);
     for (const c of cats) search.push({ c, allow: null });
@@ -487,9 +532,10 @@ async function match(imageBuffer, game = 'mtg', topK = 8, opts = {}) {
   const top = candidates[0];
   const margin = candidates.length > 1 ? top.score - candidates[1].score : (top ? top.score : 0);
 
+  const quality = await imageQuality(det.rgb);
   const crop = 'data:image/jpeg;base64,' + (await sharp(Buffer.from(det.rgb), {
     raw: { width: EMBED_SIZE, height: EMBED_SIZE, channels: 3 },
-  }).resize({ width: 220 }).jpeg({ quality: 70 }).toBuffer()).toString('base64');
+  }).jpeg({ quality: 90 }).toBuffer()).toString('base64');
 
   // The winner does not stand out from its own neighbourhood, so the list below is
   // the nearest strangers rather than a shortlist. Said out loud instead of
@@ -517,6 +563,11 @@ async function match(imageBuffer, game = 'mtg', topK = 8, opts = {}) {
     margin,
     gap,
     notInCatalog,
+    quality,
+    context: {
+      setFallback: wanted.length > 0 && !scoped,
+      languageFallback: !!top && languages.toCode(top.catalogLang) !== languages.toCode(opts.lang),
+    },
     engine: 'collectorvision',
   };
 }
@@ -620,5 +671,5 @@ function reload(game, lang) {
   delete catalogs[game];
 }
 
-module.exports = { match, load, loadAll, isBuilt, builtLangs, reload, scoreCards, STRONG_SIM, STRONG_MARGIN, GAP_FLOOR };
+module.exports = { match, load, loadAll, isBuilt, builtLangs, reload, scoreCards, imageQuality, STRONG_SIM, STRONG_MARGIN, GAP_FLOOR };
 

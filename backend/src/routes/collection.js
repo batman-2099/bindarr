@@ -6,6 +6,8 @@ const scryfallApi = require('../scryfallApi');
 const lorcastApi = require('../lorcastApi');
 const mtgjsonApi = require('../mtgjsonApi');
 const cvScan = require('../cvScan');
+const scanOcr = require('../utils/scanOcr');
+const scryfallBulk = require('../scryfallBulk');
 const tcgplayerCatalog = require('../tcgplayerCatalog');
 const languages = require('../utils/languages');
 const pokemonProvider = require('../utils/pokemonProvider');
@@ -232,7 +234,7 @@ router.get('/scan-sets', async (req, res) => {
     // scan is answered by the English catalog and filed as an English printing.
     // Offering a choice without its consequence is what made that a surprise.
     res.json({
-      ...await require('../catalog').setCounts(game, languages.toName(lang)),
+      ...await require('../catalog').setCounts(game, languages.toName(req.query.lang)),
       builtLangs: cvScan.builtLangs(game),
     });
   } catch (e) {
@@ -278,6 +280,101 @@ async function pokemonBySetNumber(langName, number, setId, tcgApiKey) {
   return (cards || []).find(c => sameNumber(c.number, number)) || null;
 }
 
+const scanSetCode = value => String(value || '').trim().toLowerCase().replace(/^mtg-/, '');
+const scanPrintingId = candidate => candidate.card?.id || candidate.cardId || String(candidate.productId);
+const scanPairMatches = (card, ocr) => scanSetCode(card.set_id || card.set) === ocr.setCode
+  && sameNumber(card.number, ocr.number);
+
+async function scanArtworkPrintings(candidates, sets, langName) {
+  const top = candidates[0];
+  if (!top?.card) return [];
+  const cached = await db.all(`SELECT * FROM card_cache WHERE game = 'mtg' AND name = ?`, [top.card.name]);
+  const cards = new Map([...cached, ...candidates.map(c => c.card).filter(Boolean)].map(card => [card.id, card]));
+  const illustrations = card => [card?.illustration_id, ...(card?.card_faces || []).map(f => f.illustration_id)].filter(Boolean);
+  const art = new Map([...cards].map(([id, card]) => [id, illustrations(card)]));
+  // The normalized cache omits illustration IDs. Read them from an already
+  // downloaded bulk catalog when available; never download a catalog per scan.
+  if (await scryfallBulk.storedMetadata()) {
+    const rows = [...new Set([...cards.keys(), ...candidates.map(c => c.cardId).filter(Boolean)])].map(id => ({ id }));
+    const { pairs } = await scryfallBulk.resolveRows(rows);
+    for (const { row, raw } of pairs) art.set(row.id, illustrations(raw));
+  }
+  const topArt = new Set([...(art.get(top.card.id) || []), ...(art.get(top.cardId) || [])]);
+  if (!topArt.size) return [];
+  const wanted = new Set(sets.map(scanSetCode));
+  return [...cards.values()].filter(card =>
+    (!wanted.size || wanted.has(scanSetCode(card.set_id)))
+    && languages.toCode(card.language) === languages.toCode(langName)
+    && (art.get(card.id) || []).some(id => topArt.has(id)));
+}
+
+async function applyScanSafety(result, buf, { cropped, sets, langName }) {
+  const candidates = result.candidates;
+  const codes = await db.all(`SELECT id AS code FROM sets WHERE game = 'mtg'
+    UNION SELECT DISTINCT set_id AS code FROM card_cache WHERE game = 'mtg'`);
+  let ocr;
+  try {
+    const image = cropped ? buf : (result.crop ? Buffer.from(result.crop.split(',').pop(), 'base64') : null);
+    ocr = image && result.detected !== false
+      ? await scanOcr.readPrinting(image, { setCodes: [...codes.map(r => scanSetCode(r.code)), ...candidates.map(c => scanSetCode(c.set))] })
+      : { status: 'unreadable' };
+  } catch (error) {
+    console.warn('scan-match OCR failed:', error.message);
+    ocr = { status: 'error' };
+  }
+  const artPrintings = await scanArtworkPrintings(candidates, sets, candidates[0]?.card?.language || langName);
+  const topScore = candidates[0]?.score;
+  const nearby = candidates.filter(c => topScore - c.score < cvScan.STRONG_MARGIN);
+  const artIds = new Set(artPrintings.map(card => card.id));
+  if (ocr.status === 'read') {
+    const eligible = candidates.filter(c => scanPairMatches(c.card || c, ocr)
+      && (nearby.includes(c) || artIds.has(c.card?.id)));
+    if (eligible.length) {
+      // OCR corroborates visual evidence, not a set preference. Keep rejected
+      // candidates available for review without leaving them in the auto-add tie.
+      result.alternatives = candidates.filter(c => !eligible.includes(c));
+      result.candidates = [...new Map(eligible.map(c => [scanPrintingId(c), c])).values()];
+      ocr = { ...ocr, status: 'matched' };
+    } else {
+      ocr = { ...ocr, status: 'conflict' };
+      // An exact cached OCR printing outside the visual shortlist is useful to a
+      // person, but has no measured score and cannot become an automatic match.
+      const rows = await db.all(`SELECT * FROM card_cache WHERE game = 'mtg' AND lower(set_id) = ?`, [ocr.setCode]);
+      for (const row of rows.filter(card => scanPairMatches(card, ocr))) {
+        if (candidates.some(c => scanPrintingId(c) === row.id)) continue;
+        const card = parseCardRow(row);
+        candidates.push({ cardId: card.id, name: card.name, set: card.set_id, number: card.number, card });
+      }
+    }
+  }
+  const top = result.candidates[0];
+  const choices = ocr.status === 'matched' ? result.candidates : nearby;
+  const identities = new Set(choices.map(scanPrintingId));
+  for (const card of artPrintings) {
+    if (ocr.status !== 'matched' || scanPairMatches(card, ocr)) identities.add(card.id);
+  }
+  const quality = result.quality || { blurry: false, glare: false };
+  const context = {
+    setFallback: !!result.context?.setFallback
+      || (sets.length > 0 && (!top?.card || !sets.map(scanSetCode).includes(scanSetCode(top.card.set_id)))),
+    languageFallback: !!top?.card && languages.toCode(top.card.language) !== languages.toCode(langName),
+  };
+  const reasons = [];
+  if (quality.blurry) reasons.push('blur');
+  if (quality.glare) reasons.push('glare');
+  if (identities.size > 1) reasons.push('ambiguous_printing');
+  if (!top?.card || !(top.score >= cvScan.STRONG_SIM) || result.detected === false) reasons.push('low_confidence');
+  if (result.notInCatalog || !top) reasons.push('not_in_catalog');
+  if (context.setFallback) reasons.push('set_fallback');
+  if (context.languageFallback) reasons.push('language_fallback');
+  if (['conflict', 'unavailable', 'error'].includes(ocr.status)) reasons.push(`ocr_${ocr.status}`);
+  result.margin = result.candidates.length > 1
+    ? top.score - result.candidates[1].score : (top?.score || 0);
+  result.safety = { autoAddSafe: reasons.length === 0, reasons, ocr, quality, context };
+  result.context = context;
+  result.lang = languages.toCode(top?.card?.language || langName);
+}
+
 router.post('/scan-match', searchLimiter, async (req, res) => {
   try {
     const { image, set = '', lang, cropped = false } = req.body || {};
@@ -310,7 +407,8 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
       });
     }
 
-    const result = await cvScan.match(buf, game, 8, { sets: parseSetList(set), lang: langName, cropped: !!cropped });
+    const sets = parseSetList(set);
+    const result = await cvScan.match(buf, game, 8, { sets, lang: langName, cropped: !!cropped });
 
     result.candidates = await Promise.all(result.candidates.map(async (cand, i) => {
       // MTG goes through getCardById because it can fetch and cache a printing
@@ -321,22 +419,15 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
         if (game === 'mtg') {
           const card = await scryfallApi.getCardById(cand.cardId).catch(() => null);
           if (!card) return cand;
-          // The catalog that answered is whichever one exists, and for most
-          // installs that is the English one — the artwork is identical across
-          // languages, so an English catalog identifies a Japanese card perfectly
-          // well and then hands back the ENGLISH printing. Re-express it in the
-          // scanned language here (cvScan.load defers to the route for exactly
-          // this), or the picker shows English names and art, and the copy gets
-          // filed as the English printing.
-          //
-          // Same set and collector number, different Scryfall id: the localized
-          // card IS a different printing row, which is the one the collection
-          // should reference.
-          const localized = await scryfallApi
-            .getPrintingInLang(card.set_id, card.number, langName)
-            .catch(() => null);
-          const use = localized || card;
-          return { ...cand, name: use.name, set: use.set_id, number: use.number, card: use };
+          // The preference selects a real translated printing, never a relabelled
+          // English fallback. Keep the provider's language authoritative.
+          const localized = languages.toCode(card.language) === languages.toCode(langName) ? null
+            : await scryfallApi.getPrintingInLang(card.set_id, card.number, langName).catch(() => null);
+          const use = localized && languages.toCode(localized.language) === languages.toCode(langName)
+            ? localized : card;
+          const marked = languages.toCode(use.language) === languages.toCode(langName)
+            ? use : { ...use, langFallback: langName };
+          return { ...cand, name: use.name, set: use.set_id, number: use.number, card: marked };
         }
         if (game === 'lorcana') {
           let row = await db.get(
@@ -492,6 +583,10 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
       const use = await localizedPokemon(card, langName);
       return { ...hint, name: use.name, set: use.set_id, number: use.number, card: use };
     }));
+
+    result.candidates = result.candidates.filter((candidate, index, all) =>
+      all.findIndex(other => scanPrintingId(other) === scanPrintingId(candidate)) === index);
+    await applyScanSafety(result, buf, { cropped: !!cropped, sets, langName });
 
     // The ready-made Pokémon catalog identified something and NONE of it could be
     // named. That is a install-state problem, not a bad photo, and it has to say so.

@@ -28,10 +28,10 @@ RUN npm run build
 FROM node:20-slim AS production
 WORKDIR /app
 
-# Native build tools for SQLite3, gosu to drop root in the entrypoint, plus
-# wget (healthcheck) and ca-certificates (HTTPS to the card APIs).
+# Native build tools for SQLite3, gosu to drop root, healthcheck/HTTPS tools,
+# and native footer OCR with English data (set codes/collector numbers are Latin).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3 make g++ gosu wget ca-certificates \
+      python3 make g++ gosu wget ca-certificates tesseract-ocr tesseract-ocr-eng \
   && rm -rf /var/lib/apt/lists/*
 
 # Set environment to production

@@ -232,14 +232,14 @@ whose set numbering does not map to TCGdex's.
 
 ### Image identification pipeline
 
-Image-only, no OCR. Two ONNX models, both game-independent — a card is a card to
-a corner detector and an embedder — so only the catalog differs per game and
-language.
+Artwork identification uses two ONNX models: a corner detector and an embedder.
+The active Magic scanner additionally checks set/collector details using native
+Tesseract OCR; OCR verifies candidates rather than replacing artwork matching.
 
 The browser does the first half. `utils/detectWorker.js` runs **cornelius**
 (384×384, ~4.2 MB, fetched once from `GET /models/cornelius.onnx`) through
 `onnxruntime-web` on a worker thread to draw the live outline, then
-`CameraScanner.localDewarp` perspective-warps the captured frame to a 448×448
+`CameraScanner.localDewarp` perspective-warps the captured frame to an 896×896
 square using the shared `shared/imgproc.mjs` and uploads only that. Two reasons:
 the previous version posted a JPEG per preview frame (~2.7 MB per minute of
 pointing the camera at a card), and the outline on screen is now *by
@@ -264,17 +264,28 @@ Server side, `cvScan.match(buffer, game, topK, opts)`:
    comparable because it is the same model and the same normalisation — deduped by
    id, and cut to `topK`.
 
-The route (`POST /api/scan-match`) hydrates each candidate from `card_cache`,
-re-expresses it in the scanned language, and `CameraScanner` gates the result:
-auto-add above the confidence bar, otherwise the candidate list for a manual pick.
+The route (`POST /api/scan-match`) hydrates candidates, evaluates blur/probable
+glare, and checks the rectified footer with `utils/scanOcr.js`. A confident OCR
+set-and-number pair can narrow visually plausible candidates; conflicts and
+same-artwork/near-tied printings remain manual. The response's `safety` object
+includes `autoAddSafe`, reason codes, OCR status, quality, and context fallbacks.
+`CameraScanner` requires two fresh decoded video frames to agree on the resolved
+printing before automatic addition, including Turbo. Settings changes, pause,
+and unmount cancel verification; network failure never counts as agreement.
+
+OCR uses the original 896px client crop when supplied, otherwise the server crop.
+Tesseract runs without a shell, with bounded input/output, a five-second process
+timeout, and at most two concurrent jobs. Source installs require Tesseract and
+`eng` data; the Docker runtime installs both. Missing OCR or execution errors
+block auto-add but preserve manual candidates. Quality thresholds are conservative
+heuristics and still need validation across real cameras, sleeves, and lighting.
 
 #### Language is a fallback chain, not a filter
 
-Artwork is identical across languages, so any catalog can answer *which card this
-is*; only the printing differs. `loadAll` therefore sweeps the catalog for the
-scanned language **and** the English one, and the route re-expresses the winner
-(`getPrintingInLang` — by set + collector number for MTG, by id for Pokémon)
-before it reaches the picker.
+`loadAll` sweeps the scanned-language catalog and English fallback. For Magic,
+the route attempts the requested printing using set and collector number. If
+that lookup cannot confirm the requested language, it retains the actual
+printing/language and reports `language_fallback`; automatic addition is blocked.
 
 That second sweep is not a nicety. A non-English catalog is only as complete as
 its provider: TCGdex serves card records for **28 of the 177 Japanese Pokémon
@@ -296,8 +307,8 @@ The filter is evaluated per catalog, because set ids do not survive a language:
 `SV4a` names no row in the English catalog. A catalog with no rows in scope is
 **dropped** from the sweep rather than searched unscoped, since searching it
 unscoped would reintroduce exactly the wrong-card answer the scope exists to
-prevent. If no catalog has rows in scope the filter is ignored entirely — "no
-match" for a card that is plainly there is the worse failure.
+prevent. If no catalog has rows in scope, the scan may return global candidates,
+but reports `set_fallback` and requires manual confirmation instead of auto-add.
 
 #### "Nothing here is your card"
 

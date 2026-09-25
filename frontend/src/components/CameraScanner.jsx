@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Camera, RefreshCw, AlertTriangle, X, Zap, ZapOff, Settings, ScanLine, ListFilter, Layers, Search } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { getCardDisplayName } from '../utils/langHelper';
@@ -12,7 +12,10 @@ import { useMultiSelect } from '../utils/useMultiSelect';
 import { langName, langCode, getLanguagesForGame } from '../utils/languages';
 import { requestDetect, stopDetect, smoothQuad, meanCornerDrift, DETECT_W } from '../utils/cardDetector';
 import { getPerspectiveTransform, warpPerspective } from '../../../shared/imgproc.mjs';
-import { shouldCapture, shouldRearm, autoStatusKey } from '../utils/autoCapture';
+import {
+  shouldCapture, shouldRearm, autoStatusKey, scanMatchReasons, recordScanPass, waitForVideoFrame,
+  SCAN_MATCH_MIN_SCORE, SCAN_MATCH_MIN_INLIERS,
+} from '../utils/autoCapture';
 import { defaultGame, isGameEnabled } from '../utils/games';
 import { isNative } from '../apiBase';
 import { useT } from '../utils/i18n';
@@ -20,20 +23,11 @@ import SetTree from './SetTree';
 // Centered card-shaped guide box, styled in CSS (.scan-card-guide): card ratio
 // with margin, centered by the overlay's flex. The crop maps the box's on-screen
 // rect (getBoundingClientRect) into the frame, so its size is driven by CSS.
-// Confidence gates for the server match. When ORB geometric verification ran
-// (verified=true), gate on inlier count; otherwise on CLIP cosine similarity.
-// Below the gate the scan shows the candidates for manual selection.
-const SCAN_MATCH_MIN_SCORE = 0.55;
-const SCAN_MATCH_MIN_INLIERS = 12;
-// Minimum cosine gap between the top two embedding matches. Below it the model
-// is saying "one of these", not "this one", and the picker is the right answer.
-const SCAN_MATCH_MIN_MARGIN = 0.02;
 // Margin around the guide box when cropping. The box is an aim hint and a card
 // can overhang it, so the crop runs slightly wider than the box itself.
 const CROP_PAD = 0.05;
-// milo's input, and so the size of the crop the client uploads. Must match
-// cvScan's EMBED_SIZE — the catalog was embedded at this size.
-const EMBED_SIZE = 448;
+// Keep footer lettering for OCR; the server still embeds at 448px.
+const RECTIFIED_SIZE = 896;
 // Live-outline cadence. Detection is local, so this is bounded by CPU rather
 // than by a network round trip: ~80ms per frame on a desktop, ~300ms on a phone.
 // The loop is self-pacing, so a slower device simply updates less often.
@@ -88,12 +82,7 @@ const SCAN_PROFILES = [
   { label: 'Accurate', uploadW: 1280, countdown: 2, recallK: 250, orb: 500 },
 ];
 
-// The right card in the wrong language. Korean, Japanese and Chinese Pokémon sets
-// are their own releases rather than localised editions of the English ones, so no
-// localised row exists to swap to and the scan answers with the English printing —
-// correct card, English art, English name. Said out loud wherever a scanned card
-// is shown, because the alternative is passing that off as an English card. The
-// copy itself is still filed in the language being scanned.
+// A fallback is a reviewable candidate, not proof of the requested language.
 function LangFallbackNote({ card, style }) {
   const { t } = useT();
   if (!card || !card.langFallback) return null;
@@ -104,7 +93,7 @@ function LangFallbackNote({ card, style }) {
       ...style,
     }}>
       <AlertTriangle size={11} style={{ flexShrink: 0 }} />
-      <span>{t('scan.langFallbackArt', { lang: card.langFallback })}</span>
+      <span>{t('scan.langFallbackArt', { lang: card.langFallback, actual: card.language || 'English' })}</span>
     </div>
   );
 }
@@ -115,6 +104,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const [stream, setStream] = useState(null);
   const [loading, setLoading] = useState(false);
   const [scanStatus, setScanStatus] = useState('');
+  const [verificationFrame, setVerificationFrame] = useState(null);
   const [scanMatches, setScanMatches] = useState([]);
   
   // UX scan history & effects states
@@ -313,6 +303,8 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const currentScanId = useRef(0);
+  const scanAbortRef = useRef(null);
+  const autoAddScanId = useRef(null);
   const lastScanImgRef = useRef(null);
   const lastScanCroppedRef = useRef(false);
 
@@ -331,10 +323,8 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const captureBlockedRef = useRef(false); // true while a modal/picker/drawer is up
   const loadingRef = useRef(false); // mirrors `loading` for the metronome interval
 
-  // Instant feedback cue: flash the whole preview white, click, and (on mobile)
-  // vibrate. 'capture' fires the instant the photo is grabbed so the user can
-  // move the card immediately; 'error' marks a failed/no-match scan. Web Audio
-  // only (no asset/lib); no-ops if the browser blocks audio until a gesture.
+  // The capture cue fires only once all verification frames are acquired.
+  // Until then the user must keep the card still. Errors have their own cue.
   // The scan cue's AudioContext, created on demand and kept for the session.
   // Called from startCamera too: that tap is a real user gesture, which is what
   // the autoplay policy wants before a context may make sound.
@@ -379,6 +369,9 @@ function CameraScanner({ onAddSuccess, showToast }) {
 
   const handleCancelScan = () => {
     currentScanId.current += 1;
+    scanAbortRef.current?.abort();
+    loadingRef.current = false;
+    setVerificationFrame(null);
     setLoading(false);
     resolvedDupIdRef.current = null;
     const msg = t('scan.cancelled');
@@ -507,9 +500,39 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // Clean up camera stream on unmount
   useEffect(() => {
     return () => {
+      currentScanId.current += 1;
+      scanAbortRef.current?.abort();
       streamRef.current?.getTracks().forEach(track => track.stop());
     };
   }, []);
+
+  // A new context needs new evidence, including while an auto-add countdown runs.
+  useLayoutEffect(() => {
+    currentScanId.current += 1;
+    scanAbortRef.current?.abort();
+    loadingRef.current = false;
+    setLoading(false);
+    setVerificationFrame(null);
+    setScanStatus('');
+    setScanMatches([]);
+    setLastMatches([]);
+    lastScanImgRef.current = null;
+    lastScanCroppedRef.current = false;
+    setAutoAddTargetCard(null);
+    setAutoAddCountdown(null);
+    setAutoAddAlternatives([]);
+    setAutoAddEditing(false);
+    setDupConfirmCard(null);
+    autoAddScanId.current = null;
+    autoArmed.current = true;
+    capturedQuad.current = null;
+    resolvedDupIdRef.current = null;
+    bestFrame.current = null;
+    lastRawQuad.current = null;
+    steadyFrames.current = 0;
+    smoothed.current = null;
+  }, [scanGame, scanLang, scanSetParam, scanDetail, autoAdd, autoScan,
+    guideOffset.x, guideOffset.y, guideAngle, guideScale, exposure, isTorchOn, minFill, minSteady]);
 
   // On game switch: restore that game's remembered set filter and load its set
   // tree (families + subsets).
@@ -600,7 +623,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
       setAutoAddTargetCard(null);
       setAutoAddCountdown(null);
       setAutoAddAlternatives([]);   // the choice is made; don't leak it to the next card
-      autoAddCard(cardToTrigger);
+      if (autoAdd && autoAddScanId.current === currentScanId.current) autoAddCard(cardToTrigger);
     }
     return () => {
       if (intervalId) clearInterval(intervalId);
@@ -791,11 +814,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
       if (stopped) return;
       try {
         const guideElement = document.querySelector('.scan-card-guide');
-        // Skip while a scan owns the pipeline, or before the video has a frame to
-        // copy: videoWidth is set at metadata, but there are no pixels until
-        // readyState reaches HAVE_CURRENT_DATA, and drawing early yields black.
+        // Keep detection fresh during verification so the next capture can use
+        // its own current quad rather than reusing the first photo's corners.
         const v = videoRef.current;
-        if (!loadingRef.current && guideElement && v?.videoWidth && v.readyState >= 2) {
+        if (guideElement && v?.videoWidth && v.readyState >= 2) {
           if (!outlineCanvas.current) outlineCanvas.current = document.createElement('canvas');
           const c = buildFramedCanvas(v, guideElement, DETECT_W, outlineCanvas.current, true);
           // Fire-and-forget: the worker answers on its own schedule and a frame
@@ -816,7 +838,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
     timer = setTimeout(tick, 400);   // let the camera settle before the first look
     return () => { stopped = true; clearTimeout(timer); stopDetect(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraActive, autoScan]);
+  }, [cameraActive, autoScan, guideAngle, guideScale]);
 
   const updateAdvancedConstraints = (track, newAdvancedProps) => {
     try {
@@ -1104,25 +1126,21 @@ function CameraScanner({ onAddSuccess, showToast }) {
       const w = canvas.width, h = canvas.height;
       const src = quad.map(p => ({ x: p.x * w, y: p.y * h }));
       if (src.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y))) return null;
-      const N = EMBED_SIZE - 1;
+      const N = RECTIFIED_SIZE - 1;
       const dst = [{ x: 0, y: 0 }, { x: N, y: 0 }, { x: N, y: N }, { x: 0, y: N }];
       const rgba = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data;
-      const out = warpPerspective(rgba, w, h, getPerspectiveTransform(src, dst), EMBED_SIZE, EMBED_SIZE);
+      const out = warpPerspective(rgba, w, h, getPerspectiveTransform(src, dst), RECTIFIED_SIZE, RECTIFIED_SIZE);
       const c = dewarpCanvas.current || (dewarpCanvas.current = document.createElement('canvas'));
-      c.width = EMBED_SIZE; c.height = EMBED_SIZE;
-      c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(out), EMBED_SIZE, EMBED_SIZE), 0, 0);
+      c.width = RECTIFIED_SIZE; c.height = RECTIFIED_SIZE;
+      c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(out), RECTIFIED_SIZE, RECTIFIED_SIZE), 0, 0);
       return c.toDataURL('image/jpeg', 0.9);
     } catch {
       return null;   // any canvas/geometry failure: send the frame instead
     }
   };
 
-  // Present the image-match results: show the picker, and on a single result
-  // take the fast path (auto-add / quick-
-  // add per mode). autoSingle lets the caller allow the fast path for a single MTG
-  // result too — used when the image match is confident and the printing is
-  // unambiguous (only one printing, or the set code narrowed it to one). Ambiguous
-  // MTG (many printings, no set code) still shows the picker.
+  // Only independently verified agreement may use the automatic single-result
+  // path. A single unsafe result still needs the manual picker, for every game.
   // Is this resolved card the printing ORB reported? Set + number is the
   // identity; the name is not checked because the index and the provider can
   // spell it differently, which is exactly the disagreement that used to make
@@ -1146,7 +1164,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
   //
   // Failures resolve to null rather than throwing — one unresolvable candidate
   // must not take the other seven down with it.
-  const resolveCandidates = async (cands, game, lang) => Promise.all(
+  const resolveCandidates = async (cands, game, lang, signal) => Promise.all(
     cands.map(async (cand) => {
       // Already hydrated server-side (exact set+number hit in card_cache).
       if (cand.card) return { ...cand.card, __match: { inliers: cand.inliers, score: cand.score } };
@@ -1161,8 +1179,8 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // exactly one, but never assume — taking m[0] blindly is how a different
       // printing reached the picker.
       const ask = async (params) => {
-        const res = await fetch(`/api/search?${params.toString()}`);
-        if (!res.ok) return null;
+        const res = await fetch(`/api/search?${params.toString()}`, { signal });
+        if (!res.ok) throw new Error('Candidate lookup failed');
         const m = await res.json();
         return (cand.number ? m.find(c => sameCard(c, cand)) : m[0]) || null;
       };
@@ -1196,7 +1214,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
       return;
     }
     setScanStatus('');
-    if (matches.length === 1 && (scanGame !== 'mtg' || autoSingle)) {
+    if (matches.length === 1 && autoSingle) {
       // Auto-add, not auto-scan: scanning found the card either way. This decides
       // whether it is filed straight away or handed to the add drawer first.
       if (autoAdd) {
@@ -1224,6 +1242,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
         if (profile.countdown === 0) {
           autoAddCard(matches[0]);
         } else {
+          autoAddScanId.current = currentScanId.current;
           setAutoAddTargetCard(matches[0]);
           setAutoAddCountdown(profile.countdown);
         }
@@ -1235,192 +1254,111 @@ function CameraScanner({ onAddSuccess, showToast }) {
   };
 
   const handleCapture = async () => {
-    if (loading || !videoRef.current || !cameraActive) return;
-
-    // A manual capture consumes the card in frame exactly like an auto one, so
-    // it disarms too. Otherwise tapping the button and then holding the same
-    // card still would have auto-scan immediately fire a second scan of it.
+    if (loadingRef.current || !videoRef.current || !cameraActive) return;
     autoArmed.current = false;
     lastCaptureAt.current = Date.now();
     capturedQuad.current = lastRawQuad.current;
-
+    loadingRef.current = true;
     setLoading(true);
     const scanId = ++currentScanId.current;
+    const controller = new AbortController();
+    scanAbortRef.current = controller;
     setScanMatches([]);
-    setScanStatus(t('scan.initializing'));
-
+    setLastMatches([]);
+    setAutoAddAlternatives([]);
     const video = videoRef.current;
-    
-    const guideElement = document.querySelector('.scan-card-guide');
-    if (!guideElement) {
-      setLoading(false);
-      setScanStatus(t('scan.errNoGuideBox'));
-      return;
-    }
-
-    // 1. Capture the guide-box region, oriented and deskewed to the box.
-    const framedCanvas = buildFramedCanvas(video, guideElement);
-    if (!framedCanvas) {
-      setLoading(false);
-      setScanStatus(t('scan.errNoFrame'));
-      return;
-    }
-    // Picture is now taken — fire the instant cue (click + vibrate + flash) so
-    // the user can move the card immediately, before the server lookup runs.
-    signal('capture');
+    let agreement = null;
+    const reviewCandidates = [];
+    const reasons = new Set();
+    const explain = () => [...reasons].map(reason => t(`scan.safety.${reason}`)).join(' ');
 
     try {
-      // Identify by image (server-side). Send the WHOLE oriented frame (downscaled)
-      // so the server can auto-detect + deskew the card before matching — the guide
-      // box is just an aim hint.
-      {
-        setScanStatus(t('scan.matching'));
-        {
-          // The browser already ran cornelius on this frame for the live outline,
-          // so it knows where the four corners are. Dewarping here and uploading
-          // only the rectified card sends ~35KB instead of ~155KB, and lets the
-          // server skip both its JPEG decode of a full frame and its own corner
-          // pass.
-          //
-          // Only when the detector actually had a card. With no quad — manual
-          // shutter on a frame the detector could not read, or a degraded
-          // fallback engine — the WHOLE frame goes up and the server detects it
-          // there. That path is the safety net, because a bad client crop is
-          // unrecoverable: the server never sees the pixels outside it.
-          // Only a quad from a detection that is still current. A stale one — the
-          // manual shutter on a frame the detector never read, or a card that has
-          // since moved — would crop confidently around the wrong place.
-          const fresh = bestFrame.current && (Date.now() - bestFrame.current.at) < 500;
-          const quad = fresh ? lastRawQuad.current : null;
-          const cropped = quad ? localDewarp(framedCanvas, quad) : null;
-          const imageData = cropped || (() => {
-            const up = document.createElement('canvas');
-            const s = Math.min(1, profile.uploadW / framedCanvas.width);
-            up.width = Math.round(framedCanvas.width * s);
-            up.height = Math.round(framedCanvas.height * s);
-            up.getContext('2d').drawImage(framedCanvas, 0, 0, up.width, up.height);
-            return up.toDataURL('image/jpeg', 0.85);
-          })();
-          setDebugHashImg(imageData);
-          lastScanImgRef.current = imageData;
-          lastScanCroppedRef.current = !!cropped;
-          try {
-            const resp = await fetch('/api/scan-match', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ game: scanGame, image: imageData, cropped: !!cropped, set: scanSetParam, lang: scanLang, recallK: profile.recallK, orb: profile.orb }),
-            });
-            if (scanId !== currentScanId.current) return;
-            // A 503 here is the server saying no catalog exists for this game and
-            // language, with an error that names the fix. It used to fall straight
-            // through to "no confident match", so the one message that could have
-            // told an admin what to do was never shown.
-            if (!resp.ok) {
-              const j = await resp.json().catch(() => null);
-              if (scanId !== currentScanId.current) return;
-              if (j?.notBuilt) {
-                setScanStatus(t('scan.catalogNotBuilt'));
-                signal('error');
-                return;
-              }
-            }
-            if (resp.ok) {
-              const { game: matchGame, verified, candidates, crop, scoped, notInCatalog, unresolvedPublished } = await resp.json();
-              console.log('Scan candidates:', matchGame, scanLang, scoped ? `(set-scoped ${scanSetParam})` : '(GLOBAL)', verified ? 'ORB' : 'CLIP', candidates);
-              if (crop) setDebugHashImg(crop); // show the server's auto-cropped card
-              setDebugScoped(scoped ? scanSetParam : false);
-              setDebugCandidates((candidates || []).map(c => ({ ...c, verified })));
-              const top = candidates && candidates[0];
-              const confident = top && (verified ? top.inliers >= SCAN_MATCH_MIN_INLIERS : top.score >= SCAN_MATCH_MIN_SCORE);
-              // Printing ambiguity: basic lands (and other low-art cards) share one
-              // big symbol + frame, so ORB scores nearly tie across every printing
-              // of the same card. A near-tied same-name runner-up means the image
-              // can't tell the printings apart — so DON'T auto-add the top pick's
-              // set; fall through to the picker and let the user choose the set.
-              const second = candidates && candidates[1];
-              const ambiguousPrinting = top && second && top.name === second.name
-                && (top.set !== second.set || top.number !== second.number)
-                && (verified ? second.inliers >= top.inliers * 0.7 : second.score >= top.score - 0.02);
-              // Embedding matches fail differently from ORB ones: a wrong answer
-              // can carry a HIGH cosine (0.88 on the eval sample) while sitting a
-              // hair above the runner-up, because the two cards genuinely look
-              // alike. Absolute similarity cannot separate those; the margin can.
-              // This is deliberately name-blind — the confident wrong answers were
-              // different cards, which ambiguousPrinting above never catches.
-              const lowMargin = !verified && top && second
-                && (top.score - second.score) < SCAN_MATCH_MIN_MARGIN;
-              // The server says nothing in any catalog resembles this card, so the
-              // candidates below are the nearest strangers rather than a shortlist.
-              // Auto-add is exactly wrong here — a card the catalog has never heard
-              // of is the one case where a high cosine and a clean margin prove
-              // nothing — but the list still goes on screen: it costs the user one
-              // glance and beats claiming the card does not exist.
-              if (candidates && candidates.length > 0) {
-                // Resolve the WHOLE ORB list to real cards, once, and use it for
-                // both outcomes. The confident path used to resolve only the top
-                // pick, which meant the auto-add overlay had nothing to offer if
-                // it guessed wrong — and when scanning a whole set, the card in
-                // hand often is not ORB's first choice.
-                const confidentPick = confident && !ambiguousPrinting && !lowMargin && !notInCatalog;
-                // Turbo (countdown 0) adds instantly with no overlay, so there is
-                // nowhere to put alternatives — resolving eight cards per scan
-                // would be pure latency on the fastest tier. Everywhere else the
-                // whole list is resolved, because the countdown shows it.
-                const wanted = (confidentPick && profile.countdown === 0)
-                  ? candidates.slice(0, 1)
-                  : candidates.slice(0, 8);
-                // Only announce a fetch if one is actually needed; anything the
-                // server pre-hydrated resolves without a round-trip.
-                if (wanted.some(c => !c.card)) setScanStatus(t('scan.fetchingCandidates'));
-                const resolved = await resolveCandidates(wanted, matchGame, scanLang);
-                if (scanId !== currentScanId.current) return;
-                const validCandidates = resolved.filter(Boolean);
-                // Remembered for the add drawer, which otherwise loses every
-                // alternative the moment a card is chosen.
-                setLastMatches(validCandidates);
-
-                if (validCandidates.length > 0) {
-                  // Confident: auto-add the top pick, but keep the rest on screen
-                  // beside the countdown so a wrong guess is one tap to correct
-                  // rather than an undo after the fact.
-                  if (confidentPick && sameCard(validCandidates[0], top)) {
-                    setAutoAddAlternatives(validCandidates.slice(1));
-                    await applyMatches([validCandidates[0]], '', true);
-                    return;
-                  }
-                  setAutoAddAlternatives([]);
-                  await applyMatches(validCandidates, '', false);
-                  // applyMatches clears the status line for a non-empty list, so
-                  // this has to land after it.
-                  if (notInCatalog) setScanStatus(t('scan.notInCatalog'));
-                  return;
-                }
-                // The catalog matched and nothing could be named. Only the
-                // ready-made Pokémon catalog can end up here (its ids are
-                // TCGplayer product ids with no card data behind them), and
-                // "no confident match" would blame the photo for an install
-                // state the user can fix.
-                if (unresolvedPublished) {
-                  setScanStatus(t('scan.readyMadeUnresolved'));
-                  signal('error');
-                  return;
-                }
-              }
-            }
-          } catch (e) { console.warn('scan-match request failed:', e); }
+      // ponytail: two fresh passes, no voting/retries. Disagreement needs a person.
+      for (let pass = 1; pass <= 2; pass++) {
+        setVerificationFrame(pass);
+        setScanStatus(t('scan.verifying', { frame: pass, total: 2 }));
+        const frame = await waitForVideoFrame(video, controller.signal);
+        if (scanId !== currentScanId.current) return;
+        const guideElement = document.querySelector('.scan-card-guide');
+        if (!guideElement) throw new Error('errNoGuideBox');
+        const framedCanvas = buildFramedCanvas(video, guideElement);
+        if (!framedCanvas) throw new Error('errNoFrame');
+        const fresh = bestFrame.current && !bestFrame.current.none
+          && Date.now() - bestFrame.current.at < 500;
+        const cropped = fresh ? localDewarp(framedCanvas, lastRawQuad.current) : null;
+        const imageData = cropped || (() => {
+          const up = document.createElement('canvas');
+          const scale = Math.min(1, profile.uploadW / framedCanvas.width);
+          up.width = Math.round(framedCanvas.width * scale);
+          up.height = Math.round(framedCanvas.height * scale);
+          up.getContext('2d').drawImage(framedCanvas, 0, 0, up.width, up.height);
+          return up.toDataURL('image/jpeg', 0.85);
+        })();
+        setDebugHashImg(imageData);
+        lastScanImgRef.current = imageData;
+        lastScanCroppedRef.current = !!cropped;
+        const response = await fetch('/api/scan-match', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({ game: scanGame, image: imageData, cropped: !!cropped,
+            set: scanSetParam, lang: scanLang, recallK: profile.recallK, orb: profile.orb }),
+        });
+        const data = await response.json();
+        if (scanId !== currentScanId.current) return;
+        if (!response.ok) {
+          if (data?.notBuilt) throw new Error('catalogNotBuilt');
+          throw new Error('scanFailed');
+        }
+        const { game: matchGame, verified, candidates = [], alternatives = [], crop, scoped, unresolvedPublished } = data;
+        if (crop) setDebugHashImg(crop);
+        setDebugScoped(scoped ? scanSetParam : false);
+        setDebugCandidates(candidates.map(candidate => ({ ...candidate, verified })));
+        scanMatchReasons(data).forEach(reason => reasons.add(reason));
+        const resolved = await resolveCandidates([...candidates, ...alternatives].slice(0, 8), matchGame, scanLang, controller.signal);
+        if (scanId !== currentScanId.current) return;
+        const validCandidates = resolved.filter(Boolean);
+        for (const card of validCandidates) {
+          if (!reviewCandidates.some(previous => previous.id === card.id)) reviewCandidates.push(card);
+        }
+        const topCard = resolved[0];
+        if (!topCard || !sameCard(topCard, candidates[0])) reasons.add('not_in_catalog');
+        if (topCard?.langFallback) reasons.add('language_fallback');
+        agreement = recordScanPass(agreement, { frame, cardId: topCard?.id, safe: reasons.size === 0 });
+        if (agreement.disagreed) reasons.add('frames_disagree');
+        if (unresolvedPublished && validCandidates.length === 0) reasons.add('missing_card_data');
+        if (reasons.size || pass === 2) {
+          setLastMatches(reviewCandidates);
+          signal('capture'); // All photos needed for this decision are now acquired.
+          if (agreement.ready) {
+            setAutoAddAlternatives(reviewCandidates.filter(card => card.id !== topCard.id));
+            await applyMatches([topCard], '', true);
+          } else {
+            await applyMatches(reviewCandidates, explain() || t('scan.noConfidentMatch'), false);
+            setScanStatus(explain() || t('scan.noConfidentMatch'));
+          }
+          return;
         }
       }
-
-      setScanStatus(t('scan.noConfidentMatch'));
-      // Frame no longer shows a recognizable card — clear the skip guard so the
-      // resolved-duplicate card isn't skipped forever once re-presented.
-      resolvedDupIdRef.current = null;
+    } catch (error) {
+      if (scanId !== currentScanId.current || error.name === 'AbortError') return;
+      // Do not retry transport failures or count the first response twice.
+      if (reviewCandidates.length) {
+        setLastMatches(reviewCandidates);
+        await applyMatches(reviewCandidates, '', false);
+      }
+      const message = error.message;
+      const key = message === 'fresh_frame_unavailable' ? `scan.safety.${message}`
+        : ['errNoGuideBox', 'errNoFrame', 'catalogNotBuilt'].includes(message) ? `scan.${message}` : 'scan.scanFailed';
+      setScanStatus(t(key));
       signal('error');
-    } catch (err) {
-      console.error('Scan match failed:', err);
-      if (scanId === currentScanId.current) setScanStatus(t('scan.scanFailed'));
     } finally {
-      if (scanId === currentScanId.current) setLoading(false);
+      if (scanId === currentScanId.current) {
+        loadingRef.current = false;
+        setLoading(false);
+        setVerificationFrame(null);
+        scanAbortRef.current = null;
+      }
     }
   };
   // Keep the ref pointing at the latest handleCapture so timers (metronome /
@@ -1541,6 +1479,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
     if (e && e.preventDefault) e.preventDefault();
     const q = manualSearchText.trim();
     if (!q || manualSearching) return;
+    if (loadingRef.current) handleCancelScan();
     setManualSearching(true);
     try {
       const p = new URLSearchParams({
@@ -1744,10 +1683,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 clock to show any more — what the user needs to know is whether the
                 scanner is waiting on them (no card / hold still) or on itself
                 (scanning / lift the card), because those need opposite reactions. */}
-            {autoScan && autoState && (
+            {autoScan && (autoState || verificationFrame) && (
               <div style={{ position: 'absolute', top: '1rem', left: '1rem', zIndex: 20, display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.3rem 0.6rem', borderRadius: 999, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.6))' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: autoState.color, flexShrink: 0 }} />
-                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>{autoState.label}</span>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: autoState?.color || 'var(--accent-red)', flexShrink: 0 }} />
+                <span role="status" style={{ fontSize: '0.68rem', fontWeight: 700, color: '#fff' }}>{verificationFrame ? t('scan.verifying', { frame: verificationFrame, total: 2 }) : autoState.label}</span>
               </div>
             )}
 
@@ -2036,7 +1975,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
 
             {/* Scan Detail. What it still controls: upload resolution and the
                 auto-add confirm window. recallK/orb are inert — every scan is
-                CollectorVision now, whose cost is fixed at one 448px embed and one
+                CollectorVision now, whose per-frame cost is one 448px embed and one
                 cosine sweep per catalog, and the ORB pipeline those two knobs
                 tuned no longer exists. Kept rather than hidden because uploadW and
                 the countdown are real on every path; the request still carries the
@@ -2219,8 +2158,8 @@ function CameraScanner({ onAddSuccess, showToast }) {
       )}
 
       {/* Scan Status Log */}
-      {scanStatus && (
-        <div className="glass-panel" style={{ width: '100%', padding: '1rem', borderLeft: '3px solid var(--accent-red)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+      {scanStatus && scanMatches.length === 0 && (
+        <div role="status" className="glass-panel" style={{ width: '100%', padding: '1rem', borderLeft: '3px solid var(--accent-red)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           {loading && <div className="spinner" style={{ width: '14px', height: '14px', margin: 0, borderWidth: '2px' }}></div>}
           <span style={{ fontSize: '0.85rem', color: 'var(--text-strong)', fontWeight: 500 }}>{scanStatus}</span>
         </div>
@@ -2570,6 +2509,11 @@ function CameraScanner({ onAddSuccess, showToast }) {
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0 }}>
                 {t('scan.selectCorrect')}
               </p>
+              {scanStatus && (
+                <p role="status" style={{ color: 'var(--text-strong)', fontSize: '0.85rem', margin: 0, padding: '0.75rem', borderLeft: '3px solid var(--accent-yellow)' }}>
+                  {scanStatus}
+                </p>
+              )}
               
               {/* Manual search fallback within the modal */}
               <form onSubmit={handleManualSearch} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>

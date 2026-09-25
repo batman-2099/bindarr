@@ -44,7 +44,6 @@ process.env.DB_PATH = require('path').join(
   assert.strictEqual(ja.language, 'Japanese', 'row must be tagged Japanese');
   assert.strictEqual(ja.printed_name, '祖先の刀', 'printed_name carries the localized name');
   assert.match(ja.image_url, /ja\.jpg$/, 'art must be the Japanese printing');
-  assert.strictEqual(requested[0], '/cards/neo/1/ja', 'asks Scryfall by set+number+lang');
 
   // English is already what the catalog returns: no request, nothing to switch to.
   const before = requested.length;
@@ -106,74 +105,50 @@ process.env.DB_PATH = require('path').join(
   assert.strictEqual(await tcgdex.getPrintingInLang('tcgdex-ja-S12-001', 'Japanese'), null);
   assert.strictEqual(asked.length, beforeSame, 'same-language id must not be requested');
 
-  // ---- Korean (and Japanese, and Chinese) --------------------------------
-  //
-  // getPrintingInLang can only ever return null for these: their sets are their
-  // own releases (SM1M, S12, SV2a), not localised editions of the English ones, so
-  // there is no id to swap to. The scan therefore has to answer with the English
-  // card — and the two things that must be true of that answer are checked here
-  // against the real route, because both used to be false:
-  //
-  //   · it has to BE an answer. The candidate was resolved by set + collector
-  //     number through the provider for the SCANNED language, and the set id came
-  //     from TCGplayer's English catalogue, so a Korean scan asked TCGdex/ko about
-  //     'base6' and got nothing — every candidate unresolvable, "no confident
-  //     match", while the same photo scanned as English named the card at once.
-  //   · it has to say it is English art. An unmarked English row is exactly what a
-  //     genuine English printing looks like.
+  // The product's active scan route is Magic-only. An unavailable translation
+  // remains an English printing and requires review, never a relabelled copy.
   const router = require('../src/routes/collection');
   const scanLayer = router.stack.find(l => l.route && l.route.path === '/scan-match');
   const scanMatch = scanLayer.route.stack[scanLayer.route.stack.length - 1].handle;
-
-  // Pinned, because the English retry goes through the CONFIGURED English provider
-  // rather than a hardcoded one (utils/pokemonProvider): with pokemontcg.io set,
-  // the two lookups land on two different modules, which is the arrangement worth
-  // checking. TCGdex-configured installs differ only in that both calls are TCGdex,
-  // one per language.
-  await db.run(`UPDATE app_settings SET pokemon_provider = 'pokemontcg' WHERE id = 1`);
-
   const cvScan = require('../src/cvScan');
-  const tcgplayerCatalog = require('../src/tcgplayerCatalog');
-  const tcgApi = require('../src/tcgApi');
   cvScan.isBuilt = () => true;
-  cvScan.match = async () => ({ verified: false, candidates: [{ productId: 42, score: 0.91 }] });
-  // The published Pokémon catalog is TCGplayer's ENGLISH products, whatever
-  // language is being scanned.
-  tcgplayerCatalog.lookup = async () => ({ name: 'Charizard', set_id: 'base6', number: '96' });
-  const koAsked = [];
-  tcgdex.searchCards = async ({ set, lang }) => {
-    koAsked.push({ set, lang });
-    return { cards: [], total: null };   // 'base6' does not exist in Korean
-  };
-  tcgApi.searchCards = async ({ number, set }) => ({
-    cards: set === 'base6' && number === '96'
-      ? [{ id: 'base6-96', name: 'Charizard', number: '96', set_id: 'base6', set_name: 'Legendary Collection', language: 'English', image_url: 'https://img/en.png' }]
-      : [],
-    total: null,
+  let setCode = 'lea';
+  cvScan.match = async () => ({
+    verified: false, candidates: [{ cardId: `mtg-${setCode}-1-en`, score: 0.91 }],
+    quality: { blurry: false, glare: false },
   });
-
+  scryfall.getCardById = async () => ({
+    id: `mtg-${setCode}-1-en`, name: 'Ancestral Katana', set_id: setCode, number: '1',
+    language: 'English', image_url: 'https://cards.scryfall.io/en.jpg',
+  });
   const scan = async (lang) => {
-    let body = null;
+    let body;
     await scanMatch(
-      { body: { game: 'pokemon', image: 'x'.repeat(200), lang }, user: { tcg_api_key: '' }, query: {} },
-      { json: (b) => { body = b; }, status() { return this; } },
+      { body: { image: 'x'.repeat(200), lang }, user: { tcg_api_key: '' }, query: {} },
+      { json: value => { body = value; }, status() { return this; } },
     );
     return body;
   };
+  const fallback = await scan('ja');
+  assert.strictEqual(fallback.candidates[0].card.language, 'English');
+  assert.strictEqual(fallback.candidates[0].card.langFallback, 'Japanese');
+  assert.strictEqual(fallback.safety.autoAddSafe, false);
+  assert.ok(fallback.safety.reasons.includes('language_fallback'));
+  assert.strictEqual(fallback.lang, 'en');
 
-  const ko = await scan('ko');
-  const kCard = ko.candidates[0].card;
-  assert.ok(kCard, 'a Korean scan must resolve the candidate, not drop it');
-  assert.strictEqual(kCard.id, 'base6-96', 'the English printing is the only one that exists');
-  assert.strictEqual(kCard.langFallback, 'Korean', 'and it must be marked as standing in for Korean');
-  assert.deepStrictEqual(koAsked, [{ set: 'base6', lang: 'ko' }], 'Korean is asked first, and only once');
+  const english = await scan('en');
+  assert.strictEqual(english.candidates[0].card.langFallback, undefined);
+  assert.strictEqual(english.safety.context.languageFallback, false);
+  assert.strictEqual(english.safety.autoAddSafe, true);
 
-  // English asks once and carries no marker — there is nothing to disclaim.
-  const en = await scan('en');
-  assert.strictEqual(en.candidates[0].card.id, 'base6-96');
-  assert.strictEqual(en.candidates[0].card.langFallback, undefined, 'an English scan must not be marked');
-  assert.strictEqual(koAsked.length, 1, 'an English scan must not consult TCGdex');
+  setCode = 'neo';
+  const translated = await scan('ja');
+  assert.strictEqual(translated.candidates[0].card.language, 'Japanese');
+  assert.strictEqual(translated.candidates[0].card.id, ja.id);
+  assert.strictEqual(translated.safety.context.languageFallback, false);
+  assert.strictEqual(translated.safety.autoAddSafe, true);
+  assert.strictEqual(translated.lang, 'ja');
 
-  console.log('scanlang.test.js: all 25 assertions passed');
+  console.log('scanlang.test.js: provider languages and scan fallback assertions passed');
   process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -882,6 +882,23 @@ async function initDb() {
     await adoptOrphanRows(adminId);
     await seedStarterLocations(adminId);
   }
+
+  const allocationTable = await get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'deck_allocations'");
+  await withTransaction(async () => {
+    await run(`
+      CREATE TABLE IF NOT EXISTS deck_allocations (
+        deck_id INTEGER NOT NULL,
+        card_id TEXT NOT NULL,
+        entry_id INTEGER NOT NULL,
+        quantity INTEGER NOT NULL CHECK(quantity > 0),
+        PRIMARY KEY(deck_id, entry_id),
+        FOREIGN KEY(deck_id, card_id) REFERENCES deck_cards(deck_id, card_id) ON DELETE CASCADE,
+        FOREIGN KEY(entry_id) REFERENCES collection(id)
+      )
+    `);
+    await run('CREATE INDEX IF NOT EXISTS idx_deck_allocations_entry ON deck_allocations(entry_id)');
+    if (!allocationTable) await require('./utils/collectionHelpers').materializeCheckedOutAllocations();
+  });
 }
 
 // Cards and locations from before multi-user carry `user_id IS NULL`. They belong

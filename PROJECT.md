@@ -555,12 +555,13 @@ in `shared/cardDetectPure.mjs`.
 
 Reserving a deck's physical cards. **Checkout and check-in never move cards in
 the DB** — a card's stored slot is both where you grab it and where it returns;
-only `decks.checked_out` changes.
+checkout state and selected-entry reservations change, not storage placement.
 
-- `PUT /api/decks/:id/checkout` validates availability (owned minus copies locked by other checked-out decks) and sets the flag.
+- `GET /api/decks/:id/checkout-options` returns available nonmissing Physical entries and their locations. Split-source checkouts open a quantity chooser before any mutation.
+- `PUT /api/decks/:id/checkout` accepts `{ allocations: [{ card_id, entry_id, quantity }] }`, validates exact deck quantities and current unreserved availability in one transaction, and persists the selected entries. Without allocations it chooses sources deterministically.
 - `GET /api/decks/:id/locations` returns, per card, the specific stored copies to pull (`entry_id`, container, compartment display, slot from `position`) plus any `missing` count.
-- `GET /api/collection` annotates each entry with `checked_out_qty` (`checkedOutAllocation` greedily allocates checked-out decks' requirements onto owned entries), so `CompartmentView` greys those copies with an "In Play" badge.
-- `CheckoutWizardModal` renders that payload as a grouped checklist with the compartment grid highlighting the pulled cards; `PUT /api/decks/:id/return` flips the flag and reopens the same modal in reverse (`mode="checkin"`).
+- `GET /api/collection` annotates each entry with `checked_out_qty` from persisted reservations through `checkedOutAllocation`, so `CompartmentView` greys the selected copies with an "In Play" badge. Card-composition edits and destructive changes to reserved copies require returning the deck; storage moves retain reservations.
+- `CheckoutWizardModal` renders the selected locations as a grouped checklist with compartment-grid highlights. `PUT /api/decks/:id/return` releases reservations; the UI retains the pre-return locator for check-in and restores the exact selection if return is cancelled. Complete backups preserve selections.
 
 ---
 

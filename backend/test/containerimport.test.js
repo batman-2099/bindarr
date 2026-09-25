@@ -188,6 +188,7 @@ async function testContainerImport() {
     const protectedBefore = await protectedRows();
     const deck = (await db.run("INSERT INTO decks (name, user_id, checked_out) VALUES ('In play', 1, 1)")).lastID;
     await db.run("INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, 'mtg-5', 8)", [deck]);
+    await db.withTransaction(() => require('../src/utils/collectionHelpers').materializeCheckedOutAllocations());
     const deckBefore = await db.get('SELECT * FROM decks WHERE id = ?', [deck]);
     const deckCardsBefore = await db.all('SELECT * FROM deck_cards WHERE deck_id = ?', [deck]);
     const inventoryBeforeMove = await inventory();
@@ -223,6 +224,11 @@ async function testContainerImport() {
     assert.strictEqual((await db.get('SELECT capacity FROM compartments WHERE location_id = ?', [review.body.id])).capacity, 10);
     assert.deepStrictEqual(await db.get('SELECT * FROM decks WHERE id = ?', [deck]), deckBefore);
     assert.deepStrictEqual(await db.all('SELECT * FROM deck_cards WHERE deck_id = ?', [deck]), deckCardsBefore);
+    assert.strictEqual((await db.get(`SELECT SUM(a.quantity) AS quantity FROM deck_allocations a
+      JOIN collection c ON c.id = a.entry_id WHERE a.deck_id = ? AND c.location_id = ?`, [deck, review.body.id])).quantity, 7,
+      'splitting the moved reserved stack carries all seven selected copies into the destination');
+    assert.strictEqual((await db.get(`SELECT COUNT(*) AS count FROM deck_allocations a JOIN collection c ON c.id = a.entry_id
+      WHERE a.quantity > c.quantity`)).count, 0, 'no split source retains more reservations than physical copies');
     assert.deepStrictEqual(counts(await move()), [10, 0, 0]);
     assert.deepStrictEqual(await db.all('SELECT id, position FROM collection WHERE compartment_id = ? AND user_id = 1 ORDER BY position', [sourceCompartment]),
       [{ id: before, position: 1000 }, { id: after, position: 2000 }], 'source order is retained without holes');

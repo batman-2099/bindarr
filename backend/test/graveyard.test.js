@@ -93,6 +93,7 @@ async function testGraveyard() {
     await change(restoredArchive.id, 'collection');
     const restoredDeck = await db.get('SELECT id FROM decks WHERE user_id = 1');
     await db.run('UPDATE decks SET checked_out = 1 WHERE id = ?', [restoredDeck.id]);
+    await db.withTransaction(() => require('../src/utils/collectionHelpers').materializeCheckedOutAllocations());
     const spare = (await db.run(`INSERT INTO collection (card_id, user_id) VALUES ('spare-card', 1)`)).lastID;
     const beforeGuard = await db.all('SELECT * FROM collection WHERE user_id = 1 ORDER BY id');
     await change(restoredArchive.id, 'graveyard', 1, 409);
@@ -100,6 +101,7 @@ async function testGraveyard() {
     assert.deepStrictEqual(await db.all('SELECT * FROM collection WHERE user_id = 1 ORDER BY id'), beforeGuard, 'checked-out guard rejects the whole batch without mutation');
     assert.strictEqual((await db.get('SELECT checked_out FROM decks WHERE id = ?', [restoredDeck.id])).checked_out, 1);
     await db.run('UPDATE decks SET checked_out = 0 WHERE id = ?', [restoredDeck.id]);
+    await db.run('DELETE FROM deck_allocations WHERE deck_id = ?', [restoredDeck.id]);
     await change(restoredArchive.id, 'graveyard');
     assert.deepStrictEqual((await request('/collection?list_type=graveyard')).map(row => row.quantity), [3]);
 
@@ -234,9 +236,11 @@ async function testGraveyard() {
     await request(`/compartments/${transferComps[1].id}`, 'PATCH', { locked: false });
     const transferDeck = (await db.run(`INSERT INTO decks (name, user_id, checked_out) VALUES ('Transfer guard', 1, 1)`)).lastID;
     await db.run(`INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, 'archive-card', 999)`, [transferDeck]);
+    await db.withTransaction(() => require('../src/utils/collectionHelpers').materializeCheckedOutAllocations());
     await rejectTransfer(transferBox, 'graveyard', 1, 409);
     assert.strictEqual((await db.get('SELECT checked_out FROM decks WHERE id = ?', [transferDeck])).checked_out, 1);
     await db.run('UPDATE decks SET checked_out = 0 WHERE id = ?', [transferDeck]);
+    await db.run('DELETE FROM deck_allocations WHERE deck_id = ?', [transferDeck]);
 
     const beforeTransfer = await snapshot();
     assert.strictEqual((await transfer(transferBox, 'graveyard')).affected, 3);

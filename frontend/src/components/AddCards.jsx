@@ -28,13 +28,6 @@ function AddCards({ onAddSuccess, showToast, setActiveTab, initialMode = 'scan' 
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', gap: '1rem', position: 'relative' }}>
         <div className="sub-nav-tabs" style={{ width: '100%', maxWidth: '520px', margin: 0 }}>
-          <button 
-            className={`sub-nav-tab ${mode === 'scan' ? 'active' : ''}`}
-            onClick={() => setMode('scan')}
-          >
-            <Camera size={18} />
-            <span>{t('addCards.scan')}</span>
-          </button>
           <button
             className={`sub-nav-tab ${mode === 'search' ? 'active' : ''}`}
             onClick={() => setMode('search')}
@@ -58,6 +51,14 @@ function AddCards({ onAddSuccess, showToast, setActiveTab, initialMode = 'scan' 
           >
             <BookOpen size={18} />
             <span>{t('addCards.deck')}</span>
+          </button>
+          <button
+            className={`sub-nav-tab ${mode === 'scan' ? 'active' : ''}`}
+            onClick={() => setMode('scan')}
+          >
+            <Camera size={18} />
+            <span>{t('addCards.scan')}</span>
+            <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '0.1rem 0.3rem', borderRadius: 'var(--radius-sm)', border: '1px solid currentColor', color: 'var(--accent-yellow)' }}>{t('addCards.beta')}</span>
           </button>
         </div>
       </div>

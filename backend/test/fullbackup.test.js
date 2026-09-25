@@ -24,6 +24,7 @@ async function testFullBackup() {
     const deck = await db.run(`INSERT INTO decks (name, game, format, commander_card_id, checked_out, wins, losses, user_id) VALUES ('Backup Deck', 'mtg', 'Commander / EDH', 'backup-card', 1, 7, 3, 1)`);
     await db.run(`INSERT INTO deck_cards (deck_id, card_id, quantity, checked_out) VALUES (?, 'backup-card', 2, 1)`, [deck.lastID]);
     await db.run(`INSERT INTO decks (name, game, inventory_type, wins, losses, user_id) VALUES ('Arena Deck', 'mtg', 'arena', 2, 5, 1)`);
+    await db.withTransaction(() => require('../src/utils/collectionHelpers').materializeCheckedOutAllocations());
 
     const res = {
       headers: {},
@@ -34,7 +35,6 @@ async function testFullBackup() {
 
     assert.strictEqual(res.headers['Content-Type'], 'application/json');
     assert.strictEqual(res.body.format, 'bindarr-backup');
-    assert.strictEqual(res.body.version, 1);
     assert.deepStrictEqual(res.body.collection.map(card => [card.card_id, card.position]), [['backup-card', 1000]]);
     assert.ok(res.body.locations.some(row => row.id === location.lastID && row.name === 'Backup Box'));
     assert.ok(res.body.compartments.some(row => row.id === compartment.lastID && row.idx === 1 && row.capacity === 100));

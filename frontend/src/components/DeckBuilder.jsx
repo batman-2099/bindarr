@@ -4,7 +4,7 @@ import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, 
 import { shuffleArray } from '../utils/shuffle';
 import { translateJapaneseName } from '../utils/langHelper';
 import { displayName } from '../utils/languages';
-import CheckoutWizardModal from './CheckoutWizardModal';
+import CheckoutWizardModal, { CheckoutSelectionModal } from './CheckoutWizardModal';
 import { useBackGuard } from '../utils/useBackGuard';
 import { arenaCardKey, buildDeckExport, parseDeckLine } from '../utils/deckText';
 import { defaultGame, isGameEnabled } from '../utils/games';
@@ -150,6 +150,8 @@ function DeckBuilder({ showToast }) {
   const [checkoutLocations, setCheckoutLocations] = useState([]);
   const [checkoutMode, setCheckoutMode] = useState('checkout'); // 'checkout' | 'checkin'
   const [checkoutDeckId, setCheckoutDeckId] = useState(null); // deck the open modal acts on
+  const [checkoutReview, setCheckoutReview] = useState(null);
+  const [checkoutError, setCheckoutError] = useState('');
   const [deckCardLocations, setDeckCardLocations] = useState({});
 
   // True while an add/qty write is in flight. Blocks overlapping clicks that
@@ -363,6 +365,7 @@ function DeckBuilder({ showToast }) {
 
   const handleAddCardToDeck = async (card) => {
     if (!activeDeck || savingCard) return;
+    if (activeDeck.checked_out) { showToast(t('deck.returnBeforeEditing')); return; }
 
     // Find if card already exists in deck
     const existing = activeDeck.cards.find(c => c.id === card.id);
@@ -394,6 +397,7 @@ function DeckBuilder({ showToast }) {
 
   const handleUpdateCardQty = async (cardId, newQty) => {
     if (!activeDeck || savingCard) return;
+    if (activeDeck.checked_out) { showToast(t('deck.returnBeforeEditing')); return; }
 
     // Guard against NaN/garbage from a manual quantity input before it reaches
     // the server as an invalid quantity.
@@ -429,7 +433,8 @@ function DeckBuilder({ showToast }) {
       if (response.ok) {
         await loadDeckDetails(activeDeck.id);
       } else {
-        showToast(t('deck.errQuantity'));
+        const data = await response.json().catch(() => ({}));
+        showToast(data.error || t('deck.errQuantity'));
       }
     } catch (err) {
       console.error(err);
@@ -441,6 +446,7 @@ function DeckBuilder({ showToast }) {
 
   const handleRemoveCard = async (cardId) => {
     if (!activeDeck) return;
+    if (activeDeck.checked_out) { showToast(t('deck.returnBeforeEditing')); return; }
 
     try {
       const response = await fetch(`/api/decks/${activeDeck.id}/cards/${cardId}`, {
@@ -451,7 +457,8 @@ function DeckBuilder({ showToast }) {
         showToast(t('deck.cardRemoved'));
         loadDeckDetails(activeDeck.id);
       } else {
-        showToast(t('loc.errRemoveCard'));
+        const data = await response.json().catch(() => ({}));
+        showToast(data.error || t('loc.errRemoveCard'));
       }
     } catch (err) {
       console.error(err);
@@ -554,17 +561,25 @@ function DeckBuilder({ showToast }) {
   };
 
   // --- CHECKOUT / RETURN ---
-  const handleCheckout = async (deck = null) => {
-    const targetDeck = deck || activeDeck;
-    if (!targetDeck) return;
+  const checkoutErrorMessage = (data) => data?.details?.length
+    ? t('deck.errCheckout', { detail: data.details[0], extra: data.details.length > 1 ? t('deck.andMore', { count: data.details.length - 1 }) : '' })
+    : data?.error || t('deck.errCheckoutGeneric');
+
+  const commitCheckout = async (targetDeck, allocations) => {
     try {
       setCheckingOut(true);
-      const res = await fetch(`/api/decks/${targetDeck.id}/checkout`, { method: 'PUT' });
+      setCheckoutError('');
+      const res = await fetch(`/api/decks/${targetDeck.id}/checkout`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allocations })
+      });
       if (res.ok) {
+        setCheckoutReview(null);
         showToast(t('deck.checkedOut', { name: targetDeck.name }));
-        if (activeDeck && activeDeck.id === targetDeck.id) {
-          setActiveDeck(prev => ({ ...prev, checked_out: 1, checked_out_at: new Date().toISOString() }));
-        }
+        setActiveDeck(prev => prev?.id === targetDeck.id
+          ? { ...prev, checked_out: 1, checked_out_at: new Date().toISOString() }
+          : prev);
         fetchDecks();
 
         const locRes = await fetch(`/api/decks/${targetDeck.id}/locations`);
@@ -576,12 +591,46 @@ function DeckBuilder({ showToast }) {
           setShowCheckoutModal(true);
         }
       } else {
-        const errData = await res.json().catch(() => null);
-        if (errData && errData.details && errData.details.length > 0) {
-          showToast(t('deck.errCheckout', { detail: errData.details[0], extra: errData.details.length > 1 ? t('deck.andMore', { count: errData.details.length - 1 }) : '' }));
-        } else {
-          showToast(errData?.error || 'Failed to check out deck.');
-        }
+        const message = checkoutErrorMessage(await res.json().catch(() => null));
+        setCheckoutError(message);
+        showToast(message);
+      }
+    } catch (err) {
+      console.error(err);
+      setCheckoutError(t('deck.errCheckoutGeneric'));
+      showToast(t('deck.errCheckoutGeneric'));
+    } finally {
+      setCheckingOut(false);
+    }
+  };
+
+  const handleCheckout = async (deck = null) => {
+    const targetDeck = deck || activeDeck;
+    if (!targetDeck || checkingOut) return;
+    setCheckingOut(true);
+    setCheckoutError('');
+    try {
+      const res = await fetch(`/api/decks/${targetDeck.id}/checkout-options`);
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(checkoutErrorMessage(data));
+        return;
+      }
+      const allocations = data.cards.flatMap(card => {
+        let remaining = card.quantity;
+        return card.choices.flatMap(choice => {
+          const quantity = Math.min(remaining, choice.available_qty);
+          remaining -= quantity;
+          return quantity > 0 ? [{ card_id: card.card_id, entry_id: choice.entry_id, quantity }] : [];
+        });
+      });
+      const needsReview = data.cards.some(card =>
+        card.choices.filter(choice => choice.available_qty > 0).length > 1
+        || card.choices.reduce((sum, choice) => sum + choice.available_qty, 0) < card.quantity);
+      if (needsReview) {
+        setCheckoutReview({ deck: targetDeck, cards: data.cards, allocations });
+      } else {
+        await commitCheckout(targetDeck, allocations);
       }
     } catch (err) {
       console.error(err);
@@ -633,7 +682,16 @@ function DeckBuilder({ showToast }) {
     if (!id) return;
     const undo = checkoutMode === 'checkout' ? 'return' : 'checkout';
     try {
-      const res = await fetch(`/api/decks/${id}/${undo}`, { method: 'PUT' });
+      const allocations = checkoutLocations.flatMap(card => (card.locations || []).map(location => ({
+        card_id: card.card_id, entry_id: location.entry_id, quantity: location.take
+      })));
+      const res = await fetch(`/api/decks/${id}/${undo}`, {
+        method: 'PUT',
+        ...(undo === 'checkout' ? {
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ allocations })
+        } : {})
+      });
       if (!res.ok) { showToast(t('deck.errUndo')); return; }
       if (activeDeck && activeDeck.id === id) {
         const back = checkoutMode === 'checkout';
@@ -818,6 +876,7 @@ function DeckBuilder({ showToast }) {
 
   const handleImportDeck = async () => {
     if (!activeDeck || !importComparison) return;
+    if (activeDeck.checked_out) { showToast(t('deck.returnBeforeEditing')); return; }
     let addedCount = 0;
     const skipped = [];
 
@@ -2668,6 +2727,17 @@ function DeckBuilder({ showToast }) {
             </p>
           </div>
         </div>
+      )}
+
+      {checkoutReview && (
+        <CheckoutSelectionModal
+          cards={checkoutReview.cards}
+          initialAllocations={checkoutReview.allocations}
+          busy={checkingOut}
+          error={checkoutError}
+          onCancel={() => setCheckoutReview(null)}
+          onConfirm={allocations => commitCheckout(checkoutReview.deck, allocations)}
+        />
       )}
 
       {/* Checkout Locator Modal */}

@@ -272,10 +272,13 @@ router.delete('/users/:id', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    await db.run(`DELETE FROM sessions WHERE user_id = ?`, [id]);
-    await db.run(`DELETE FROM collection WHERE user_id = ?`, [id]);
-    await db.run(`DELETE FROM locations WHERE user_id = ?`, [id]);
-    await db.run(`DELETE FROM users WHERE id = ?`, [id]);
+    await db.withTransaction(async () => {
+      await db.run(`DELETE FROM decks WHERE user_id = ?`, [id]);
+      await db.run(`DELETE FROM sessions WHERE user_id = ?`, [id]);
+      await db.run(`DELETE FROM collection WHERE user_id = ?`, [id]);
+      await db.run(`DELETE FROM locations WHERE user_id = ?`, [id]);
+      await db.run(`DELETE FROM users WHERE id = ?`, [id]);
+    });
 
     res.json({ message: `User "${targetUser.username}" and all their card collections/locations have been permanently deleted.` });
   } catch (error) {

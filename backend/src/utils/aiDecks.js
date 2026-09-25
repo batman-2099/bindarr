@@ -212,10 +212,11 @@ async function inventory(userId, type, { include_checked_out = false, container_
         SUM(CASE WHEN ? = 'collection' AND COALESCE(missing, 0) != 0 THEN quantity ELSE 0 END) AS missing_qty
       FROM collection WHERE user_id = ? AND game = 'mtg' AND list_type = ? AND quantity > 0 GROUP BY card_id
     ), locked AS (
-      SELECT dc.card_id, SUM(dc.quantity) AS locked_qty FROM deck_cards dc JOIN decks d ON d.id = dc.deck_id
+      SELECT a.card_id, SUM(a.quantity) AS locked_qty FROM deck_allocations a JOIN decks d ON d.id = a.deck_id
+      JOIN collection c ON c.id = a.entry_id AND COALESCE(c.missing, 0) = 0
       WHERE ? = 'collection' AND d.user_id = ? AND d.game = 'mtg'
-        AND d.inventory_type = 'collection' AND d.checked_out = 1 AND dc.quantity > 0
-        AND (? IS NULL OR d.id != ?) GROUP BY dc.card_id
+        AND d.inventory_type = 'collection' AND d.checked_out = 1
+        AND (? IS NULL OR d.id != ?) GROUP BY a.card_id
     )
     SELECT cc.id, cc.name, cc.printed_name, cc.set_id, cc.set_name, cc.number, cc.game,
       cc.supertype, cc.subtypes, cc.types, cc.color_identity, cc.cmc, cc.rarity, cc.image_url,

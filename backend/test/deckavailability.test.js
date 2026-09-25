@@ -24,6 +24,7 @@ async function testCheckedOutCardsAreUnavailable() {
     const stampede = await db.run(`INSERT INTO decks (name, game, checked_out, user_id) VALUES ('Goblin Stampede', 'mtg', 1, 1)`);
     await db.run(`INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, 'goblin', 1)`, [testing.lastID]);
     await db.run(`INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, 'goblin', 2)`, [stampede.lastID]);
+    await db.withTransaction(() => require('../src/utils/collectionHelpers').materializeCheckedOutAllocations());
 
     const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
     await getDeck({ params: { id: testing.lastID }, user: { id: 1 } }, res);

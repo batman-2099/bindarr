@@ -18,35 +18,128 @@ function defaultCompartmentPlan(type) {
   return { count: 1, capacity: 500 };
 }
 
-// How many copies of each collection entry are physically pulled for a
-// checked-out deck. Sums required quantity per card across all of the user's
-// checked-out decks, then allocates greedily onto their owned entries using the
-// same ordering the checkout locator uses (located copies first, newest first),
-// so storage greys out the same copies the wizard told them to grab.
+// Physical reservations refer to entries, never to a freshly guessed pull list.
 async function checkedOutAllocation(userId, excludeDeckId = null) {
-  const required = await db.all(`
-    SELECT dc.card_id, SUM(dc.quantity) AS req
-    FROM deck_cards dc
-    JOIN decks d ON dc.deck_id = d.id
-    WHERE d.user_id = ? AND d.checked_out = 1 AND d.inventory_type = 'collection' AND (? IS NULL OR d.id != ?)
-    GROUP BY dc.card_id
+  const rows = await db.all(`
+    SELECT a.entry_id, SUM(a.quantity) AS quantity
+    FROM deck_allocations a JOIN decks d ON d.id = a.deck_id
+    WHERE d.user_id = ? AND d.checked_out = 1 AND d.inventory_type = 'collection'
+      AND (? IS NULL OR d.id != ?)
+    GROUP BY a.entry_id
   `, [userId, excludeDeckId, excludeDeckId]);
-  const alloc = new Map();
-  for (const { card_id, req } of required) {
-    let need = req;
-    const entries = await db.all(`
-      SELECT id AS entry_id, quantity FROM collection
-      WHERE user_id = ? AND list_type = 'collection' AND card_id = ?
-      ORDER BY (location_id IS NOT NULL) DESC, added_at DESC
-    `, [userId, card_id]);
-    for (const e of entries) {
-      if (need <= 0) break;
-      const take = Math.min(e.quantity, need);
-      need -= take;
-      alloc.set(e.entry_id, take);
+  return new Map(rows.map(row => [row.entry_id, row.quantity]));
+}
+
+async function checkoutOptions(userId, deckId) {
+  const cards = await db.all(`
+    SELECT dc.card_id, COALESCE(cc.printed_name, cc.name, dc.card_id) AS name, dc.quantity
+    FROM deck_cards dc LEFT JOIN card_cache cc ON cc.id = dc.card_id
+    WHERE dc.deck_id = ? AND dc.quantity > 0 ORDER BY name, dc.card_id
+  `, [deckId]);
+  const entries = await db.all(`
+    SELECT c.id AS entry_id, c.card_id, c.quantity, c.position, c.location_id, c.compartment_id,
+      cc.name AS card_name, cc.printed_name, cc.set_name, cc.number,
+      l.name AS location_name, l.type AS location_type, cp.label, cp.idx
+    FROM collection c JOIN card_cache cc ON cc.id = c.card_id AND cc.game = 'mtg'
+    LEFT JOIN locations l ON l.id = c.location_id AND l.user_id = c.user_id
+    LEFT JOIN compartments cp ON cp.id = c.compartment_id AND cp.location_id = l.id
+    WHERE c.user_id = ? AND c.list_type = 'collection' AND c.game = 'mtg'
+      AND COALESCE(c.missing, 0) = 0 AND c.quantity > 0
+      AND c.card_id IN (SELECT card_id FROM deck_cards WHERE deck_id = ?)
+    ORDER BY (c.location_id IS NOT NULL) DESC, c.added_at DESC, c.id DESC
+  `, [userId, deckId]);
+  const reserved = await checkedOutAllocation(userId, deckId);
+  const choices = new Map(cards.map(card => [card.card_id, []]));
+  for (const entry of entries) {
+    const available = Math.max(0, entry.quantity - (reserved.get(entry.entry_id) || 0));
+    if (!available) continue;
+    choices.get(entry.card_id)?.push({
+      ...entry, available_qty: available,
+      location_name: entry.location_name || 'Unassigned Pile',
+      compartment_display: entry.idx == null ? null : compartmentLabel(entry, entry.location_type),
+      position: entry.location_id == null ? null : entry.position
+    });
+  }
+  return cards.map(card => ({ ...card, choices: choices.get(card.card_id) }));
+}
+
+function defaultAllocations(cards) {
+  const allocations = [];
+  for (const card of cards) {
+    let needed = card.quantity;
+    for (const choice of card.choices) {
+      const quantity = Math.min(needed, choice.available_qty);
+      if (quantity > 0) allocations.push({ card_id: card.card_id, entry_id: choice.entry_id, quantity });
+      needed -= quantity;
+      if (!needed) break;
     }
   }
-  return alloc;
+  return allocations;
+}
+
+// Caller holds the transaction, including ownership/state checks.
+async function reserveDeck(userId, deckId, allocations) {
+  const cards = await checkoutOptions(userId, deckId);
+  const selected = allocations === undefined ? defaultAllocations(cards) : allocations;
+  const fail = message => { throw Object.assign(new Error(message), { status: 400 }); };
+  if (!Array.isArray(selected)) fail('allocations must be an array');
+  const remaining = new Map(cards.map(card => [card.card_id, card.quantity]));
+  const choices = new Map(cards.flatMap(card => card.choices.map(choice => [choice.entry_id, { ...choice, card_id: card.card_id }])));
+  const seen = new Set();
+  for (const allocation of selected) {
+    if (!allocation || typeof allocation.card_id !== 'string'
+        || !Number.isSafeInteger(allocation.entry_id) || !Number.isSafeInteger(allocation.quantity)
+        || allocation.quantity <= 0 || seen.has(allocation.entry_id)) {
+      fail('Invalid or duplicate checkout allocation');
+    }
+    const choice = choices.get(allocation.entry_id);
+    if (!choice || choice.card_id !== allocation.card_id || allocation.quantity > choice.available_qty) {
+      fail('Selected copies are no longer available. Refresh checkout locations.');
+    }
+    seen.add(allocation.entry_id);
+    remaining.set(allocation.card_id, remaining.get(allocation.card_id) - allocation.quantity);
+  }
+  if ([...remaining.values()].some(quantity => quantity !== 0)) {
+    fail('Not enough cards available to check out this deck, or selected quantities do not match the deck.');
+  }
+  for (const allocation of selected) {
+    await db.run('INSERT INTO deck_allocations (deck_id, card_id, entry_id, quantity) VALUES (?, ?, ?, ?)',
+      [deckId, allocation.card_id, allocation.entry_id, allocation.quantity]);
+  }
+  await db.run('UPDATE decks SET checked_out = 1, checked_out_at = CURRENT_TIMESTAMP WHERE id = ?', [deckId]);
+}
+
+// Upgrade old checkouts once. If an old deck was already short, reserve only
+// existing copies rather than inventing inventory or overbooking another deck.
+async function materializeCheckedOutAllocations(userId = null) {
+  const decks = await db.all(`
+    SELECT id, user_id FROM decks WHERE checked_out = 1 AND inventory_type = 'collection'
+      AND (? IS NULL OR user_id = ?) AND NOT EXISTS (SELECT 1 FROM deck_allocations WHERE deck_id = decks.id)
+    ORDER BY checked_out_at, id
+  `, [userId, userId]);
+  for (const deck of decks) {
+    for (const allocation of defaultAllocations(await checkoutOptions(deck.user_id, deck.id))) {
+      await db.run('INSERT INTO deck_allocations (deck_id, card_id, entry_id, quantity) VALUES (?, ?, ?, ?)',
+        [deck.id, allocation.card_id, allocation.entry_id, allocation.quantity]);
+    }
+  }
+}
+
+// Splitting/moving a physical stack must move its reservation with the copies.
+async function moveEntryAllocations(sourceId, destinationId, quantity) {
+  const allocations = await db.all('SELECT * FROM deck_allocations WHERE entry_id = ? ORDER BY deck_id', [sourceId]);
+  for (const allocation of allocations) {
+    if (!quantity) break;
+    const take = Math.min(quantity, allocation.quantity);
+    await db.run('INSERT INTO deck_allocations (deck_id, card_id, entry_id, quantity) VALUES (?, ?, ?, ?)',
+      [allocation.deck_id, allocation.card_id, destinationId, take]);
+    if (take === allocation.quantity) {
+      await db.run('DELETE FROM deck_allocations WHERE deck_id = ? AND entry_id = ?', [allocation.deck_id, sourceId]);
+    } else {
+      await db.run('UPDATE deck_allocations SET quantity = quantity - ? WHERE deck_id = ? AND entry_id = ?', [take, allocation.deck_id, sourceId]);
+    }
+    quantity -= take;
+  }
 }
 
 function assertStorageInventory(location, listType = 'collection') {
@@ -155,26 +248,30 @@ function normalizeRuleConfig(rule_config) {
 // shows extra pockets; a manual re-sort redistributes if desired.
 async function splitStackedEntries(database) {
   const dbClient = database || db;
-  const stacked = await dbClient.all(`SELECT * FROM collection WHERE quantity > 1`);
-  if (stacked.length === 0) return 0;
-  let created = 0;
-  for (const e of stacked) {
-    const copies = e.quantity;
-    await dbClient.run(`UPDATE collection SET quantity = 1 WHERE id = ?`, [e.id]);
-    for (let i = 1; i < copies; i++) {
-      await dbClient.run(`
-        INSERT INTO collection (
-          card_id, user_id, quantity, condition, printing, language, purchase_price,
-          location_id, compartment_id, position, is_trade, favorite, list_type, game
-        ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        e.card_id, e.user_id, e.condition, e.printing, e.language, e.purchase_price,
-        e.location_id, e.compartment_id, (e.position || 0) + i * 0.001, e.is_trade, e.favorite, e.list_type, e.game
-      ]);
-      created++;
+  return dbClient.withTransaction(async () => {
+    const stacked = await dbClient.all(`SELECT * FROM collection WHERE quantity > 1`);
+    let created = 0;
+    for (const e of stacked) {
+      const copies = e.quantity;
+      await dbClient.run(`UPDATE collection SET quantity = 1 WHERE id = ?`, [e.id]);
+      for (let i = 1; i < copies; i++) {
+        const result = await dbClient.run(`
+          INSERT INTO collection (
+            card_id, user_id, quantity, condition, printing, language, purchase_price,
+            location_id, compartment_id, position, is_trade, favorite, list_type, game,
+            added_at, notes, grader, grade, cert_number, market_value, market_value_source, market_value_at, missing
+          ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          e.card_id, e.user_id, e.condition, e.printing, e.language, e.purchase_price,
+          e.location_id, e.compartment_id, (e.position || 0) + i * 0.001, e.is_trade, e.favorite, e.list_type, e.game,
+          e.added_at, e.notes, e.grader, e.grade, e.cert_number, e.market_value, e.market_value_source, e.market_value_at, e.missing
+        ]);
+        await moveEntryAllocations(e.id, result.lastID, 1);
+        created++;
+      }
     }
-  }
-  return created;
+    return created;
+  });
 }
 
 // The rows the collection view stacks together with this one: same card, same
@@ -206,6 +303,12 @@ async function setStackQuantity(database, userId, entryId, target) {
 
   const start = (row.quantity || 1) + siblings.reduce((n, s) => n + (s.quantity || 1), 0);
   let current = start;
+  const reserved = current > target ? await checkedOutAllocation(userId) : new Map();
+  const minimum = Math.max(1, reserved.get(row.id) || 0)
+    + siblings.reduce((sum, sibling) => sum + (reserved.get(sibling.id) || 0), 0);
+  if (target < minimum) {
+    throw Object.assign(new Error('Return the deck before removing its reserved copies.'), { status: 409 });
+  }
 
   for (let i = 0; current < target; i++, current++) {
     await dbClient.run(`
@@ -223,7 +326,8 @@ async function setStackQuantity(database, userId, entryId, target) {
   for (const s of siblings) {
     if (current <= target) break;
     const have = s.quantity || 1;
-    const drop = Math.min(have, current - target);
+    const drop = Math.min(have - (reserved.get(s.id) || 0), current - target);
+    if (drop <= 0) continue;
     current -= drop;
     if (drop >= have) {
       await dbClient.run(`DELETE FROM collection WHERE id = ? AND user_id = ?`, [s.id, userId]);
@@ -233,7 +337,7 @@ async function setStackQuantity(database, userId, entryId, target) {
   }
 
   if (current > target) {
-    await dbClient.run(`UPDATE collection SET quantity = ? WHERE id = ? AND user_id = ?`, [target, entryId, userId]);
+    await dbClient.run(`UPDATE collection SET quantity = ? WHERE id = ? AND user_id = ?`, [row.quantity - (current - target), entryId, userId]);
     current = target;
   }
 
@@ -243,6 +347,11 @@ async function setStackQuantity(database, userId, entryId, target) {
 module.exports = {
   defaultCompartmentPlan,
   checkedOutAllocation,
+  checkoutOptions,
+  defaultAllocations,
+  reserveDeck,
+  materializeCheckedOutAllocations,
+  moveEntryAllocations,
   assertStorageInventory,
   resolveCompartmentAndPosition,
   describePlacement,

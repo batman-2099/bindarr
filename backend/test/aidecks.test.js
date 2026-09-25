@@ -144,6 +144,7 @@ async function seed() {
   await checkout(3, 'collection', ids.bolt, 1);
   await checkout(3, 'collection', ids.locked, 2);
   await checkout(3, 'arena', ids.bolt, 2);
+  await db.withTransaction(() => require('../src/utils/collectionHelpers').materializeCheckedOutAllocations());
 }
 
 async function main() {
@@ -639,6 +640,7 @@ async function main() {
     }
     const otherSourceReservation = await db.run("INSERT INTO decks (user_id, name, game, inventory_type, checked_out) VALUES (5, 'Other reserved deck', 'mtg', 'collection', 1)");
     await db.run('INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, ?, 1)', [otherSourceReservation.lastID, ids.locked]);
+    await db.withTransaction(() => require('../src/utils/collectionHelpers').materializeCheckedOutAllocations(5));
     const improvement = { ...requestBody, source_deck_id: source.lastID, prompt: 'Improve consistency and remove weak cards.', sets: ['tst'] };
     const sourceBefore = await db.get('SELECT * FROM decks WHERE id = ?', [source.lastID]);
     const sourceCardsBefore = await db.all('SELECT * FROM deck_cards WHERE deck_id = ? ORDER BY card_id', [source.lastID]);
@@ -841,6 +843,8 @@ async function main() {
     }
     const depletedOther = await db.run("INSERT INTO decks (user_id, name, game, inventory_type, checked_out) VALUES (11, 'Still reserved', 'mtg', 'collection', 1)");
     await db.run('INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, ?, 1)', [depletedOther.lastID, ids.forest]);
+    await db.run("UPDATE decks SET checked_out_at = '2026-09-22' WHERE id = ?", [depletedSource.lastID]);
+    await db.withTransaction(() => require('../src/utils/collectionHelpers').materializeCheckedOutAllocations(11));
     const depletedRequest = { ...requestBody, source_deck_id: depletedSource.lastID, target_size: 6, colors: ['Black'], sets: ['none'] };
     model = async () => ({ message: 'Not enough eligible cards remain.', draft: null });
     assert.strictEqual((await request('POST', '/ai/suggest', depletedRequest, 11)).status, 200);
@@ -850,13 +854,14 @@ async function main() {
     const whileCheckedOut = await depletedInventory();
     assert.strictEqual(whileCheckedOut.body.cards.find(card => card.id === ids.forest).available_qty, 1);
     assert.strictEqual(whileCheckedOut.body.cards.find(card => card.id === ids.missing).available_qty, 0);
-    await db.run('UPDATE decks SET checked_out = 0 WHERE id = ?', [depletedSource.lastID]);
+    assert.strictEqual((await request('PUT', `/decks/${depletedSource.lastID}/return`, {}, 11)).status, 200);
     assert.deepStrictEqual((await depletedInventory()).body, whileCheckedOut.body, 'returning the source never fabricates extra copies or unlocks another deck');
     assert.strictEqual((await request('POST', '/ai', draft({ target_size: 6, source_deck_id: depletedSource.lastID,
       cards: [{ card_id: ids.forest, quantity: 6 }] }), 11)).status, 409);
     const bannedSourceDraft = draft({ target_size: 6, source_deck_id: depletedSource.lastID, include_checked_out: true,
       cards: [{ card_id: ids.banned, quantity: 1 }, { card_id: ids.forest, quantity: 5 }] });
     assert.strictEqual((await request('POST', '/ai', bannedSourceDraft, 11)).status, 400, 'source membership and reservation opt-in never bypass legality');
+    assert.strictEqual((await request('PUT', `/decks/${depletedOther.lastID}/return`, {}, 11)).status, 200);
     await db.run("DELETE FROM collection WHERE user_id = 11 AND card_id = ?", [ids.forest]);
     assert.ok(!(await depletedInventory()).body.cards.some(card => card.id === ids.forest), 'removed owned printings are not recreated from source context');
     assert.strictEqual((await request('POST', '/ai', draft({ target_size: 6, source_deck_id: depletedSource.lastID,
@@ -913,6 +918,10 @@ async function main() {
     }
     const foreignCheckout = await db.run("INSERT INTO decks (user_id, name, game, inventory_type, checked_out) VALUES (8, 'Other checked out', 'mtg', 'collection', 1)");
     await db.run('INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, ?, 20)', [foreignCheckout.lastID, ids.bolt]);
+    await db.withTransaction(async () => {
+      await require('../src/utils/collectionHelpers').materializeCheckedOutAllocations(7);
+      await require('../src/utils/collectionHelpers').materializeCheckedOutAllocations(8);
+    });
     const containerInventory = suffix => request('GET', `/ai/inventory?inventory_type=collection${suffix}`, undefined, 7);
     const quantities = result => result.body.cards.map(card => [card.id, card.owned_qty, card.available_qty, card.missing_qty]).sort();
     const selectedA = await containerInventory(`&container_ids=${boxA}`);

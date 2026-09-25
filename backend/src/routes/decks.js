@@ -4,6 +4,7 @@ const cardApi = require('../utils/cardApi');
 const { parseCardRow, recordPrice } = require('../utils/priceHelpers');
 const { compartmentLabel } = require('../utils/compartmentSort');
 const { validateDeckAddition } = require('../utils/deckRules');
+const { checkoutOptions, defaultAllocations, reserveDeck } = require('../utils/collectionHelpers');
 const { FORMATS } = require('../utils/aiDecks');
 const scryfallApi = require('../scryfallApi');
 const { parseManaboxText } = require('../utils/csvMappers');
@@ -256,13 +257,18 @@ router.get('/:id', async (req, res) => {
         cc.number,
         cc.image_url,
         cc.price_trend,
-        (SELECT COALESCE(SUM(quantity), 0) FROM collection WHERE card_id = cc.id AND user_id = ? AND list_type = ?) AS owned_qty,
-        (SELECT COALESCE(SUM(dc2.quantity), 0)
-         FROM deck_cards dc2 JOIN decks d2 ON dc2.deck_id = d2.id
-         WHERE d2.checked_out = 1 AND d2.inventory_type = ? AND d2.user_id = ? AND d2.id != ? AND dc2.card_id = cc.id) AS locked_qty,
-        (SELECT GROUP_CONCAT(d2.name, ', ')
-         FROM deck_cards dc2 JOIN decks d2 ON dc2.deck_id = d2.id
-         WHERE d2.checked_out = 1 AND d2.inventory_type = ? AND d2.user_id = ? AND d2.id != ? AND dc2.card_id = cc.id) AS locked_decks
+        (SELECT COALESCE(SUM(quantity), 0) FROM collection
+         WHERE card_id = cc.id AND user_id = ? AND list_type = ?
+           AND (list_type = 'arena' OR COALESCE(missing, 0) = 0)) AS owned_qty,
+        (SELECT COALESCE(SUM(a.quantity), 0)
+         FROM deck_allocations a JOIN decks d2 ON a.deck_id = d2.id
+         JOIN collection c2 ON c2.id = a.entry_id
+         WHERE d2.checked_out = 1 AND d2.inventory_type = ? AND d2.user_id = ? AND d2.id != ? AND a.card_id = cc.id
+           AND COALESCE(c2.missing, 0) = 0) AS locked_qty,
+        (SELECT GROUP_CONCAT(name, ', ') FROM (
+          SELECT DISTINCT d2.id, d2.name FROM deck_allocations a JOIN decks d2 ON a.deck_id = d2.id
+          WHERE d2.checked_out = 1 AND d2.inventory_type = ? AND d2.user_id = ? AND d2.id != ? AND a.card_id = cc.id
+        )) AS locked_decks
       FROM deck_cards dc
       JOIN card_cache cc ON dc.card_id = cc.id
       WHERE dc.deck_id = ?
@@ -284,72 +290,42 @@ router.get('/:id', async (req, res) => {
 router.get('/:id/locations', async (req, res) => {
   const { id } = req.params;
   try {
-    const deck = await db.get(`SELECT id, inventory_type FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`, [id, req.user.id]);
+    const deck = await db.get(`SELECT id, inventory_type, checked_out FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`, [id, req.user.id]);
     if (!deck) return res.status(404).json({ error: 'Deck not found' });
     if (deck.inventory_type === 'arena') return res.status(400).json({ error: 'Arena decks have no physical card locations' });
-
-    // Find how many of each card are in the deck
-    const requiredCards = await db.all(`SELECT card_id, quantity FROM deck_cards WHERE deck_id = ?`, [id]);
-    const requiredMap = new Map(requiredCards.map(r => [r.card_id, r.quantity]));
-
-    // Find all owned instances of those cards
-    const query = `
-      SELECT 
-        c.id as entry_id, c.card_id, c.quantity as owned_qty, c.position, c.location_id, c.compartment_id,
-        cc.name as card_name, cc.printed_name, cc.set_name, cc.number,
-        l.name as location_name, l.type as location_type,
-        cp.label as compartment_label, cp.idx as compartment_idx
-      FROM collection c
-      JOIN card_cache cc ON c.card_id = cc.id
-      LEFT JOIN locations l ON c.location_id = l.id
-      LEFT JOIN compartments cp ON c.compartment_id = cp.id
-      WHERE c.user_id = ? AND c.list_type = 'collection' AND c.card_id IN (SELECT card_id FROM deck_cards WHERE deck_id = ?)
-      ORDER BY (c.location_id IS NOT NULL) DESC, cc.name ASC, c.added_at DESC
-    `;
-    const instances = await db.all(query, [req.user.id, id]);
-    
-    // Group them and figure out what to tell the user
-    // We only need to tell them where to find \`required\` amount.
-    const results = [];
-    for (const [cardId, requiredQty] of requiredMap.entries()) {
-      let needed = requiredQty;
-      const cardInstances = instances.filter(i => i.card_id === cardId);
-      
-      const foundLocations = [];
-      for (const inst of cardInstances) {
-        if (needed <= 0) break;
-        const take = Math.min(inst.owned_qty, needed);
-        needed -= take;
-        
-        const compDisplay = inst.compartment_idx !== null
-          ? compartmentLabel({ label: inst.compartment_label, idx: inst.compartment_idx }, inst.location_type)
-          : inst.compartment_label;
-
-        foundLocations.push({
-          take,
-          // A pull list is display-only, so the name is the one printed on the card
-          // — nothing downstream keys off it.
-          card_name: inst.printed_name || inst.card_name,
-          set_name: inst.set_name,
-          number: inst.number,
-          location_name: inst.location_name || 'Unassigned Pile',
-          location_type: inst.location_type,
-          compartment_display: compDisplay,
-          position: inst.location_name ? inst.position : null,
-          location_id: inst.location_id,
-          compartment_id: inst.compartment_id,
-          entry_id: inst.entry_id
-        });
-      }
-      
-      results.push({
-        card_id: cardId,
-        required: requiredQty,
-        found: requiredQty - needed,
-        missing: needed,
-        locations: foundLocations
+    const cards = await checkoutOptions(req.user.id, id);
+    const allocations = deck.checked_out
+      ? await db.all('SELECT card_id, entry_id, quantity FROM deck_allocations WHERE deck_id = ?', [id])
+      : defaultAllocations(cards);
+    // Include missing-marked reserved entries too: a marker cannot repoint a checkout.
+    const instances = await db.all(`
+      SELECT c.id AS entry_id, c.card_id, c.position, c.location_id, c.compartment_id,
+        cc.name AS card_name, cc.printed_name, cc.set_name, cc.number,
+        l.name AS location_name, l.type AS location_type, cp.label, cp.idx
+      FROM collection c JOIN card_cache cc ON cc.id = c.card_id
+      LEFT JOIN locations l ON l.id = c.location_id
+      LEFT JOIN compartments cp ON cp.id = c.compartment_id
+      WHERE c.user_id = ? AND c.id IN (
+        SELECT entry_id FROM deck_allocations WHERE deck_id = ?
+        UNION SELECT id FROM collection WHERE card_id IN (SELECT card_id FROM deck_cards WHERE deck_id = ?)
+      )
+    `, [req.user.id, id, id]);
+    const byId = new Map(instances.map(entry => [entry.entry_id, entry]));
+    const results = cards.map(card => {
+      const locations = allocations.filter(allocation => allocation.card_id === card.card_id).map(allocation => {
+        const entry = byId.get(allocation.entry_id);
+        return {
+          take: allocation.quantity, card_name: entry.printed_name || entry.card_name,
+          set_name: entry.set_name, number: entry.number,
+          location_name: entry.location_name || 'Unassigned Pile', location_type: entry.location_type,
+          compartment_display: entry.idx == null ? null : compartmentLabel(entry, entry.location_type),
+          position: entry.location_id == null ? null : entry.position,
+          location_id: entry.location_id, compartment_id: entry.compartment_id, entry_id: entry.entry_id
+        };
       });
-    }
+      const found = locations.reduce((total, location) => total + location.take, 0);
+      return { card_id: card.card_id, required: card.quantity, found, missing: card.quantity - found, locations };
+    });
 
     res.json(results);
   } catch (error) {
@@ -397,9 +373,9 @@ router.put('/:id', async (req, res) => {
        SET name = ?, description = ?, format = COALESCE(?, format), category = COALESCE(?, category),
            accent_color = COALESCE(?, accent_color), target_size = COALESCE(?, target_size), inventory_type = ?,
            commander_card_id = CASE WHEN ? THEN NULL ELSE commander_card_id END
-       WHERE id = ? AND user_id = ?`,
+       WHERE id = ? AND user_id = ? AND (inventory_type = ? OR checked_out = 0)`,
       [String(name).trim(), description, format, category, accent_color, targetSize, inventoryType,
-        format != null && !/commander|edh|brawl/i.test(format), id, req.user.id]
+        format != null && !/commander|edh|brawl/i.test(format), id, req.user.id, inventoryType]
     );
 
     if (result.changes === 0) {
@@ -511,9 +487,9 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Deck not found or unauthorized' });
     }
 
-    // Manual cascade deletion
-    await db.run(`DELETE FROM deck_cards WHERE deck_id = ?`, [id]);
-    await db.run(`DELETE FROM decks WHERE id = ?`, [id]);
+    await db.withTransaction(async () => {
+      await db.run(`DELETE FROM decks WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    });
 
     res.json({ message: 'Deck deleted successfully' });
   } catch (error) {
@@ -553,20 +529,20 @@ router.post('/:id/cards', async (req, res) => {
       }
     }
 
-    // Enforce deck rules (owned-copy cap + max 4 per name). quantity here is the
-    // absolute new count for this card, so validate it directly.
-    const check = await validateDeckAddition({ deckId: id, userId: req.user.id, cardId: card_id, newQty: quantity });
-    if (!check.ok) return res.status(400).json({ error: check.error });
-
-    // Insert or update quantities
-    await db.run(`
-      INSERT INTO deck_cards (deck_id, card_id, quantity)
-      VALUES (?, ?, ?)
-      ON CONFLICT(deck_id, card_id) DO UPDATE SET quantity = ?
-    `, [id, card_id, parseInt(quantity, 10), parseInt(quantity, 10)]);
-    if (parseInt(quantity, 10) === 0) {
-      await db.run(`UPDATE decks SET commander_card_id = NULL WHERE id = ? AND commander_card_id = ?`, [id, card_id]);
-    }
+    await db.withTransaction(async () => {
+      const current = await db.get('SELECT checked_out FROM decks WHERE id = ? AND user_id = ?', [id, req.user.id]);
+      if (current.checked_out) throw Object.assign(new Error('Return this deck before changing its cards'), { status: 409 });
+      const check = await validateDeckAddition({ deckId: id, userId: req.user.id, cardId: card_id, newQty: quantity });
+      if (!check.ok) throw Object.assign(new Error(check.error), { status: 400 });
+      await db.run(`
+        INSERT INTO deck_cards (deck_id, card_id, quantity)
+        VALUES (?, ?, ?)
+        ON CONFLICT(deck_id, card_id) DO UPDATE SET quantity = ?
+      `, [id, card_id, parseInt(quantity, 10), parseInt(quantity, 10)]);
+      if (parseInt(quantity, 10) === 0) {
+        await db.run(`UPDATE decks SET commander_card_id = NULL WHERE id = ? AND commander_card_id = ?`, [id, card_id]);
+      }
+    });
 
     // Record initial price history trend if card is added
     const cacheCard = await db.get(`SELECT price_trend FROM card_cache WHERE id = ?`, [card_id]);
@@ -574,6 +550,7 @@ router.post('/:id/cards', async (req, res) => {
 
     res.json({ message: 'Card added/updated in deck successfully' });
   } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
     console.error(error);
     res.status(500).json({ error: 'Failed to add card to deck' });
   }
@@ -612,59 +589,47 @@ router.delete('/:id/cards/:card_id', async (req, res) => {
     }
 
     await db.withTransaction(async () => {
+      const current = await db.get('SELECT checked_out FROM decks WHERE id = ? AND user_id = ?', [id, req.user.id]);
+      if (current.checked_out) throw Object.assign(new Error('Return this deck before changing its cards'), { status: 409 });
       await db.run(`DELETE FROM deck_cards WHERE deck_id = ? AND card_id = ?`, [id, card_id]);
       await db.run(`UPDATE decks SET commander_card_id = NULL WHERE id = ? AND commander_card_id = ?`, [id, card_id]);
     });
     res.json({ message: 'Card removed from deck successfully' });
   } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
     console.error(error);
     res.status(500).json({ error: 'Failed to remove card from deck' });
   }
 });
 
-// Checkout Deck (mark as in play)
-router.put('/:id/checkout', async (req, res) => {
-  const { id } = req.params;
+router.get('/:id/checkout-options', async (req, res) => {
   try {
-    const deck = await db.get(`SELECT id, name, inventory_type FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`, [id, req.user.id]);
-    if (!deck) {
-      return res.status(404).json({ error: 'Deck not found or unauthorized' });
-    }
+    const deck = await db.get("SELECT inventory_type FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'", [req.params.id, req.user.id]);
+    if (!deck) return res.status(404).json({ error: 'Deck not found' });
     if (deck.inventory_type === 'arena') return res.status(400).json({ error: 'Arena decks cannot be checked out' });
+    res.json({ cards: await checkoutOptions(req.user.id, req.params.id) });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to retrieve checkout options' });
+  }
+});
 
-    // Validate that we have enough cards physically available
-    const validationQuery = `
-      SELECT 
-        dc.card_id, 
-        cc.name, cc.printed_name, 
-        dc.quantity AS required_qty,
-        (SELECT COALESCE(SUM(quantity), 0) FROM collection WHERE card_id = dc.card_id AND user_id = ? AND list_type = 'collection') AS owned_qty,
-        (SELECT COALESCE(SUM(dc2.quantity), 0) FROM deck_cards dc2 JOIN decks d2 ON dc2.deck_id = d2.id WHERE d2.checked_out = 1 AND d2.inventory_type = 'collection' AND d2.user_id = ? AND d2.id != ? AND dc2.card_id = dc.card_id) AS locked_qty
-      FROM deck_cards dc
-      JOIN card_cache cc ON dc.card_id = cc.id
-      WHERE dc.deck_id = ?
-    `;
-    const cards = await db.all(validationQuery, [req.user.id, req.user.id, id, id]);
-    
-    let errors = [];
-    for (const card of cards) {
-      const available = card.owned_qty - card.locked_qty;
-      if (card.required_qty > available) {
-        const deficit = card.required_qty - available;
-        errors.push(`Missing ${deficit}x ${card.printed_name || card.name} (Owned: ${card.owned_qty}, In Use: ${card.locked_qty})`);
+// Availability is revalidated under the same transaction that reserves the entries.
+router.put('/:id/checkout', async (req, res) => {
+  try {
+    await db.withTransaction(async () => {
+      const deck = await db.get("SELECT id, inventory_type, checked_out FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'", [req.params.id, req.user.id]);
+      if (!deck) throw Object.assign(new Error('Deck not found'), { status: 404 });
+      if (deck.inventory_type === 'arena') throw Object.assign(new Error('Arena decks cannot be checked out'), { status: 400 });
+      if (deck.checked_out) {
+        if (req.body?.allocations !== undefined) throw Object.assign(new Error('Return this deck before changing checkout locations'), { status: 409 });
+        return;
       }
-    }
-
-    if (errors.length > 0) {
-      return res.status(400).json({ error: 'Not enough cards available to check out this deck.', details: errors });
-    }
-
-    await db.run(
-      `UPDATE decks SET checked_out = 1, checked_out_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      [id]
-    );
+      await reserveDeck(req.user.id, deck.id, req.body?.allocations);
+    });
     res.json({ message: 'Deck checked out successfully' });
   } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
     console.error(error);
     res.status(500).json({ error: 'Failed to checkout deck' });
   }
@@ -678,10 +643,10 @@ router.put('/:id/return', async (req, res) => {
     if (!deck) {
       return res.status(404).json({ error: 'Deck not found or unauthorized' });
     }
-    await db.run(
-      `UPDATE decks SET checked_out = 0, checked_out_at = NULL WHERE id = ?`,
-      [id]
-    );
+    await db.withTransaction(async () => {
+      await db.run('DELETE FROM deck_allocations WHERE deck_id = ?', [id]);
+      await db.run(`UPDATE decks SET checked_out = 0, checked_out_at = NULL WHERE id = ?`, [id]);
+    });
     res.json({ message: 'Deck returned to storage successfully' });
   } catch (error) {
     console.error(error);

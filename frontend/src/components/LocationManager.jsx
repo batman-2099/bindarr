@@ -157,8 +157,9 @@ function ContainerImportReview({ report, onClose, onMove, movingItem, expanded, 
   );
 }
 
-function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId, setSelectedLocationId, focusEntryId }) {
+function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId, setSelectedLocationId, focusEntryId, inventoryType = 'collection', onInventoryTypeChange }) {
   const { t } = useT();
+  const isArchive = inventoryType === 'graveyard';
   const [locations, setLocations] = useState([]);
   const [activeLocationId, setActiveLocationId] = useState(null);
   const [compartments, setCompartments] = useState([]);
@@ -211,6 +212,8 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   const [containerImportExpanded, setContainerImportExpanded] = useState(false);
   const [containerImportMovingItem, setContainerImportMovingItem] = useState(null);
   const containerImportMoveBusy = useRef(false);
+  const containerTransferBusy = useRef(false);
+  const [transferringContainer, setTransferringContainer] = useState(false);
 
   const [capacityUpdatePending, setCapacityUpdatePending] = useState(null);
   const [showKebabMenu, setShowKebabMenu] = useState(false);
@@ -332,6 +335,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   // isBinderType in its dependency array, which is evaluated during render —
   // a lower `const` would be in the temporal dead zone at that point.
   const selectedLoc = locations.find(l => l.id === activeLocationId);
+  const containerTransferLocked = !!selectedLoc?.locked || compartments.some(compartment => compartment.locked);
   const isBinderType = computeIsBinder(selectedLoc?.type);
   const isCustom = selectedLoc?.sort_order === 'custom';
 
@@ -442,14 +446,14 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
 
   const fetchLocations = async () => {
     try {
-      const res = await fetch('/api/locations');
+      const res = await fetch(`/api/locations?inventory_type=${inventoryType}`);
       if (res.ok) setLocations(await res.json());
     } catch (err) { console.error(err); }
   };
 
   const fetchAllCards = async () => {
     try {
-      const res = await fetch('/api/collection');
+      const res = await fetch(`/api/collection?list_type=${inventoryType}`);
       if (res.ok) setAllCards(await res.json());
     } catch (err) { console.error(err); }
   };
@@ -476,7 +480,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
       setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- length reads only gate the first-load spinner; adding them would loop on refetch
-  }, [statsTrigger]);
+  }, [statsTrigger, inventoryType]);
 
   useEffect(() => {
     fetchCompartments(activeLocationId);
@@ -613,7 +617,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
       const res = await fetch('/api/locations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ ...payload, inventory_type: inventoryType })
       });
       const data = await res.json();
       if (res.ok) {
@@ -721,6 +725,32 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
     } finally {
       containerImportMoveBusy.current = false;
       setContainerImportMovingItem(null);
+    }
+  };
+
+  const handleTransferContainer = async () => {
+    if (!selectedLoc || containerTransferBusy.current || containerTransferLocked) return;
+    if (!window.confirm(t(isArchive ? 'loc.confirmRestoreContainer' : 'loc.confirmArchiveContainer', { name: selectedLoc.name }))) return;
+    containerTransferBusy.current = true;
+    setTransferringContainer(true);
+    try {
+      const targetInventory = isArchive ? 'collection' : 'graveyard';
+      const response = await fetch(`/api/locations/${selectedLoc.id}/transfer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inventory_type: targetInventory }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || t('loc.errTransferContainer'));
+      showToast(t(isArchive ? 'loc.containerRestored' : 'loc.containerArchived', { name: selectedLoc.name }));
+      onUpdate?.();
+      onInventoryTypeChange?.(targetInventory);
+    } catch (error) {
+      console.error(error);
+      showToast(error.message || t('loc.errTransferContainer'));
+    } finally {
+      containerTransferBusy.current = false;
+      setTransferringContainer(false);
     }
   };
 
@@ -1340,10 +1370,23 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
 
   if (loading) return <><div className="spinner" />{importReview}</>;
 
+  const inventorySelector = (
+    <div className="sub-nav-tabs" role="group" aria-label={t('loc.inventory')} style={{ margin: 0 }}>
+      {[['collection', t('dash.physical')], ['graveyard', t('collection.graveyard')]].map(([value, label]) => (
+        <button key={value} type="button" className={`sub-nav-tab ${inventoryType === value ? 'active' : ''}`}
+          aria-pressed={inventoryType === value} onClick={() => onInventoryTypeChange?.(value)}
+          style={{ padding: '0.35rem 0.85rem', fontSize: '0.8rem' }}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
   if (showGallery) return (
     <section>
       <header style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
         <h2 style={{ margin: 0 }}>{t('nav.storage')}</h2>
+        {inventorySelector}
         <input className="input-control" aria-label={t('shared.search')} placeholder={t('loc.searchPlaceholder')} value={gallerySearch} onChange={e => setGallerySearch(e.target.value)} style={{ flex: '1 1 200px' }} />
         <select className="select-control" aria-label={t('collection.sortBy')} value={gallerySort} onChange={e => setGallerySort(e.target.value)} style={{ width: 'auto' }}>
           <option value="name-asc">{t('collection.sort.name-asc')}</option>
@@ -1351,6 +1394,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
         </select>
         <span style={{ color: 'var(--text-secondary)' }}>{galleryLocations.length} / {locations.length}</span>
       </header>
+      {isArchive && <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>{t('loc.graveyardStorageHint')}</p>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(220px, 100%), 1fr))', gap: '1.25rem' }}>
         <button className="glass-panel" onClick={() => setShowCreate(true)} style={{ minHeight: '190px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', color: 'var(--accent-yellow)', cursor: 'pointer' }}>
           <Plus size={64} />
@@ -1374,8 +1418,10 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
       </div>
       <footer style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
         <button className="btn btn-secondary" onClick={() => setShowGallery(false)}>{t('bulk.unassignedPile')}</button>
+        {!isArchive && <>
         <button type="button" className="btn btn-secondary" disabled={importingContainer} aria-busy={importingContainer} onClick={() => containerImportInput.current?.click()}><Download size={16} /> {t(importingContainer ? 'loc.importingContainer' : 'loc.importContainer')}</button>
         <input ref={containerImportInput} type="file" accept=".txt,text/plain" disabled={importingContainer} onChange={handleContainerImportFile} style={{ display: 'none' }} />
+        </>}
       </footer>
       {showCreate && <CreateContainerModal onClose={() => setShowCreate(false)} onCreate={handleCreateLocation} setsList={setsList} filterFieldOptions={filterFieldOptions} />}
       {importReview}
@@ -1594,6 +1640,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', minWidth: 0 }}>
             <button className="btn btn-secondary" onClick={() => { storage.exitSelectMode(); setActiveLocationId(null); setShowGallery(true); }} title={t('nav.storage')} aria-label={t('nav.storage')}><LayoutGrid size={16} /></button>
+            {inventorySelector}
             <select
               className="select-control"
               value={activeLocationId || ''}
@@ -1606,10 +1653,12 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
             <button type="button" className="btn btn-secondary btn-icon-only" onClick={() => setShowCreate(s => !s)} style={{ width: '28px', height: '28px', padding: 0 }} title={t('loc.createContainer')}>
               <Plus size={14} />
             </button>
+            {!isArchive && <>
             <button type="button" className="btn btn-secondary btn-icon-only" disabled={importingContainer} aria-busy={importingContainer} aria-label={t(importingContainer ? 'loc.importingContainer' : 'loc.importContainer')} onClick={() => containerImportInput.current?.click()} style={{ width: '28px', height: '28px', padding: 0 }} title={t(importingContainer ? 'loc.importingContainer' : 'loc.importContainer')}>
               {importingContainer ? <span className="spinner" style={{ width: '14px', height: '14px', margin: 0 }} /> : <Download size={14} />}
             </button>
             <input ref={containerImportInput} type="file" accept=".txt,text/plain" disabled={importingContainer} onChange={handleContainerImportFile} style={{ display: 'none' }} />
+            </>}
             {selectedLoc && !!selectedLoc.locked && (
               <button type="button" onClick={handleToggleContainerLock} title={t('loc.lockedBadgeHint')} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.62rem', fontWeight: 800, padding: '0.15rem 0.45rem', borderRadius: '999px', cursor: 'pointer', background: 'rgba(255,193,7,0.15)', border: '1px solid var(--accent-yellow)', color: 'var(--accent-yellow)' }}>
                 <Lock size={11} /> Locked
@@ -1619,6 +1668,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
           
           {selectedLoc && (
             <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.4rem' }}>
+            {!isArchive && (
             <button
               type="button"
               className="btn btn-secondary"
@@ -1627,6 +1677,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
             >
               <Layers size={14} aria-hidden="true" /> {t('deck.createDeck')}
             </button>
+            )}
             {!filingMode && !moveMode && (
               <div style={{ display: 'flex', background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
                 <button
@@ -1761,6 +1812,11 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                   }}>
                     <Settings size={14} /> Container Settings
                   </button>
+                  <button className="kebab-item" disabled={containerTransferLocked || transferringContainer} aria-busy={transferringContainer}
+                    title={containerTransferLocked ? t('loc.lockedTransferContainer') : undefined}
+                    onClick={() => { setShowKebabMenu(false); handleTransferContainer(); }}>
+                    <RefreshCw size={14} /> {t(isArchive ? 'loc.restoreContainer' : 'loc.archiveContainer')}
+                  </button>
                   <button className="kebab-item" disabled={!!selectedLoc.locked} onClick={() => { setShowKebabMenu(false); handleDeleteLocation(selectedLoc.id, selectedLoc.name); }} style={{ color: 'var(--accent-red)' }}>
                     <Trash2 size={14} /> Delete Container
                   </button>
@@ -1777,11 +1833,13 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
             <button className="btn btn-secondary" style={{ fontSize: '0.68rem', padding: '0.25rem 0.5rem' }} onClick={() => storage.setSelectedIds(new Set(cardsInActiveLocation.map(c => c.entry_id)))}>Select all ({cardsInActiveLocation.length})</button>
             <button className="btn btn-secondary" style={{ fontSize: '0.68rem', padding: '0.25rem 0.5rem' }} onClick={() => storage.setSelectedIds(new Set())}>{t('bulk.clear')}</button>
             <div style={{ width: '1px', height: '20px', background: 'var(--border-glass)' }} />
+            {!isArchive && (
             <AddToDeckSelect
               onAdd={(id) => storage.runBulk('add_to_deck', id)}
               disabled={!storage.selectedIds.size}
               style={{ fontSize: '0.68rem', padding: '0.25rem 0.4rem', maxWidth: '160px' }}
             />
+            )}
             <select
               className="select-control"
               value={storage.bulkMoveTarget}
@@ -1813,6 +1871,16 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
             >
               {t('loc.removeFromStorage')}
             </button>
+            {isArchive ? (
+              <>
+                <button className="btn btn-secondary" style={{ fontSize: '0.68rem', padding: '0.25rem 0.6rem' }} disabled={!storage.selectedIds.size} onClick={() => storage.runBulk('list_type', 'collection')}>{t('bulk.restoreToCollection')}</button>
+                <button className="btn btn-secondary" style={{ fontSize: '0.68rem', padding: '0.25rem 0.6rem' }} disabled={!storage.selectedIds.size} onClick={() => storage.runBulk('list_type', 'arena')}>{t('bulk.restoreToArena')}</button>
+              </>
+            ) : (
+              <button className="btn btn-secondary" style={{ fontSize: '0.68rem', padding: '0.25rem 0.6rem' }} disabled={!storage.selectedIds.size} onClick={() => storage.runBulk('list_type', 'graveyard')}>
+                {t('bulk.archive')}
+              </button>
+            )}
             <button className="btn btn-secondary" style={{ fontSize: '0.68rem', padding: '0.25rem 0.6rem' }} disabled={!storage.selectedIds.size} onClick={() => storage.runBulk('missing', true)}>
               {t('inspector.markMissing')}
             </button>
@@ -2411,6 +2479,12 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                     {t('common.delete')}
                   </button>
                 </div>
+                {isArchive && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                    <button className="btn btn-secondary" style={{ fontSize: '0.65rem', padding: '0.25rem 0.4rem' }} disabled={!unsortedSelectedIds.size} onClick={() => runUnsortedBulk('list_type', 'collection')}>{t('bulk.restoreToCollection')}</button>
+                    <button className="btn btn-secondary" style={{ fontSize: '0.65rem', padding: '0.25rem 0.4rem' }} disabled={!unsortedSelectedIds.size} onClick={() => runUnsortedBulk('list_type', 'arena')}>{t('bulk.restoreToArena')}</button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -2773,8 +2847,19 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
       <CardInspectorModal
         card={inspectorCard}
         onClose={() => setInspectorCard(null)}
-        onUpdate={onUpdate}
+        onUpdate={() => { refreshAll(); onUpdate?.(); }}
         showToast={showToast}
+        onViewStorage={(card) => {
+          setInspectorCard(null);
+          setShowGallery(false);
+          setActiveLocationId(card.location_id || null);
+          const compIndex = compartments.findIndex(compartment => compartment.id === card.compartment_id);
+          if (compIndex !== -1) {
+            setActivePageIndex(compIndex);
+            setActiveCompartmentId(card.compartment_id);
+            setBinderActiveEntryId(card.entry_id);
+          }
+        }}
       />
     </div>
     </DndContext>

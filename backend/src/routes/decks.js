@@ -205,7 +205,7 @@ router.post('/from-container', async (req, res) => {
 
   try {
     const id = await db.withTransaction(async () => {
-      const location = await db.get('SELECT id FROM locations WHERE id = ? AND user_id = ?', [location_id, req.user.id]);
+      const location = await db.get("SELECT id FROM locations WHERE id = ? AND user_id = ? AND inventory_type = 'collection'", [location_id, req.user.id]);
       if (!location) throw Object.assign(new Error('Container not found'), { status: 404 });
       // Missing and checked-out copies still belong to the definition; checkout handles availability.
       const cards = await db.all(`

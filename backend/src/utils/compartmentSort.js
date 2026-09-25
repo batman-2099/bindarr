@@ -94,6 +94,7 @@ function compartmentAcceptsCard(compartment, cardMetadata) {
 }
 
 function locationAcceptsCard(location, cardMetadata) {
+  if ((location.inventory_type || 'collection') !== (cardMetadata.list_type || 'collection')) return false;
   if (location.game && location.game !== 'any') {
     const cardGame = cardMetadata.game || 'pokemon';
     if (cardGame !== location.game) return false;
@@ -270,9 +271,9 @@ async function loadCompartments(database, locationId, userId) {
   // caller: occupancy is the one thing all of them read off these rows, and it
   // means a different thing on a stacking container (slots used, not cards held).
   const compartments = await dbClient.all(
-    `SELECT c.*, l.allow_stacking FROM compartments c JOIN locations l ON c.location_id = l.id
-     WHERE c.location_id = ? ORDER BY c.idx ASC`,
-    [locationId]
+    `SELECT c.*, l.allow_stacking, l.inventory_type FROM compartments c JOIN locations l ON c.location_id = l.id
+     WHERE c.location_id = ? AND l.user_id = ? ORDER BY c.idx ASC`,
+    [locationId, userId]
   );
   if (compartments.length === 0) return [];
   const ids = compartments.map(c => c.id);
@@ -290,8 +291,8 @@ async function loadCompartments(database, locationId, userId) {
   const stacking = compartments.some(c => c.allow_stacking);
   const countRows = await dbClient.all(
     `SELECT compartment_id, ${stacking ? `COUNT(DISTINCT ${STACK_KEY_SQL})` : 'SUM(quantity)'} as cnt
-     FROM collection WHERE user_id = ? AND compartment_id IN (${placeholders}) AND COALESCE(list_type, 'collection') != 'graveyard' GROUP BY compartment_id`,
-    [userId, ...ids]
+     FROM collection WHERE user_id = ? AND compartment_id IN (${placeholders}) AND COALESCE(list_type, 'collection') = ? GROUP BY compartment_id`,
+    [userId, ...ids, compartments[0].inventory_type || 'collection']
   );
   const countByCompartment = new Map(countRows.map(r => [r.compartment_id, r.cnt]));
 
@@ -337,8 +338,8 @@ async function recommendSlot(database, location, cardMetadata, overrideCompartme
            cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.cmc, cc.color_identity
     FROM collection c
     JOIN card_cache cc ON c.card_id = cc.id
-    WHERE c.user_id = ? AND c.location_id = ? AND COALESCE(c.list_type, 'collection') != 'graveyard'
-  `, [location.user_id, location.id]);
+    WHERE c.user_id = ? AND c.location_id = ? AND COALESCE(c.list_type, 'collection') = ?
+  `, [location.user_id, location.id, location.inventory_type || 'collection']);
 
   allLocationCards.push(...mockCards);
 
@@ -382,20 +383,25 @@ async function recommendSlot(database, location, cardMetadata, overrideCompartme
     }
   }
 
-  const countOf = (c) => overrideCompartments
-    ? (overrideCompartments.find(oc => oc.id === c.id)?.count || 0)
-    : (c.count !== undefined ? c.count : (cardsByCompId.get(c.id) || []).reduce((sum, card) => sum + (card.quantity || 1), 0));
-
-  const allCompartmentsFull = compartments.every(c => countOf(c) >= c.capacity);
+  const slotsNeeded = location.allow_stacking ? 1 : (cardMetadata.quantity || 1);
+  const current = allLocationCards.find(card => card.entry_id === cardMetadata.entry_id);
+  const countOf = (c) => {
+    const count = overrideCompartments
+      ? (overrideCompartments.find(oc => oc.id === c.id)?.count || 0)
+      : (c.count !== undefined ? c.count : (cardsByCompId.get(c.id) || []).reduce((sum, card) => sum + (card.quantity || 1), 0));
+    return count - (!location.allow_stacking && current?.compartment_id === c.id ? current.quantity : 0);
+  };
+  const hasFreeSpace = (c) => countOf(c) + slotsNeeded <= c.capacity;
+  const allCompartmentsFull = !compartments.some(hasFreeSpace);
 
   if (allCompartmentsFull) {
     const otherLocations = await dbClient.all(
-      `SELECT id, name, type, sort_order, foil_sorting, rule_type, rule_config, game, allow_stacking, user_id FROM locations WHERE user_id = ? AND id != ? AND locked = 0 ORDER BY id ASC`,
-      [location.user_id, location.id]
+      `SELECT * FROM locations WHERE user_id = ? AND id != ? AND inventory_type = ? AND locked = 0 ORDER BY id ASC`,
+      [location.user_id, location.id, location.inventory_type || 'collection']
     );
     for (const otherLoc of otherLocations) {
       const otherComps = await loadCompartments(dbClient, otherLoc.id, location.user_id);
-      const hasSpace = otherComps.some(c => c.free > 0);
+      const hasSpace = otherComps.some(c => !c.locked && c.free >= (otherLoc.allow_stacking ? 1 : (cardMetadata.quantity || 1)));
       if (hasSpace) {
         const rec = await recommendSlot(dbClient, otherLoc, cardMetadata, otherComps);
         if (rec) {
@@ -455,13 +461,12 @@ async function recommendSlot(database, location, cardMetadata, overrideCompartme
 
   let pool = [...assignedComps];
   
-  const poolHasFreeSpace = pool.some(c => countOf(c) < c.capacity);
+  const poolHasFreeSpace = pool.some(hasFreeSpace);
 
   if (pool.length === 0 || !poolHasFreeSpace) {
     pool = [...pool, ...unassignedComps];
   }
 
-  const hasFreeSpace = (c) => countOf(c) < c.capacity;
 
   if (pool.length === 0 || !pool.some(hasFreeSpace)) {
     pool = compartments.filter(c =>
@@ -478,7 +483,7 @@ async function recommendSlot(database, location, cardMetadata, overrideCompartme
   pool.sort((a, b) => a.idx - b.idx);
 
   if (location.sort_order === 'custom') {
-    const usableCandidates = pool.filter(c => countOf(c) < c.capacity);
+    const usableCandidates = pool.filter(hasFreeSpace);
     const best = usableCandidates.find(c => {
       const cats = dynamicCatsByCompId.get(c.id) || [];
       return cardCat && cats.includes(cardCat);
@@ -565,8 +570,8 @@ async function recommendSlot(database, location, cardMetadata, overrideCompartme
     if (targetIndex < cursor + compartment.capacity) {
       let target = compartment;
       let seq = localSeq(target);
-      if (countOf(target) >= target.capacity) {
-        const spill = pool.slice(i + 1).find(c => countOf(c) < c.capacity);
+      if (!hasFreeSpace(target)) {
+        const spill = pool.slice(i + 1).find(hasFreeSpace);
         if (!spill) return null;
         target = spill;
         seq = localSeq(spill);
@@ -607,7 +612,9 @@ async function rebalanceCompartmentByScheme(database, compartmentId, sortOrder, 
     `SELECT c.*, cc.name, cc.printed_name, cc.set_id as set_code, cc.set_name, cc.number, cc.types, cc.rarity, cc.price_trend
      FROM collection c
      LEFT JOIN card_cache cc ON c.card_id = cc.id
-     WHERE c.compartment_id = ? AND COALESCE(c.list_type, 'collection') != 'graveyard'
+     WHERE c.compartment_id = ? AND COALESCE(c.list_type, 'collection') = (
+       SELECT l.inventory_type FROM compartments cp JOIN locations l ON l.id = cp.location_id
+       WHERE cp.id = c.compartment_id AND l.user_id = c.user_id)
      ORDER BY c.position ASC, c.id ASC`,
     [compartmentId]
   );

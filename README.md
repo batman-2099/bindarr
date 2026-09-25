@@ -308,6 +308,16 @@ After import, expand **Full summary** to review requested, moved, and unmoved qu
 
 To add stored cards to an existing deck, open an unlocked container, choose **Select**, select the cards, and choose a deck from **Add to Deck…** in the selection toolbar. Selected quantities are added subject to the existing deck rules; cards stay in their storage locations.
 
+To archive stored cards, open an unlocked container, choose **Select**, select one or more cards, then choose **Archive to Graveyard**. Cards leave the container and retain their quantities and metadata in Graveyard. Checked-out copies must be returned first.
+
+### Store archived cards in Graveyard containers
+
+Open **Collection → Graveyard → Graveyard containers**, or choose **Graveyard** in Storage. Create a container there and use the existing **Sort & File**, **Auto-File All**, or move controls to file archived cards. Graveyard containers have their own unassigned pile, layouts, capacity, locks, and cover images; physical cards and containers stay separate.
+
+To move an entire container between inventories, open its **⋮** menu and choose **Move to Graveyard** or **Restore to Collection**, then confirm. All contained cards move with it; quantities, metadata, layout, positions, settings, and cover are preserved. Unlock the container and its compartments first; return checked-out copies before archiving. The transfer is atomic—if any card cannot move, nothing is changed.
+
+Restoring a card to Physical Collection or Arena clears its Graveyard placement. Deleting a Graveyard container leaves its cards archived and unassigned. Complete backups preserve Graveyard containers and their card placements. These containers cannot supply decks, AI deck builds, physical-container imports, or public container shares.
+
 ### Back up or move an account
 
 In **Settings → Collection Backup & Data Options**, select **Export Complete Backup**. The JSON archive contains collection entries, cached card metadata, containers and layouts, and decks. Restoring a complete backup replaces the current account's collection, storage, and decks after confirmation.

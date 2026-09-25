@@ -10,7 +10,7 @@ const {
   rebalanceCompartmentByScheme,
   STACK_KEY_SQL
 } = require('../utils/compartmentSort');
-const { defaultCompartmentPlan, normalizeRuleConfig } = require('../utils/collectionHelpers');
+const { defaultCompartmentPlan, normalizeRuleConfig, assertStorageInventory, checkedOutAllocation } = require('../utils/collectionHelpers');
 
 const router = express.Router();
 
@@ -28,13 +28,13 @@ async function loadEntries(entryIds, userId) {
   if (!entryIds.length) return new Map();
   const holes = entryIds.map(() => '?').join(',');
   const rows = await db.all(`
-    SELECT c.id, c.id AS entry_id, c.card_id, c.printing, c.language, c.favorite, c.is_trade, c.list_type,
+    SELECT c.id, c.id AS entry_id, c.card_id, c.quantity, c.printing, c.language, c.favorite, c.is_trade, c.list_type,
            cc.name, cc.printed_name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.supertype, cc.rarity, cc.image_url,
            cc.game, cc.cmc, cc.color_identity,
            cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil
     FROM collection c
     JOIN card_cache cc ON c.card_id = cc.id
-    WHERE c.user_id = ? AND c.id IN (${holes}) AND COALESCE(c.list_type, 'collection') != 'graveyard'
+    WHERE c.user_id = ? AND c.id IN (${holes})
   `, [userId, ...entryIds]);
   for (const r of rows) {
     try { r.types = JSON.parse(r.types || '[]'); } catch { r.types = []; }
@@ -44,6 +44,8 @@ async function loadEntries(entryIds, userId) {
 
 // 1. Get Storage Locations with Compartment Summaries
 router.get('/locations', async (req, res) => {
+  const inventoryType = req.query.inventory_type || 'collection';
+  if (!['collection', 'graveyard'].includes(inventoryType)) return res.status(400).json({ error: 'Invalid inventory_type' });
   try {
     // Subqueries, not a joined SUM: joining compartments to collection fans each
     // compartment row out once per card, which inflated total_capacity by the
@@ -59,11 +61,11 @@ router.get('/locations', async (req, res) => {
                        THEN COUNT(DISTINCT ${STACK_KEY_SQL})
                        ELSE COALESCE(SUM(quantity), 0) END
                 FROM collection
-                WHERE user_id = l.user_id AND COALESCE(list_type, 'collection') != 'graveyard'
+                WHERE user_id = l.user_id AND COALESCE(list_type, 'collection') = l.inventory_type
                   AND compartment_id IN (SELECT id FROM compartments WHERE location_id = l.id)) as total_cards
       FROM locations l
-      WHERE l.user_id = ?
-    `, [req.user.id]);
+      WHERE l.user_id = ? AND l.inventory_type = ?
+    `, [req.user.id, inventoryType]);
     res.json(locations);
   } catch (error) {
     console.error(error);
@@ -75,7 +77,8 @@ const RULE_TYPES = ['any', 'alphabetical_range', 'specific_sets', 'compound'];
 const GAME_RESTRICTIONS = ['mtg'];
 
 router.post('/locations', async (req, res) => {
-  const { name, type, sort_order = 'name-asc', foil_sorting = 'normals_first', rule_type = 'any', rule_config, compartmentPlan, game = 'mtg' } = req.body;
+  const { name, type, sort_order = 'name-asc', foil_sorting = 'normals_first', rule_type = 'any', rule_config, compartmentPlan, game = 'mtg', inventory_type = 'collection' } = req.body;
+  if (!['collection', 'graveyard'].includes(inventory_type)) return res.status(400).json({ error: 'Invalid inventory_type' });
 
   if (!name || !type) {
     return res.status(400).json({ error: 'name and type are required' });
@@ -99,9 +102,9 @@ router.post('/locations', async (req, res) => {
     }
 
     const result = await db.run(`
-      INSERT INTO locations (name, type, sort_order, foil_sorting, rule_type, rule_config, game, user_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `, [name, type, sort_order, foil_sorting || 'normals_first', rule_type, ruleConfigJson, game, req.user.id]);
+      INSERT INTO locations (name, type, sort_order, foil_sorting, rule_type, rule_config, game, user_id, inventory_type)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [name, type, sort_order, foil_sorting || 'normals_first', rule_type, ruleConfigJson, game, req.user.id, inventory_type]);
 
     const plan = compartmentPlan || defaultCompartmentPlan(type);
     await db.createCompartments(result.lastID, Math.max(1, parseInt(plan.count, 10) || 1), Math.max(1, parseInt(plan.capacity, 10) || 40));
@@ -125,6 +128,43 @@ router.get('/locations/:id', async (req, res) => {
   }
 });
 
+router.post('/locations/:id/transfer', async (req, res) => {
+  const { id } = req.params;
+  const { inventory_type } = req.body;
+  try {
+    const result = await db.withTransaction(async () => {
+      if (!['collection', 'graveyard'].includes(inventory_type)) {
+        throw Object.assign(new Error('Invalid inventory_type'), { status: 400 });
+      }
+      const location = await db.get('SELECT id, inventory_type, locked FROM locations WHERE id = ? AND user_id = ?', [id, req.user.id]);
+      if (!location) throw Object.assign(new Error('Location not found'), { status: 404 });
+      if (location.inventory_type === inventory_type) return { id: location.id, inventory_type, affected: 0 };
+      if (location.locked || await db.get('SELECT id FROM compartments WHERE location_id = ? AND locked = 1 LIMIT 1', [id])) {
+        throw Object.assign(new Error('Unlock this container and its compartments before transferring'), { status: 409 });
+      }
+      const entries = await db.all(`
+        SELECT id FROM collection WHERE user_id = ?
+          AND (location_id = ? OR compartment_id IN (SELECT id FROM compartments WHERE location_id = ?))
+      `, [req.user.id, id, id]);
+      const allocated = await checkedOutAllocation(req.user.id);
+      if (entries.some(entry => allocated.get(entry.id) > 0)) {
+        throw Object.assign(new Error('Check in the deck before transferring its checked-out cards.'), { status: 409 });
+      }
+      const updated = await db.run(`
+        UPDATE collection SET list_type = ? WHERE user_id = ?
+          AND (location_id = ? OR compartment_id IN (SELECT id FROM compartments WHERE location_id = ?))
+      `, [inventory_type, req.user.id, id, id]);
+      await db.run('UPDATE locations SET inventory_type = ? WHERE id = ? AND user_id = ?', [inventory_type, id, req.user.id]);
+      return { id: location.id, inventory_type, affected: updated.changes };
+    });
+    res.json({ message: 'Container transferred', ...result });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    console.error(error);
+    res.status(500).json({ error: 'Failed to transfer container' });
+  }
+});
+
 router.put('/locations/:id', async (req, res) => {
   const { id } = req.params;
   const { name, type, sort_order, foil_sorting, rule_type, rule_config, game, locked, allow_stacking } = req.body;
@@ -141,16 +181,19 @@ router.put('/locations/:id', async (req, res) => {
     return res.status(400).json({ error: 'rule_config must be valid JSON' });
   }
   try {
-    const loc = await db.get(`SELECT id, sort_order, foil_sorting FROM locations WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    const loc = await db.get(`SELECT id, sort_order, foil_sorting, inventory_type FROM locations WHERE id = ? AND user_id = ?`, [id, req.user.id]);
     if (!loc) {
       return res.status(404).json({ error: 'Location not found' });
+    }
+    if (req.body.inventory_type !== undefined && req.body.inventory_type !== loc.inventory_type) {
+      return res.status(400).json({ error: 'Container inventory cannot be changed after creation' });
     }
     const { cover_card_id } = req.body;
     if (cover_card_id !== undefined && cover_card_id !== null) {
       if (typeof cover_card_id !== 'string' || !await db.get(
         `SELECT c.id FROM collection c JOIN card_cache cc ON cc.id = c.card_id
-         WHERE c.location_id = ? AND c.user_id = ? AND c.card_id = ? AND COALESCE(c.list_type, 'collection') != 'graveyard' AND cc.image_url IS NOT NULL AND cc.image_url != ''`,
-        [id, req.user.id, cover_card_id]
+         WHERE c.location_id = ? AND c.user_id = ? AND c.card_id = ? AND COALESCE(c.list_type, 'collection') = ? AND cc.image_url IS NOT NULL AND cc.image_url != ''`,
+        [id, req.user.id, cover_card_id, loc.inventory_type]
       )) return res.status(400).json({ error: 'Choose a card image from this container' });
     }
 
@@ -194,15 +237,15 @@ router.put('/locations/:id', async (req, res) => {
 
     let evicted = 0;
     if (rule_type !== undefined || rule_config !== undefined || game !== undefined) {
-      const updated = await db.get(`SELECT id, rule_type, rule_config, game FROM locations WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+      const updated = await db.get(`SELECT id, rule_type, rule_config, game, inventory_type FROM locations WHERE id = ? AND user_id = ?`, [id, req.user.id]);
       const stored = await db.all(`
         SELECT c.id as entry_id, c.printing, c.language, c.favorite, c.is_trade, c.list_type,
                cc.name, cc.printed_name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.rarity, cc.supertype, cc.game,
                cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.cmc, cc.color_identity
         FROM collection c
         JOIN card_cache cc ON c.card_id = cc.id
-        WHERE c.location_id = ? AND c.user_id = ? AND COALESCE(c.list_type, 'collection') != 'graveyard'
-      `, [id, req.user.id]);
+        WHERE c.location_id = ? AND c.user_id = ? AND COALESCE(c.list_type, 'collection') = ?
+      `, [id, req.user.id, loc.inventory_type]);
       for (const entry of stored) {
         entry.printing = entry.printing || 'Normal';
         entry.language = entry.language || 'English';
@@ -228,7 +271,7 @@ router.delete('/locations/:id', async (req, res) => {
       return res.status(404).json({ error: 'Location not found' });
     }
 
-    await db.run(`UPDATE collection SET location_id = NULL, compartment_id = NULL WHERE location_id = ? AND user_id = ?`, [id, req.user.id]);
+    await db.run(`UPDATE collection SET location_id = NULL, compartment_id = NULL, position = 0 WHERE location_id = ? AND user_id = ?`, [id, req.user.id]);
 
     await db.run(`DELETE FROM locations WHERE id = ? AND user_id = ?`, [id, req.user.id]);
     res.json({ message: 'Location deleted successfully (any stored cards moved to Unsorted)' });
@@ -340,7 +383,7 @@ router.delete('/locations/:id/compartments/:comp_id', async (req, res) => {
 // edits rows/pages by bare compartment id; resolve the owning location for auth.
 async function getOwnedCompartment(compId, userId) {
   return db.get(`
-    SELECT cp.*, l.id AS loc_id, l.type AS loc_type, l.sort_order, l.foil_sorting
+    SELECT cp.*, l.id AS loc_id, l.type AS loc_type, l.sort_order, l.foil_sorting, l.inventory_type
     FROM compartments cp JOIN locations l ON cp.location_id = l.id
     WHERE cp.id = ? AND l.user_id = ?`, [compId, userId]);
 }
@@ -378,7 +421,7 @@ router.patch('/compartments/:id', async (req, res) => {
                cc.name, cc.printed_name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.rarity, cc.supertype, cc.game,
                cc.price_trend, cc.cmc, cc.color_identity
         FROM collection c JOIN card_cache cc ON c.card_id = cc.id
-        WHERE c.compartment_id = ? AND c.user_id = ? AND COALESCE(c.list_type, 'collection') != 'graveyard'`, [id, req.user.id]);
+        WHERE c.compartment_id = ? AND c.user_id = ? AND COALESCE(c.list_type, 'collection') = ?`, [id, req.user.id, comp.inventory_type]);
       for (const entry of stored) {
         try { entry.types = JSON.parse(entry.types || '[]'); } catch { entry.types = []; }
         if (!compartmentAcceptsCard(compForCheck, entry)) {
@@ -430,15 +473,18 @@ router.put('/compartments/:id/filters', async (req, res) => {
 // Recommendation endpoints
 router.post('/locations/:id/recommend', async (req, res) => {
   const { id } = req.params;
-  const { card_id, printing = 'Normal', language = 'English' } = req.body;
+  const { card_id, printing = 'Normal', language = 'English', list_type = 'collection' } = req.body;
   try {
     const location = await db.get(`SELECT * FROM locations WHERE id = ? AND user_id = ?`, [id, req.user.id]);
     if (!location) return res.status(404).json({ error: 'Location not found' });
+    assertStorageInventory(location, list_type);
 
     const cardMetadata = await db.get(`SELECT name, set_name, number, types, subtypes, price_trend, price_normal, price_holofoil, price_reverse_holofoil, supertype, rarity, game, cmc, color_identity FROM card_cache WHERE id = ?`, [card_id]);
     if (!cardMetadata) return res.status(404).json({ error: 'Card not found in cache' });
     cardMetadata.printing = printing;
     cardMetadata.language = language;
+    cardMetadata.list_type = list_type;
+    cardMetadata.card_id = card_id;
     try { cardMetadata.types = JSON.parse(cardMetadata.types || '[]'); } catch { cardMetadata.types = []; }
 
     if (!locationAcceptsCard(location, cardMetadata)) {
@@ -449,6 +495,7 @@ router.post('/locations/:id/recommend', async (req, res) => {
     if (!recommendation) return res.json({ full: true });
     res.json(recommendation);
   } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
     console.error(error);
     res.status(500).json({ error: 'Failed to compute recommendation' });
   }
@@ -467,6 +514,7 @@ router.post('/locations/:id/recommend-batch', async (req, res) => {
     const recommendations = [];
 
     const entries = await loadEntries(entry_ids, req.user.id);
+    for (const entry of entries.values()) assertStorageInventory(location, entry.list_type);
 
     for (const entryId of entry_ids) {
       const entry = entries.get(String(entryId));
@@ -487,7 +535,7 @@ router.post('/locations/:id/recommend-batch', async (req, res) => {
 
       if (!recommended.stacked) {
         workingCompartments = workingCompartments.map(c =>
-          c.id === recommended.compartment_id ? { ...c, count: c.count + 1, free: c.free - 1 } : c
+          c.id === recommended.compartment_id ? { ...c, count: c.count + (location.allow_stacking ? 1 : entry.quantity), free: c.free - (location.allow_stacking ? 1 : entry.quantity) } : c
         );
       }
 
@@ -497,6 +545,7 @@ router.post('/locations/:id/recommend-batch', async (req, res) => {
       mockCards.push({
         entry_id: entry.entry_id,
         card_id: entry.card_id,
+        quantity: entry.quantity,
         position: recommended.position,
         compartment_id: recommended.compartment_id,
         image_url: entry.image_url,
@@ -519,6 +568,7 @@ router.post('/locations/:id/recommend-batch', async (req, res) => {
 
     res.json(recommendations);
   } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
     console.error(error);
     res.status(500).json({ error: 'Failed to compute batch recommendations' });
   }
@@ -538,6 +588,7 @@ router.post('/locations/:id/apply-all', async (req, res) => {
     let filed = 0;
 
     const entries = await loadEntries(entry_ids, req.user.id);
+    for (const entry of entries.values()) assertStorageInventory(location, entry.list_type);
 
     for (const entryId of entry_ids) {
       const entry = entries.get(String(entryId));
@@ -547,12 +598,12 @@ router.post('/locations/:id/apply-all', async (req, res) => {
       if (!recommended) continue;
 
       await db.run(`UPDATE collection SET location_id = ?, compartment_id = ?, position = ? WHERE id = ? AND user_id = ?`, [
-        id, recommended.compartment_id, recommended.position, entryId, req.user.id
+        recommended.location_id || id, recommended.compartment_id, recommended.position, entryId, req.user.id
       ]);
 
       if (!recommended.stacked) {
         workingCompartments = workingCompartments.map(c =>
-          c.id === recommended.compartment_id ? { ...c, count: c.count + 1, free: c.free - 1 } : c
+          c.id === recommended.compartment_id ? { ...c, count: c.count + (location.allow_stacking ? 1 : entry.quantity), free: c.free - (location.allow_stacking ? 1 : entry.quantity) } : c
         );
       }
       filed++;
@@ -560,6 +611,7 @@ router.post('/locations/:id/apply-all', async (req, res) => {
 
     res.json({ message: `Filed ${filed} of ${entry_ids.length} card(s).`, filed, total: entry_ids.length });
   } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
     console.error(error);
     res.status(500).json({ error: 'Failed to apply batch' });
   }
@@ -570,6 +622,7 @@ router.post('/locations/:id/resort', async (req, res) => {
   try {
     const location = await db.get(`SELECT * FROM locations WHERE id = ? AND user_id = ?`, [id, req.user.id]);
     if (!location) return res.status(404).json({ error: 'Location not found' });
+    if (location.locked) return res.status(409).json({ error: 'Unlock this container before re-sorting' });
 
     const cards = await db.all(`
       SELECT c.id as entry_id, c.card_id, c.printing, c.language, c.quantity, c.favorite, c.is_trade, c.list_type,
@@ -577,13 +630,14 @@ router.post('/locations/:id/resort', async (req, res) => {
              cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.cmc, cc.color_identity
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
-      WHERE c.location_id = ? AND c.user_id = ? AND COALESCE(c.list_type, 'collection') != 'graveyard'
-    `, [id, req.user.id]);
+      WHERE c.location_id = ? AND c.user_id = ? AND COALESCE(c.list_type, 'collection') = ?
+        AND (c.compartment_id IS NULL OR c.compartment_id IN (SELECT id FROM compartments WHERE locked = 0))
+    `, [id, req.user.id, location.inventory_type]);
     cards.forEach(c => { try { c.types = JSON.parse(c.types || '[]'); } catch { c.types = []; } });
 
     if (cards.length === 0) return res.json([]);
 
-    await db.run(`UPDATE collection SET compartment_id = NULL, position = 0 WHERE location_id = ? AND user_id = ?`, [id, req.user.id]);
+    await db.run(`UPDATE collection SET compartment_id = NULL, position = 0 WHERE id IN (${cards.map(() => '?').join(',')}) AND user_id = ?`, [...cards.map(card => card.entry_id), req.user.id]);
 
     const ordered = sortCards(cards, location.sort_order, location.foil_sorting);
 
@@ -602,7 +656,7 @@ router.post('/locations/:id/resort', async (req, res) => {
 
       if (finalLoc === Number(id) && !recommended.stacked) {
         workingCompartments = workingCompartments.map(c =>
-          c.id === recommended.compartment_id ? { ...c, count: c.count + 1, free: c.free - 1 } : c
+          c.id === recommended.compartment_id ? { ...c, count: c.count + (location.allow_stacking ? 1 : entry.quantity), free: c.free - (location.allow_stacking ? 1 : entry.quantity) } : c
         );
       }
     }

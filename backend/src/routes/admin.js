@@ -17,7 +17,7 @@ router.use(authenticateToken, requireAdmin);
 
 router.post('/seed-cards', async (req, res) => {
   try {
-    let binder = await db.get(`SELECT id FROM locations WHERE user_id = ? AND type = 'Binder' LIMIT 1`, [req.user.id]);
+    let binder = await db.get(`SELECT id FROM locations WHERE user_id = ? AND type = 'Binder' AND inventory_type = 'collection' LIMIT 1`, [req.user.id]);
     if (!binder) {
       const result = await db.run(`
         INSERT INTO locations (name, type, sort_order, user_id) VALUES (?, ?, ?, ?)
@@ -26,7 +26,7 @@ router.post('/seed-cards', async (req, res) => {
       binder = { id: result.lastID };
     }
 
-    let box = await db.get(`SELECT id FROM locations WHERE user_id = ? AND type = 'Box' LIMIT 1`, [req.user.id]);
+    let box = await db.get(`SELECT id FROM locations WHERE user_id = ? AND type = 'Box' AND inventory_type = 'collection' LIMIT 1`, [req.user.id]);
     if (!box) {
       const result = await db.run(`
         INSERT INTO locations (name, type, sort_order, user_id) VALUES (?, ?, ?, ?)

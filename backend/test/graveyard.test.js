@@ -37,6 +37,7 @@ async function testGraveyard() {
     app.use('/api', require('../src/routes/importExport'));
     app.use('/api', require('../src/routes/stats'));
     app.use('/api/decks', require('../src/routes/decks'));
+    app.use('/api/shared', require('../src/routes/shared'));
     server = await new Promise(resolve => { const listener = app.listen(0, '127.0.0.1', () => resolve(listener)); });
     const base = `http://127.0.0.1:${server.address().port}/api`;
     async function request(url, method = 'GET', body, user = 1, status = 200) {
@@ -62,8 +63,8 @@ async function testGraveyard() {
     assert.strictEqual((await request(`/locations/${location}/compartments`))[0].count, 0);
     await request(`/collection/${physical}`, 'PUT', { location_id: location }, 1, 400);
     await request(`/collection/${physical}/place`, 'POST', { compartment_id: compartment, slot: 0 }, 1, 400);
-    assert.strictEqual((await request('/collection/bulk', 'POST', { entry_ids: [physical], action: 'move', value: location })).affected, 0);
-    await request(`/locations/${location}/apply-all`, 'POST', { entry_ids: [physical] });
+    await request('/collection/bulk', 'POST', { entry_ids: [physical], action: 'move', value: location }, 1, 400);
+    await request(`/locations/${location}/apply-all`, 'POST', { entry_ids: [physical] }, 1, 400);
     assert.deepStrictEqual(await db.get('SELECT * FROM collection WHERE id = ?', [physical]), archived);
     const stats = await request('/stats');
     assert.strictEqual(stats.summary.totalCards, 2);
@@ -101,6 +102,173 @@ async function testGraveyard() {
     await db.run('UPDATE decks SET checked_out = 0 WHERE id = ?', [restoredDeck.id]);
     await change(restoredArchive.id, 'graveyard');
     assert.deepStrictEqual((await request('/collection?list_type=graveyard')).map(row => row.quantity), [3]);
+
+    // Archive containers keep storage separate from the active collection.
+    const create = (name, inventory_type = 'graveyard', user = 1) => request('/locations', 'POST', {
+      name, type: 'Box', sort_order: 'custom', inventory_type, compartmentPlan: { count: 1, capacity: 20 }
+    }, user);
+    const archiveBox = (await create('Filed archive')).id;
+    const secondBox = (await create('Second archive')).id;
+    const foreignBox = (await create('Private archive', 'graveyard', 2)).id;
+    const activeBox = (await create('Active storage', 'collection')).id;
+    const archiveComp = (await request(`/locations/${archiveBox}/compartments`))[0].id;
+    const activeComp = (await request(`/locations/${activeBox}/compartments`))[0].id;
+    const foreignComp = (await request(`/locations/${foreignBox}/compartments`, 'GET', undefined, 2))[0].id;
+    assert.deepStrictEqual((await request('/locations?inventory_type=graveyard')).map(row => row.id), [archiveBox, secondBox]);
+    assert.ok(!(await request('/locations')).some(row => row.id === archiveBox));
+    await request('/locations?inventory_type=arena', 'GET', undefined, 1, 400);
+    await request('/locations', 'POST', { name: 'Invalid inventory', type: 'Box', inventory_type: 'arena' }, 1, 400);
+    await request(`/locations/${archiveBox}`, 'PUT', { inventory_type: 'collection' }, 1, 400);
+    await request(`/locations/${archiveBox}`, 'GET', undefined, 2, 404);
+    await request(`/collection/${restoredArchive.id}`, 'PUT', { compartment_id: foreignComp }, 1, 400);
+    await request(`/collection/${restoredArchive.id}`, 'PUT', { location_id: activeBox }, 1, 400);
+    await request(`/collection/${spare}`, 'PUT', { location_id: archiveBox }, 1, 400);
+    await request(`/collection/${spare}/place`, 'POST', { compartment_id: archiveComp, slot: 1 }, 1, 400);
+    await request(`/compartments/${archiveComp}`, 'PATCH', { capacity: 2 });
+    await request(`/collection/${restoredArchive.id}`, 'PUT', { compartment_id: archiveComp }, 1, 400);
+    assert.strictEqual((await db.get('SELECT location_id FROM collection WHERE id = ?', [restoredArchive.id])).location_id, null);
+    await request(`/compartments/${archiveComp}`, 'PATCH', { capacity: 20 });
+    await request(`/collection/${restoredArchive.id}`, 'PUT', { compartment_id: archiveComp });
+    await request(`/collection/${restoredArchive.id}`, 'PUT', { notes: 'Still archived' });
+    let filed = await db.get('SELECT * FROM collection WHERE id = ?', [restoredArchive.id]);
+    assert.deepStrictEqual([filed.list_type, filed.location_id, filed.compartment_id, filed.quantity], ['graveyard', archiveBox, archiveComp, 3]);
+    assert.strictEqual((await request('/collection?list_type=graveyard'))[0].location_id, archiveBox);
+    assert.strictEqual((await request('/locations?inventory_type=graveyard'))[0].total_cards, 3);
+    assert.strictEqual((await request(`/locations/${archiveBox}/compartments`))[0].count, 3);
+    await db.run("UPDATE card_cache SET image_url = 'https://example.com/archive.jpg' WHERE id = 'archive-card'");
+    await request(`/locations/${archiveBox}`, 'PUT', { cover_card_id: 'archive-card' });
+    assert.strictEqual((await request(`/locations/${archiveBox}`)).cover_card_id, 'archive-card');
+    await request(`/collection/${restoredArchive.id}/place`, 'POST', { compartment_id: activeComp, slot: 1 }, 1, 400);
+    await request(`/collection/${restoredArchive.id}/place`, 'POST', { compartment_id: archiveComp, slot: 2 });
+    await request(`/locations/${secondBox}/recommend`, 'POST', { card_id: 'archive-card', list_type: 'graveyard' });
+    await request(`/locations/${secondBox}/recommend`, 'POST', { card_id: 'archive-card' }, 1, 400);
+    await request(`/locations/${secondBox}/recommend-batch`, 'POST', { entry_ids: [spare] }, 1, 400);
+    assert.strictEqual((await request(`/locations/${secondBox}/recommend-batch`, 'POST', { entry_ids: [restoredArchive.id] }))[0].recommended.location_id, secondBox);
+    assert.strictEqual((await request('/collection/bulk', 'POST', { entry_ids: [restoredArchive.id], action: 'move', value: secondBox })).affected, 1);
+    await request(`/locations/${archiveBox}/apply-all`, 'POST', { entry_ids: [restoredArchive.id] });
+    assert.strictEqual((await db.get('SELECT location_id FROM collection WHERE id = ?', [restoredArchive.id])).location_id, archiveBox);
+    await request(`/locations/${archiveBox}/resort`, 'POST', {});
+    await request(`/locations/${archiveBox}`, 'PUT', { locked: true });
+    await request(`/locations/${archiveBox}/resort`, 'POST', {}, 1, 409);
+    assert.strictEqual((await request(`/locations/${archiveBox}/recommend`, 'POST', { card_id: 'spare-card', list_type: 'graveyard' })).full, true);
+    await request(`/locations/${archiveBox}`, 'PUT', { locked: false });
+    await request('/decks/from-container', 'POST', { location_id: archiveBox, name: 'Not a deck' }, 1, 404);
+    await request('/import-container/move', 'POST', { location_id: archiveBox, card_id: 'spare-card', printing: 'Normal', requested: 1 }, 1, 400);
+    await assert.rejects(inventory(1, 'collection', { container_ids: [archiveBox] }), /Container not found/);
+    await db.run("UPDATE users SET share_enabled = 1, share_locations = 1, share_token = 'archive-owner' WHERE id = 1");
+    await request(`/shared/archive-owner/containers/${archiveBox}`, 'GET', undefined, 1, 404);
+
+    filed = await db.get('SELECT * FROM collection WHERE id = ?', [restoredArchive.id]);
+    const filedBackup = await request('/export?format=backup');
+    const badBackup = structuredClone(filedBackup);
+    badBackup.locations.find(row => row.id === archiveBox).inventory_type = 'collection';
+    await request('/import', 'POST', { format: 'backup', data: badBackup }, 1, 400);
+    assert.deepStrictEqual(await db.get('SELECT * FROM collection WHERE id = ?', [restoredArchive.id]), filed);
+    await request('/import', 'POST', { format: 'backup', data: filedBackup });
+    const restoredBox = (await request('/locations?inventory_type=graveyard')).find(row => row.name === 'Filed archive');
+    const restored = await db.get("SELECT * FROM collection WHERE user_id = 1 AND list_type = 'graveyard'");
+    assert.strictEqual(restored.location_id, restoredBox.id);
+    assert.deepStrictEqual({ ...restored, id: filed.id, location_id: filed.location_id, compartment_id: filed.compartment_id }, filed);
+    assert.strictEqual(restoredBox.cover_card_id, 'archive-card');
+    assert.strictEqual((await request(`/locations/${restoredBox.id}/compartments`))[0].count, 3);
+    await change(restored.id, 'arena');
+    assert.deepStrictEqual(await db.get('SELECT list_type, location_id, compartment_id, position, quantity FROM collection WHERE id = ?', [restored.id]),
+      { list_type: 'arena', location_id: null, compartment_id: null, position: 0, quantity: 3 });
+    await change(restored.id, 'graveyard');
+    await request(`/collection/${restored.id}`, 'PUT', { location_id: restoredBox.id });
+    await bulk([restored.id], 'collection');
+    assert.strictEqual((await db.get('SELECT location_id FROM collection WHERE id = ?', [restored.id])).location_id, null);
+    await change(restored.id, 'graveyard');
+    await request(`/collection/${restored.id}`, 'PUT', { location_id: restoredBox.id });
+    await request(`/locations/${restoredBox.id}`, 'DELETE');
+    assert.deepStrictEqual(await db.get('SELECT list_type, location_id, compartment_id, position, quantity FROM collection WHERE id = ?', [restored.id]),
+      { list_type: 'graveyard', location_id: null, compartment_id: null, position: 0, quantity: 3 });
+
+    const transferBox = (await request('/locations', 'POST', {
+      name: 'Transfer binder', type: 'Binder', inventory_type: 'collection', sort_order: 'custom',
+      foil_sorting: 'foils_first', rule_type: 'specific_sets', rule_config: { sets: ['test'] },
+      compartmentPlan: { count: 2, capacity: 9 }
+    })).id;
+    const transferComps = await request(`/locations/${transferBox}/compartments`);
+    const transferComp = transferComps[0].id;
+    await request(`/compartments/${transferComp}`, 'PATCH', { label: 'Keep this page' });
+    const transferEntry = (await db.run(`INSERT INTO collection
+      (card_id, user_id, quantity, list_type, location_id, compartment_id, position, printing, language,
+       condition, purchase_price, favorite, is_trade, notes, grader, grade, cert_number, market_value, market_value_source, added_at)
+      VALUES ('archive-card', 1, 3, 'collection', ?, ?, 4000, 'Holofoil', 'German',
+        'Lightly Played', 5, 1, 1, 'Transfer provenance', 'PSA', 9, 'transfer-cert', 30, 'manual', '2025-02-01 00:00:00')`,
+    [transferBox, transferComp])).lastID;
+    await db.run(`INSERT INTO collection (card_id, user_id, quantity, location_id, position)
+      VALUES ('spare-card', 1, 2, ?, 7000)`, [transferBox]);
+    await db.run(`INSERT INTO collection (card_id, user_id, quantity, compartment_id, position)
+      VALUES ('spare-card', 1, 1, ?, 8000)`, [transferComp]);
+    // Legacy/inconsistent placement still must not grant access to another user's rows.
+    const foreignPlaced = (await db.run(`INSERT INTO collection (card_id, user_id, quantity, location_id, compartment_id)
+      VALUES ('spare-card', 2, 5, ?, ?)`, [transferBox, transferComp])).lastID;
+    await request(`/locations/${transferBox}`, 'PUT', { cover_card_id: 'archive-card', allow_stacking: true });
+    const snapshot = async () => ({
+      locations: await db.all('SELECT * FROM locations ORDER BY id'),
+      compartments: await db.all('SELECT * FROM compartments ORDER BY id'),
+      cards: await db.all('SELECT * FROM collection ORDER BY id')
+    });
+    const transfer = (id, inventory_type, user = 1, status = 200) =>
+      request(`/locations/${id}/transfer`, 'POST', { inventory_type }, user, status);
+    const rejectTransfer = async (id, inventory_type, user, status) => {
+      const before = await snapshot();
+      await transfer(id, inventory_type, user, status);
+      assert.deepStrictEqual(await snapshot(), before, 'rejected transfer leaves all containers and cards unchanged');
+    };
+    for (const invalid of ['arena', '', null, undefined, 1, ['graveyard']]) {
+      await rejectTransfer(transferBox, invalid, 1, 400);
+    }
+    await rejectTransfer(transferBox, 'graveyard', 2, 404);
+    await rejectTransfer(2147483647, 'graveyard', 1, 404);
+    await request(`/locations/${transferBox}`, 'PUT', { locked: true });
+    await rejectTransfer(transferBox, 'graveyard', 1, 409);
+    const lockedBefore = await snapshot();
+    assert.strictEqual((await transfer(transferBox, 'collection')).affected, 0);
+    assert.deepStrictEqual(await snapshot(), lockedBefore, 'same-inventory transfer is a safe no-op even when locked');
+    await request(`/locations/${transferBox}`, 'PUT', { locked: false });
+    await request(`/compartments/${transferComps[1].id}`, 'PATCH', { locked: true });
+    await rejectTransfer(transferBox, 'graveyard', 1, 409);
+    await request(`/compartments/${transferComps[1].id}`, 'PATCH', { locked: false });
+    const transferDeck = (await db.run(`INSERT INTO decks (name, user_id, checked_out) VALUES ('Transfer guard', 1, 1)`)).lastID;
+    await db.run(`INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, 'archive-card', 999)`, [transferDeck]);
+    await rejectTransfer(transferBox, 'graveyard', 1, 409);
+    assert.strictEqual((await db.get('SELECT checked_out FROM decks WHERE id = ?', [transferDeck])).checked_out, 1);
+    await db.run('UPDATE decks SET checked_out = 0 WHERE id = ?', [transferDeck]);
+
+    const beforeTransfer = await snapshot();
+    assert.strictEqual((await transfer(transferBox, 'graveyard')).affected, 3);
+    const expectedArchive = {
+      ...beforeTransfer,
+      locations: beforeTransfer.locations.map(row => row.id === transferBox ? { ...row, inventory_type: 'graveyard' } : row),
+      cards: beforeTransfer.cards.map(row => row.user_id === 1 && (row.location_id === transferBox || row.compartment_id === transferComp)
+        ? { ...row, list_type: 'graveyard' } : row)
+    };
+    assert.deepStrictEqual(await snapshot(), expectedArchive, 'transfer preserves every field except inventory, including compartment-only placement');
+    assert.strictEqual((await request('/collection?list_type=graveyard')).find(row => row.entry_id === transferEntry).position, 4000);
+    assert.ok(!(await request('/locations')).some(row => row.id === transferBox));
+    assert.strictEqual((await request('/locations?inventory_type=graveyard')).find(row => row.id === transferBox).cover_card_id, 'archive-card');
+    assert.strictEqual((await db.get('SELECT list_type FROM collection WHERE id = ?', [foreignPlaced])).list_type, 'collection');
+    assert.strictEqual((await transfer(transferBox, 'graveyard')).affected, 0);
+    assert.deepStrictEqual(await snapshot(), expectedArchive);
+    await rejectTransfer(transferBox, 'collection', 2, 404);
+    await request(`/locations/${transferBox}`, 'PUT', { locked: true });
+    await rejectTransfer(transferBox, 'collection', 1, 409);
+    await request(`/locations/${transferBox}`, 'PUT', { locked: false });
+    await request(`/compartments/${transferComp}`, 'PATCH', { locked: true });
+    await rejectTransfer(transferBox, 'collection', 1, 409);
+    await request(`/compartments/${transferComp}`, 'PATCH', { locked: false });
+    assert.strictEqual((await transfer(transferBox, 'collection')).affected, 3);
+    assert.deepStrictEqual(await snapshot(), beforeTransfer, 'roundtrip restores the exact container, layout, contents, quantities and metadata');
+
+    const emptyBox = (await create('Empty transfer', 'collection')).id;
+    const beforeEmpty = await snapshot();
+    assert.strictEqual((await transfer(emptyBox, 'graveyard')).affected, 0);
+    assert.strictEqual((await request(`/locations/${emptyBox}`)).inventory_type, 'graveyard');
+    assert.strictEqual((await transfer(emptyBox, 'collection')).affected, 0);
+    assert.deepStrictEqual(await snapshot(), beforeEmpty, 'empty containers also transfer and restore without altering anything else');
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
     await new Promise(resolve => db.dbConnection.close(resolve));

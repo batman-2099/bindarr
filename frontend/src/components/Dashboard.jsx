@@ -602,7 +602,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
         onViewStorage={(card) => {
           if (setSelectedLocationId) setSelectedLocationId(card.location_id || 'unsorted');
           if (setFocusEntryId) setFocusEntryId(card.entry_id || card.id);
-          onNavigate('storage');
+          onNavigate('storage', card.list_type === 'graveyard' ? 'graveyard' : 'collection');
           setInspectorCard(null);
         }}
       />

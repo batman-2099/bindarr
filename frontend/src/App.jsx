@@ -103,6 +103,7 @@ function App() {
   const [selectedLocationId, setSelectedLocationId] = useState(null);
   const [focusEntryId, setFocusEntryId] = useState(null);
   const [storageViewKey, setStorageViewKey] = useState(0);
+  const [storageInventoryType, setStorageInventoryType] = useState('collection');
   const [deckViewKey, setDeckViewKey] = useState(0);
   const [selectedCardFilter, setSelectedCardFilter] = useState('');
   const [toast, setToast] = useState(null);
@@ -116,12 +117,15 @@ function App() {
   // switch pushes a fresh entry so the back button walks through tab history.
   // Disposing with history.back() would race during rapid switches and navigate
   // the browser past the app origin into about:blank.
-  const goTab = (tab) => {
+  const goTab = (tab, inventoryType = 'collection') => {
+    if (tab === 'storage') setStorageInventoryType(inventoryType);
     if (tab === activeTab) return;
     const prev = activeTab;
+    const prevStorageInventoryType = storageInventoryType;
     tabGuardRef.current = pushBackGuard(() => {
       tabGuardRef.current = null;
       setActiveTab(prev);
+      setStorageInventoryType(prevStorageInventoryType);
     });
     setActiveTab(tab);
   };
@@ -351,7 +355,13 @@ function App() {
       case 'storage':
         return (
           <LocationManager
-            key={storageViewKey}
+            key={`${storageViewKey}-${storageInventoryType}`}
+            inventoryType={storageInventoryType}
+            onInventoryTypeChange={(inventoryType) => {
+              setSelectedLocationId(null);
+              setFocusEntryId(null);
+              setStorageInventoryType(inventoryType);
+            }}
             statsTrigger={statsTrigger}
             onUpdate={triggerRefresh}
             showToast={showToast}

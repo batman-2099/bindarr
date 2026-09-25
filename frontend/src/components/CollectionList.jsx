@@ -68,6 +68,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
   const [inspectorCard, setInspectorCard] = useState(null);
   const [inspectorStartEdit, setInspectorStartEdit] = useState(false);
   const [subTab, setSubTab] = useState('collection'); // 'collection', 'unsorted', 'wishlist', 'arena', 'graveyard'
+  const inventoryType = subTab === 'graveyard' ? 'graveyard' : 'collection';
   const [showFilters, setShowFilters] = useState(false);
 
   // Search & Filter state
@@ -105,11 +106,12 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
 
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [subTab, setSelectedIds]);
+    setLocationFilter([]);
+    setBulkMoveTarget('');
+  }, [subTab, setSelectedIds, setBulkMoveTarget]);
 
   useEffect(() => {
     fetchCollection();
-    fetchLocations();
     fetchSets();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statsTrigger, subTab, tradeOnly]);
@@ -136,17 +138,15 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
     }
   };
 
-  const fetchLocations = async () => {
-    try {
-      const response = await fetch('/api/locations');
-      if (response.ok) {
-        const data = await response.json();
-        setLocations(data);
-      }
-    } catch (err) {
-      console.error('Error fetching locations:', err);
-    }
-  };
+  useEffect(() => {
+    let cancelled = false;
+    setLocations([]);
+    fetch(`/api/locations?inventory_type=${inventoryType}`)
+      .then(response => response.ok ? response.json() : [])
+      .then(data => { if (!cancelled) setLocations(data); })
+      .catch(err => console.error('Error fetching locations:', err));
+    return () => { cancelled = true; };
+  }, [inventoryType, statsTrigger]);
 
   const fetchSets = async () => {
     try {
@@ -201,7 +201,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
       setFocusEntryId(card.entry_id || card.id);
     }
     if (onNavigate) {
-      onNavigate('storage');
+      onNavigate('storage', card.list_type === 'graveyard' ? 'graveyard' : 'collection');
     }
   };
 
@@ -386,6 +386,15 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {subTab === 'graveyard' && (
+            <button className="btn btn-secondary" onClick={() => {
+              setSelectedLocationId?.(null);
+              setFocusEntryId?.(null);
+              onNavigate?.('storage', 'graveyard');
+            }} style={{ fontSize: '0.8rem', padding: '0.4rem 0.9rem' }}>
+              {t('loc.graveyardContainers')}
+            </button>
+          )}
           {/* Multi-select toggle (long-press cards is the primary path) */}
           <button
             className={`btn ${selectMode ? 'btn-primary' : 'btn-secondary'}`}
@@ -701,14 +710,14 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
             showToast={showToast}
             onApplied={() => { clearSelection(); onUpdate(); fetchCollection(); }}
           />
-          {subTab !== 'graveyard' && (
-            <>
               <select className="select-control" value={bulkMoveTarget} onChange={(e) => setBulkMoveTarget(e.target.value)} style={{ fontSize: '0.72rem', maxWidth: '170px', padding: '0.3rem 0.4rem' }}>
                 <option value="">{t('bulk.moveToContainer')}</option>
                 <option value="unassign">{t('bulk.unassignedPile')}</option>
                 {locations.slice().sort((a, b) => a.name.localeCompare(b.name)).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
               <button className="btn btn-primary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!bulkMoveTarget || !selectedIds.size} onClick={() => runBulk('move', bulkMoveTarget === 'unassign' ? null : bulkMoveTarget)}>{t('bulk.applyMove')}</button>
+          {subTab !== 'graveyard' && (
+            <>
               <div style={{ width: '1px', height: '22px', background: 'var(--border-glass)' }} />
               <AddToDeckSelect
                 onAdd={(id) => runBulk('add_to_deck', id)}

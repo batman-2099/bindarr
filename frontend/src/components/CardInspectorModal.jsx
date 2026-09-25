@@ -77,11 +77,15 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
   const activeCard = card ? (localizedCard || card) : null;
 
   useEffect(() => {
-    fetch('/api/locations')
+    if (!targetEntryId) return;
+    let cancelled = false;
+    setLocations([]);
+    fetch(`/api/locations?inventory_type=${listType === 'graveyard' ? 'graveyard' : 'collection'}`)
       .then(r => r.ok ? r.json() : [])
-      .then(setLocations)
+      .then(data => { if (!cancelled) setLocations(data); })
       .catch(() => {});
-  }, []);
+    return () => { cancelled = true; };
+  }, [targetEntryId, listType]);
 
   useEffect(() => {
     if (!card) return;
@@ -162,7 +166,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
           printing,
           language,
           purchase_price: parseFloat(purchasePrice) || 0,
-          ...(listType !== 'graveyard' ? { location_id: locationId ? parseInt(locationId, 10) : null } : {}),
+          location_id: locationId ? parseInt(locationId, 10) : null,
           list_type: listType,
           is_trade: isTrade ? 1 : 0,
           favorite: favorite ? 1 : 0,
@@ -605,17 +609,15 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                 </div>
               </div>
 
-              {listType !== 'graveyard' && (
-                <div className="form-group">
-                  <label>{t('inspector.storageContainer')}</label>
-                  <select className="select-control" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-                    <option value="">{t('bulk.unassignedPile')}</option>
-                    {locations.slice().sort((a, b) => a.name.localeCompare(b.name)).map((loc) => (
-                      <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div className="form-group">
+                <label>{t('inspector.storageContainer')}</label>
+                <select className="select-control" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
+                  <option value="">{t('bulk.unassignedPile')}</option>
+                  {locations.slice().sort((a, b) => a.name.localeCompare(b.name)).map((loc) => (
+                    <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
+                  ))}
+                </select>
+              </div>
 
               <div className="form-group">
                 <label>{t('nav.notes')}</label>
@@ -753,9 +755,17 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
               </div>
 
               {/* Storage Container details (clickable to view in storage) */}
-              {activeCard.list_type === 'collection' && (
-                <div 
-                  onClick={() => onViewStorage && activeCard.list_type === 'collection' && onViewStorage(activeCard)}
+              {['collection', 'graveyard'].includes(activeCard.list_type) && (
+                <div
+                  onClick={() => onViewStorage?.(activeCard)}
+                  role={onViewStorage ? 'button' : undefined}
+                  tabIndex={onViewStorage ? 0 : undefined}
+                  onKeyDown={(event) => {
+                    if (onViewStorage && (event.key === 'Enter' || event.key === ' ')) {
+                      event.preventDefault();
+                      onViewStorage(activeCard);
+                    }
+                  }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: '0.5rem',
                     background: 'rgba(255, 71, 71, 0.03)', padding: '0.65rem 0.75rem',

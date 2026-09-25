@@ -92,9 +92,11 @@ async function testFullBackup() {
 
     // Backups made before commander support remain valid.
     delete res.body.decks[0].commander_card_id;
+    for (const location of res.body.locations) delete location.inventory_type;
     await importBackup({ body: { format: 'backup', data: res.body }, user: { id: 1 } }, restoreRes);
     assert.strictEqual(restoreRes.statusCode, 200);
     assert.strictEqual((await db.get(`SELECT commander_card_id FROM decks WHERE user_id = 1`)).commander_card_id, null);
+    assert.ok((await db.all('SELECT inventory_type FROM locations WHERE user_id = 1')).every(row => row.inventory_type === 'collection'));
 
     // Older backups do not carry deck records.
     for (const deck of res.body.decks) {

@@ -187,7 +187,7 @@ async function inventory(userId, type, { include_checked_out = false, container_
   let selected;
   const placeholders = container_ids.map(() => '?').join(',');
   if (container_ids.length) {
-    const locations = await db.all(`SELECT id FROM locations WHERE user_id = ? AND id IN (${placeholders})`, [userId, ...container_ids]);
+    const locations = await db.all(`SELECT id FROM locations WHERE user_id = ? AND id IN (${placeholders}) AND inventory_type = 'collection'`, [userId, ...container_ids]);
     if (locations.length !== container_ids.length) fail('Container not found.', 404);
     const entries = await db.all(`
       SELECT id, card_id, quantity, missing FROM collection

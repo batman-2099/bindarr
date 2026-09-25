@@ -6,6 +6,7 @@ const scryfallApi = require('../scryfallApi');
 const { generateExportCSV } = require('../utils/csvExporters');
 const { resolveCardPrice, rebalanceCompartmentPositions } = require('../utils/priceHelpers');
 const { isBinderType } = require('../utils/compartmentSort');
+const { assertStorageInventory } = require('../utils/collectionHelpers');
 
 function parseCsvRows(data) {
   const lines = typeof data === 'string' ? data.split(/\r?\n/).map(line => line.trim()).filter(Boolean) : [];
@@ -57,7 +58,7 @@ function parseCompleteBackup(data) {
   const deckIds = new Set(backup.decks.map(deck => deck.id));
   if (
     backup.card_cache.some(card => !card.id || !card.name)
-    || backup.locations.some(location => !location.id || !location.name || !location.type)
+    || backup.locations.some(location => !location.id || !location.name || !location.type || !['collection', 'graveyard'].includes(location.inventory_type ?? 'collection'))
     || backup.compartments.some(compartment => !compartment.id || !locationIds.has(compartment.location_id))
     || backup.compartment_assignments.some(assignment => !compartmentIds.has(assignment.compartment_id))
     || backup.collection.some(card => !cardIds.has(card.card_id) || (card.location_id != null && !locationIds.has(card.location_id)) || (card.compartment_id != null && !compartmentIds.has(card.compartment_id)))
@@ -70,6 +71,15 @@ function parseCompleteBackup(data) {
     ))
   ) {
     throw new Error('Invalid backup references');
+  }
+  const locations = new Map(backup.locations.map(location => [location.id, location]));
+  const compartments = new Map(backup.compartments.map(compartment => [compartment.id, compartment]));
+  for (const card of backup.collection) {
+    const location = locations.get(card.location_id);
+    if (location) assertStorageInventory(location, card.list_type ?? 'collection');
+    if (card.compartment_id != null && compartments.get(card.compartment_id).location_id !== card.location_id) {
+      throw new Error('Invalid backup compartment placement');
+    }
   }
   return backup;
 }
@@ -103,11 +113,11 @@ async function restoreCompleteBackup(backup, userId) {
 
     for (const location of backup.locations) {
       const result = await db.run(`
-        INSERT INTO locations (name, type, sort_order, foil_sorting, rule_type, rule_config, game, user_id, locked, allow_stacking, cover_card_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO locations (name, type, sort_order, foil_sorting, rule_type, rule_config, game, user_id, locked, allow_stacking, cover_card_id, inventory_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         location.name, location.type, location.sort_order, location.foil_sorting, location.rule_type, location.rule_config,
-        location.game, userId, location.locked || 0, location.allow_stacking || 0, location.cover_card_id || null
+        location.game, userId, location.locked || 0, location.allow_stacking || 0, location.cover_card_id || null, location.inventory_type ?? 'collection'
       ]);
       locationIds.set(location.id, result.lastID);
     }
@@ -138,9 +148,9 @@ async function restoreCompleteBackup(backup, userId) {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         card.card_id, card.quantity, card.condition, card.printing, card.language, card.purchase_price,
-        card.list_type === 'graveyard' || card.location_id == null ? null : locationIds.get(card.location_id),
-        card.list_type === 'graveyard' || card.compartment_id == null ? null : compartmentIds.get(card.compartment_id),
-        card.list_type === 'graveyard' ? 0 : card.position, card.favorite || 0, card.is_trade || 0, card.list_type, card.game, card.added_at,
+        card.location_id == null ? null : locationIds.get(card.location_id),
+        card.compartment_id == null ? null : compartmentIds.get(card.compartment_id),
+        card.position, card.favorite || 0, card.is_trade || 0, card.list_type, card.game, card.added_at,
         card.notes || '', card.grader || 'Raw', card.grade, card.cert_number, card.market_value,
         card.market_value_source, card.market_value_at, card.missing || 0, userId
       ]);
@@ -509,7 +519,7 @@ router.post('/import', async (req, res) => {
       }
     });
   } catch (error) {
-    const status = error.message.startsWith('Invalid backup') ? 400 : 500;
+    const status = error.status || (error.message.startsWith('Invalid backup') ? 400 : 500);
     return respond(status, {
       error: status === 400 ? error.message : 'Import failed',
       message: streamStarted ? undefined : error.message
@@ -746,6 +756,7 @@ router.post('/import-container/move', async (req, res) => {
     const result = await db.withTransaction(async () => {
       const destination = await db.get(`SELECT * FROM locations WHERE id = ? AND user_id = ?`, [location_id, req.user.id]);
       if (!destination) throw Object.assign(new Error('Container not found'), { status: 404 });
+      assertStorageInventory(destination);
       const compartment = await db.get(`
         SELECT cp.* FROM compartments cp JOIN locations l ON l.id = cp.location_id
         WHERE cp.location_id = ? AND l.user_id = ? ORDER BY cp.idx, cp.id LIMIT 1

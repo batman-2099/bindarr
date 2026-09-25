@@ -31,7 +31,15 @@ window.fetch = (input, opts = {}) => {
   const method = (opts.method || 'GET').toUpperCase();
   const path = (url.replace(/^https?:\/\/[^/]+/, '').split('?')[0].replace(/\/+$/, '')) || '/';
 
-  if (method === 'GET' && routes[path]) return Promise.resolve(json(routes[path]));
+  if (method === 'GET' && routes[path]) {
+    let data = routes[path];
+    if (path === '/api/locations' || path === '/api/collection') {
+      const field = path === '/api/locations' ? 'inventory_type' : 'list_type';
+      const inventory = new URL(url, window.location.origin).searchParams.get(field) || 'collection';
+      data = data.filter(item => (item[field] || 'collection') === inventory);
+    }
+    return Promise.resolve(json(data));
+  }
 
   if (method === 'POST' && path === '/api/notes') {
     const body = opts.body ? JSON.parse(opts.body) : {};

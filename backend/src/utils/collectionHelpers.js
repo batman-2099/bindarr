@@ -49,6 +49,12 @@ async function checkedOutAllocation(userId, excludeDeckId = null) {
   return alloc;
 }
 
+function assertStorageInventory(location, listType = 'collection') {
+  if ((location.inventory_type || 'collection') !== listType) {
+    throw Object.assign(new Error('Cards and containers must belong to the same inventory.'), { status: 400 });
+  }
+}
+
 // Resolves where a card should actually land.
 async function resolveCompartmentAndPosition(opts) {
   const {
@@ -59,27 +65,31 @@ async function resolveCompartmentAndPosition(opts) {
     cardId: cId,
     printing,
     language,
+    listType = 'collection',
+    quantity = 1,
     excludeEntryId
   } = opts;
 
   if (compartmentId !== undefined && compartmentId !== null) {
     const compartment = await db.get(`
-      SELECT c.id, c.idx, c.label, c.capacity, l.id as loc_id, l.type as loc_type, l.name as loc_name, l.allow_stacking
+      SELECT c.id, c.idx, c.label, c.capacity, l.id as loc_id, l.type as loc_type, l.name as loc_name, l.allow_stacking, l.inventory_type
       FROM compartments c JOIN locations l ON c.location_id = l.id
       WHERE c.id = ? AND l.user_id = ?
     `, [compartmentId, uId]);
-    if (!compartment) return { compartment_id: null, position: position !== undefined ? position : 0 };
+    if (!compartment) throw Object.assign(new Error('Invalid compartment'), { status: 400 });
+    assertStorageInventory(compartment, listType);
+    if (locId && Number(locId) !== compartment.loc_id) throw Object.assign(new Error('Compartment does not belong to this container'), { status: 400 });
 
     // On a stacking container the slot count is what fills up, not the card count.
-    let countQuery = `SELECT ${compartment.allow_stacking ? `COUNT(DISTINCT ${STACK_KEY_SQL})` : 'COUNT(*)'} as cnt FROM collection WHERE compartment_id = ? AND user_id = ? AND COALESCE(list_type, 'collection') != 'graveyard'`;
-    let countParams = [compartmentId, uId];
+    let countQuery = `SELECT ${compartment.allow_stacking ? `COUNT(DISTINCT ${STACK_KEY_SQL})` : 'SUM(quantity)'} as cnt FROM collection WHERE compartment_id = ? AND user_id = ? AND COALESCE(list_type, 'collection') = ?`;
+    let countParams = [compartmentId, uId, listType];
     if (excludeEntryId) {
       countQuery += ` AND id != ?`;
       countParams.push(excludeEntryId);
     }
     const countRow = await db.get(countQuery, countParams);
-    if (countRow.cnt >= compartment.capacity) {
-      throw new Error('COMPARTMENT_FULL');
+    if ((countRow.cnt || 0) + (compartment.allow_stacking ? 1 : quantity) > compartment.capacity) {
+      throw Object.assign(new Error('COMPARTMENT_FULL'), { status: 400 });
     }
 
     const label = `${compartmentLabel(compartment, compartment.loc_type)} (in ${compartment.loc_name})`;
@@ -90,14 +100,18 @@ async function resolveCompartmentAndPosition(opts) {
     return { compartment_id: null, position: position !== undefined ? position : 0 };
   }
 
-  const location = await db.get(`SELECT id, name, type, sort_order, foil_sorting, rule_type, rule_config, game, allow_stacking, user_id FROM locations WHERE id = ? AND user_id = ?`, [locId, uId]);
-  if (!location) return { compartment_id: null, position: 0 };
+  const location = await db.get(`SELECT * FROM locations WHERE id = ? AND user_id = ?`, [locId, uId]);
+  if (!location) throw Object.assign(new Error('Invalid location ID'), { status: 400 });
+  assertStorageInventory(location, listType);
 
   let cardMetadata = await db.get(`SELECT name, set_name, number, types, subtypes, price_trend, price_normal, price_holofoil, price_reverse_holofoil, supertype, rarity, game, cmc, color_identity FROM card_cache WHERE id = ?`, [cId]);
   if (!cardMetadata) cardMetadata = { name: cId || '', types: [] };
   // card_cache has no id column selected above, and a stacking container matches
   // a copy against its twin by card id — so carry it on explicitly.
   cardMetadata.card_id = cId;
+  cardMetadata.list_type = listType;
+  cardMetadata.quantity = quantity;
+  cardMetadata.entry_id = excludeEntryId;
   cardMetadata.printing = printing || 'Normal';
   cardMetadata.language = language || 'English';
   try { cardMetadata.types = JSON.parse(cardMetadata.types || '[]'); } catch { cardMetadata.types = []; }
@@ -107,7 +121,7 @@ async function resolveCompartmentAndPosition(opts) {
   }
 
   const recommended = await recommendSlot(db, location, cardMetadata);
-  if (!recommended) return null;
+  if (!recommended) return { compartment_id: null, position: 0, full: true };
   return { compartment_id: recommended.compartment_id, position: recommended.position, location_id: recommended.location_id, label: recommended.label };
 }
 
@@ -229,6 +243,7 @@ async function setStackQuantity(database, userId, entryId, target) {
 module.exports = {
   defaultCompartmentPlan,
   checkedOutAllocation,
+  assertStorageInventory,
   resolveCompartmentAndPosition,
   describePlacement,
   normalizeRuleConfig,

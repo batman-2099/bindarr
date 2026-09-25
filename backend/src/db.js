@@ -183,6 +183,7 @@ async function initDb() {
       rule_type TEXT DEFAULT 'any',
       rule_config TEXT,
       game TEXT DEFAULT 'any',
+      inventory_type TEXT NOT NULL DEFAULT 'collection' CHECK(inventory_type IN ('collection', 'graveyard')),
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
     )
   `);
@@ -717,6 +718,9 @@ async function initDb() {
   }
   if (!locationsCols.some(c => c.name === 'game')) {
     await run(`ALTER TABLE locations ADD COLUMN game TEXT DEFAULT 'any'`);
+  }
+  if (!locationsCols.some(c => c.name === 'inventory_type')) {
+    await run(`ALTER TABLE locations ADD COLUMN inventory_type TEXT NOT NULL DEFAULT 'collection' CHECK(inventory_type IN ('collection', 'graveyard'))`);
   }
 
   const usersCols = await all(`PRAGMA table_info(users)`);

@@ -162,7 +162,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
           printing,
           language,
           purchase_price: parseFloat(purchasePrice) || 0,
-          location_id: locationId ? parseInt(locationId, 10) : null,
+          ...(listType !== 'graveyard' ? { location_id: locationId ? parseInt(locationId, 10) : null } : {}),
           list_type: listType,
           is_trade: isTrade ? 1 : 0,
           favorite: favorite ? 1 : 0,
@@ -282,7 +282,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
     // Only the toggled flags. Quantity and placement are deliberately absent:
     // a favourite/trade toggle must never change how many copies you own or
     // where they live, and sending quantity here reconciles the whole stack.
-    const payload = {
+    const payload = field === 'list_type' ? { list_type: nextListType } : {
       list_type: nextListType,
       is_trade: nextIsTrade,
       favorite: nextFavorite
@@ -297,12 +297,17 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
       if (res.ok) {
         hasToggledRef.current = true;
         showToast && showToast(t('inspector.cardUpdated'));
+        if (field === 'list_type' && (nextListType === 'graveyard' || listType === 'graveyard')) {
+          onUpdate?.();
+          onClose?.();
+        }
       } else {
         // revert on fail
         if (field === 'is_trade') { setIsTrade(isTrade); card.is_trade = isTrade; }
         if (field === 'favorite') { setFavorite(favorite); card.favorite = favorite; }
         if (field === 'list_type') { setListType(listType); card.list_type = listType; }
-        showToast && showToast(t('inspector.errUpdate'));
+        const data = await res.json().catch(() => null);
+        showToast && showToast(data?.error || t('inspector.errUpdate'));
       }
     } catch (err) {
       console.error(err);
@@ -478,6 +483,11 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                   {t('inspector.arenaItem')}
                 </span>
               )}
+              {activeCard.list_type === 'graveyard' && (
+                <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', padding: '0.2rem 0.5rem', borderRadius: '4px', backgroundColor: 'rgba(148, 163, 184, 0.15)', color: 'var(--text-secondary)', border: '1px solid var(--border-glass)' }}>
+                  {t('inspector.graveyardItem')}
+                </span>
+              )}
               {activeCard.list_type === 'arena' && (
                 <button type="button" className="btn btn-secondary" style={{ color: 'var(--type-grass)', padding: '0.2rem 0.5rem', fontSize: '0.8rem' }} onClick={() => handleQuickToggle('list_type', 'collection')} title={t('bulk.moveToCollection')}>
                   {t('inspector.obtained')}
@@ -509,7 +519,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
               {!isEnglish(language) && setCode(activeCard) && (
                 <span style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}> ({setCode(activeCard)})</span>
               )}
-              {(activeCard.number || activeCard.collector_number || activeCard.card_number) ? ` • #${activeCard.number || activeCard.collector_number || activeCard.card_number}` : ''}{activeCard.rarity ? ` • ${activeCard.rarity}` : ''} • {t('inspector.owned', { count: activeCard.quantity ?? 1 })}
+              {(activeCard.number || activeCard.collector_number || activeCard.card_number) ? ` • #${activeCard.number || activeCard.collector_number || activeCard.card_number}` : ''}{activeCard.rarity ? ` • ${activeCard.rarity}` : ''} • {t(activeCard.list_type === 'graveyard' ? 'inspector.archived' : 'inspector.owned', { count: activeCard.quantity ?? 1 })}
             </p>
 
             {/* MTG cards: show color pips + type line (Pokémon energy types are
@@ -536,21 +546,21 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
 
           {mode === 'edit' ? (
             <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {listType !== 'collection' ? (
+              {listType !== 'collection' && listType !== 'graveyard' ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(74,222,128,0.1)', padding: '0.6rem 0.9rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(74,222,128,0.2)' }}>
                   <input type="checkbox" checked={listType === 'collection'} onChange={(e) => setListType(e.target.checked ? 'collection' : activeCard.list_type)} id="markOwned" style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
                   <label htmlFor="markOwned" style={{ cursor: 'pointer', margin: 0, fontWeight: 700, color: 'var(--type-grass)', fontSize: '0.85rem' }}>
                     {t('inspector.markObtained')}
                   </label>
                 </div>
-              ) : (
+              ) : listType === 'collection' ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255,255,255,0.02)', padding: '0.6rem 0.9rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
                   <input type="checkbox" checked={isTrade === 1} onChange={(e) => setIsTrade(e.target.checked ? 1 : 0)} id="isTrade" style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
                   <label htmlFor="isTrade" style={{ cursor: 'pointer', margin: 0, fontWeight: 700, color: 'var(--text-strong)', fontSize: '0.85rem' }}>
                     {t('inspector.listedInTrade')}
                   </label>
                 </div>
-              )}
+              ) : null}
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: missing ? 'rgba(255,71,71,0.1)' : 'rgba(255,255,255,0.02)', padding: '0.6rem 0.9rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
                 <input type="checkbox" checked={missing} onChange={(e) => setMissing(e.target.checked)} id="isMissing" style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
                 <label htmlFor="isMissing" style={{ cursor: 'pointer', margin: 0, fontWeight: 700, color: missing ? 'var(--accent-red)' : 'var(--text-strong)', fontSize: '0.85rem' }}>
@@ -595,15 +605,17 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                 </div>
               </div>
 
-              <div className="form-group">
-                <label>{t('inspector.storageContainer')}</label>
-                <select className="select-control" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-                  <option value="">{t('bulk.unassignedPile')}</option>
-                  {locations.slice().sort((a, b) => a.name.localeCompare(b.name)).map((loc) => (
-                    <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
-                  ))}
-                </select>
-              </div>
+              {listType !== 'graveyard' && (
+                <div className="form-group">
+                  <label>{t('inspector.storageContainer')}</label>
+                  <select className="select-control" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
+                    <option value="">{t('bulk.unassignedPile')}</option>
+                    {locations.slice().sort((a, b) => a.name.localeCompare(b.name)).map((loc) => (
+                      <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="form-group">
                 <label>{t('nav.notes')}</label>
@@ -794,6 +806,17 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                 </div>
               )}
 
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                {activeCard.list_type === 'graveyard' ? (
+                  <>
+                    <button type="button" className="btn btn-secondary" onClick={() => handleQuickToggle('list_type', 'collection')}>{t('bulk.restoreToCollection')}</button>
+                    <button type="button" className="btn btn-secondary" onClick={() => handleQuickToggle('list_type', 'arena')}>{t('bulk.restoreToArena')}</button>
+                  </>
+                ) : (
+                  <button type="button" className="btn btn-secondary" onClick={() => handleQuickToggle('list_type', 'graveyard')}>{t('bulk.archive')}</button>
+                )}
+              </div>
+
               {/* Main Actions Row: Edit Card + Icon buttons for Favorite & Delete */}
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem', alignItems: 'center', flexWrap: 'wrap' }}>
                 <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => setMode('edit')}>
@@ -806,7 +829,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                   </button>
                 )}
 
-              {activeCard.list_type !== 'collection' && activeCard.list_type !== 'arena' && (
+              {activeCard.list_type !== 'collection' && activeCard.list_type !== 'arena' && activeCard.list_type !== 'graveyard' && (
                 <button 
                   className="btn btn-secondary" 
                   style={{ backgroundColor: 'rgba(74,222,128,0.2)', color: 'var(--type-grass)', border: '1px solid rgba(74,222,128,0.3)', padding: '0 0.75rem', fontSize: '0.8rem' }} 

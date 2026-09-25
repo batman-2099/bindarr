@@ -164,7 +164,7 @@ router.get('/users', async (req, res) => {
           END) as total_value
         FROM collection c
         JOIN card_cache cc ON c.card_id = cc.id
-        WHERE c.user_id = ?
+        WHERE c.user_id = ? AND COALESCE(c.list_type, 'collection') != 'graveyard'
       `, [u.id]);
 
       usersWithStats.push({

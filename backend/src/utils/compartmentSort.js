@@ -290,7 +290,7 @@ async function loadCompartments(database, locationId, userId) {
   const stacking = compartments.some(c => c.allow_stacking);
   const countRows = await dbClient.all(
     `SELECT compartment_id, ${stacking ? `COUNT(DISTINCT ${STACK_KEY_SQL})` : 'SUM(quantity)'} as cnt
-     FROM collection WHERE user_id = ? AND compartment_id IN (${placeholders}) GROUP BY compartment_id`,
+     FROM collection WHERE user_id = ? AND compartment_id IN (${placeholders}) AND COALESCE(list_type, 'collection') != 'graveyard' GROUP BY compartment_id`,
     [userId, ...ids]
   );
   const countByCompartment = new Map(countRows.map(r => [r.compartment_id, r.cnt]));
@@ -337,7 +337,7 @@ async function recommendSlot(database, location, cardMetadata, overrideCompartme
            cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.cmc, cc.color_identity
     FROM collection c
     JOIN card_cache cc ON c.card_id = cc.id
-    WHERE c.user_id = ? AND c.location_id = ?
+    WHERE c.user_id = ? AND c.location_id = ? AND COALESCE(c.list_type, 'collection') != 'graveyard'
   `, [location.user_id, location.id]);
 
   allLocationCards.push(...mockCards);
@@ -607,7 +607,7 @@ async function rebalanceCompartmentByScheme(database, compartmentId, sortOrder, 
     `SELECT c.*, cc.name, cc.printed_name, cc.set_id as set_code, cc.set_name, cc.number, cc.types, cc.rarity, cc.price_trend
      FROM collection c
      LEFT JOIN card_cache cc ON c.card_id = cc.id
-     WHERE c.compartment_id = ?
+     WHERE c.compartment_id = ? AND COALESCE(c.list_type, 'collection') != 'graveyard'
      ORDER BY c.position ASC, c.id ASC`,
     [compartmentId]
   );

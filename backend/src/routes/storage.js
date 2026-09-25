@@ -34,7 +34,7 @@ async function loadEntries(entryIds, userId) {
            cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil
     FROM collection c
     JOIN card_cache cc ON c.card_id = cc.id
-    WHERE c.user_id = ? AND c.id IN (${holes})
+    WHERE c.user_id = ? AND c.id IN (${holes}) AND COALESCE(c.list_type, 'collection') != 'graveyard'
   `, [userId, ...entryIds]);
   for (const r of rows) {
     try { r.types = JSON.parse(r.types || '[]'); } catch { r.types = []; }
@@ -59,7 +59,7 @@ router.get('/locations', async (req, res) => {
                        THEN COUNT(DISTINCT ${STACK_KEY_SQL})
                        ELSE COALESCE(SUM(quantity), 0) END
                 FROM collection
-                WHERE user_id = l.user_id
+                WHERE user_id = l.user_id AND COALESCE(list_type, 'collection') != 'graveyard'
                   AND compartment_id IN (SELECT id FROM compartments WHERE location_id = l.id)) as total_cards
       FROM locations l
       WHERE l.user_id = ?
@@ -149,7 +149,7 @@ router.put('/locations/:id', async (req, res) => {
     if (cover_card_id !== undefined && cover_card_id !== null) {
       if (typeof cover_card_id !== 'string' || !await db.get(
         `SELECT c.id FROM collection c JOIN card_cache cc ON cc.id = c.card_id
-         WHERE c.location_id = ? AND c.user_id = ? AND c.card_id = ? AND cc.image_url IS NOT NULL AND cc.image_url != ''`,
+         WHERE c.location_id = ? AND c.user_id = ? AND c.card_id = ? AND COALESCE(c.list_type, 'collection') != 'graveyard' AND cc.image_url IS NOT NULL AND cc.image_url != ''`,
         [id, req.user.id, cover_card_id]
       )) return res.status(400).json({ error: 'Choose a card image from this container' });
     }
@@ -201,7 +201,7 @@ router.put('/locations/:id', async (req, res) => {
                cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.cmc, cc.color_identity
         FROM collection c
         JOIN card_cache cc ON c.card_id = cc.id
-        WHERE c.location_id = ? AND c.user_id = ?
+        WHERE c.location_id = ? AND c.user_id = ? AND COALESCE(c.list_type, 'collection') != 'graveyard'
       `, [id, req.user.id]);
       for (const entry of stored) {
         entry.printing = entry.printing || 'Normal';
@@ -378,7 +378,7 @@ router.patch('/compartments/:id', async (req, res) => {
                cc.name, cc.printed_name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.rarity, cc.supertype, cc.game,
                cc.price_trend, cc.cmc, cc.color_identity
         FROM collection c JOIN card_cache cc ON c.card_id = cc.id
-        WHERE c.compartment_id = ? AND c.user_id = ?`, [id, req.user.id]);
+        WHERE c.compartment_id = ? AND c.user_id = ? AND COALESCE(c.list_type, 'collection') != 'graveyard'`, [id, req.user.id]);
       for (const entry of stored) {
         try { entry.types = JSON.parse(entry.types || '[]'); } catch { entry.types = []; }
         if (!compartmentAcceptsCard(compForCheck, entry)) {
@@ -577,7 +577,7 @@ router.post('/locations/:id/resort', async (req, res) => {
              cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.cmc, cc.color_identity
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
-      WHERE c.location_id = ? AND c.user_id = ?
+      WHERE c.location_id = ? AND c.user_id = ? AND COALESCE(c.list_type, 'collection') != 'graveyard'
     `, [id, req.user.id]);
     cards.forEach(c => { try { c.types = JSON.parse(c.types || '[]'); } catch { c.types = []; } });
 

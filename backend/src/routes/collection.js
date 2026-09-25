@@ -21,6 +21,14 @@ const { validateDeckAddition } = require('../utils/deckRules');
 const { splitPrice } = require('../utils/splitPrice');
 
 const router = express.Router();
+const LIST_TYPES = ['collection', 'wishlist', 'arena', 'graveyard'];
+
+async function assertArchivable(userId, entryIds) {
+  const allocated = await checkedOutAllocation(userId);
+  if (entryIds.some(id => allocated.get(Number(id)) > 0)) {
+    throw new AddCardError(409, 'Check in the deck before archiving its checked-out cards.');
+  }
+}
 
 // Stamp each result with how many copies the user already owns, so browsing a
 // set shows what is already in the binder instead of inviting duplicate adds.
@@ -531,6 +539,7 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
 router.get('/collection', async (req, res) => {
   try {
     const listType = req.query.list_type || 'collection';
+    if (!LIST_TYPES.includes(listType)) return res.status(400).json({ error: 'Invalid list_type' });
     const isTrade = req.query.is_trade;
     const compId = req.query.compartment_id;
 
@@ -668,7 +677,7 @@ async function addCardToCollection(user, body) {
   if (!card_id) {
     throw new AddCardError(400, 'card_id is required');
   }
-  if (!['collection', 'wishlist', 'arena'].includes(list_type)) {
+  if (!LIST_TYPES.includes(list_type)) {
     throw new AddCardError(400, 'Invalid list_type');
   }
 
@@ -729,7 +738,7 @@ async function addCardToCollection(user, body) {
     }
 
     const resolved = await resolveCompartmentAndPosition({
-      locationId: location_id,
+      locationId: list_type === 'graveyard' ? null : location_id,
       userId: req.user.id,
       cardId,
       printing,
@@ -1029,6 +1038,11 @@ router.put('/collection/:id', async (req, res) => {
   try {
     const entry = await db.get(`SELECT * FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
     if (!entry) return res.status(404).json({ error: 'Collection entry not found' });
+    if (list_type !== undefined && !LIST_TYPES.includes(list_type)) return res.status(400).json({ error: 'Invalid list_type' });
+    const archived = (list_type ?? entry.list_type) === 'graveyard';
+    if (archived && ((location_id !== undefined && location_id !== null && location_id !== '') || compartment_id != null)) {
+      return res.status(400).json({ error: 'Restore archived cards before placing them in a container.' });
+    }
 
     const isMoving = location_id !== undefined && location_id !== entry.location_id;
     let finalCompartmentId = entry.compartment_id;
@@ -1037,7 +1051,11 @@ router.put('/collection/:id', async (req, res) => {
     let resolvedFull = false;
     let resolvedRejected = false;
 
-    if (isMoving) {
+    if (archived) {
+      finalLocationId = null;
+      finalCompartmentId = null;
+      finalPosition = 0;
+    } else if (isMoving) {
       if (location_id === null || location_id === '') {
         finalLocationId = null;
         finalCompartmentId = null;
@@ -1085,12 +1103,11 @@ router.put('/collection/:id', async (req, res) => {
       }
     }
     if (purchase_price !== undefined) { updates.push('purchase_price = ?'); params.push(purchase_price); }
-    if (isMoving || compartment_id !== undefined) {
+    if (archived || isMoving || compartment_id !== undefined) {
       updates.push('location_id = ?', 'compartment_id = ?', 'position = ?');
       params.push(finalLocationId, finalCompartmentId, finalPosition);
     }
     if (list_type !== undefined) {
-      if (!['collection', 'wishlist', 'arena'].includes(list_type)) return res.status(400).json({ error: 'Invalid list_type' });
       updates.push('list_type = ?');
       params.push(list_type);
     }
@@ -1137,7 +1154,10 @@ router.put('/collection/:id', async (req, res) => {
 
     if (updates.length > 0) {
       params.push(id, req.user.id);
-      await db.run(`UPDATE collection SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`, params);
+      await db.withTransaction(async () => {
+        if (list_type === 'graveyard') await assertArchivable(req.user.id, [id]);
+        await db.run(`UPDATE collection SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`, params);
+      });
     }
 
     if (isMoving && finalCompartmentId && finalLocationId) {
@@ -1169,6 +1189,7 @@ router.put('/collection/:id', async (req, res) => {
     const finalPlacement = isMoving && finalCompartmentId ? await describePlacement(db, id, req.user.id) : null;
     res.json({ message: 'Collection entry updated successfully', placement: finalPlacement, container_full: resolvedFull, rule_rejected: resolvedRejected });
   } catch (error) {
+    if (error instanceof AddCardError) return res.status(error.status).json({ error: error.message });
     console.error(error);
     res.status(500).json({ error: 'Failed to update entry' });
   }
@@ -1223,6 +1244,7 @@ router.post('/collection/:id/place', async (req, res) => {
   try {
     const entry = await db.get(`SELECT * FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
     if (!entry) return res.status(404).json({ error: 'Collection entry not found' });
+    if (entry.list_type === 'graveyard') return res.status(400).json({ error: 'Restore archived cards before placing them in a container.' });
 
     const comp = await db.get(`
       SELECT c.id, c.capacity, l.id AS loc_id, l.type AS loc_type, l.sort_order, l.allow_stacking
@@ -1236,6 +1258,7 @@ router.post('/collection/:id/place', async (req, res) => {
     if (swap_with) {
       const other = await db.get(`SELECT * FROM collection WHERE id = ? AND user_id = ?`, [swap_with, req.user.id]);
       if (!other) return res.status(400).json({ error: 'Swap target not found' });
+      if (other.list_type === 'graveyard') return res.status(400).json({ error: 'Restore archived cards before placing them in a container.' });
       // Stacking container: dropping a copy onto its own twin joins that pocket
       // rather than trading places with it — trading two identical cards is a
       // no-op the user can see no result from.
@@ -1259,7 +1282,7 @@ router.post('/collection/:id/place', async (req, res) => {
       // Slots used, not cards held, once copies are allowed to share a pocket.
       const cnt = await db.get(
         `SELECT ${comp.allow_stacking ? `COUNT(DISTINCT ${STACK_KEY_SQL})` : 'COUNT(*)'} AS n
-         FROM collection WHERE compartment_id = ? AND user_id = ?`, [compartment_id, req.user.id]);
+         FROM collection WHERE compartment_id = ? AND user_id = ? AND COALESCE(list_type, 'collection') != 'graveyard'`, [compartment_id, req.user.id]);
       if (cnt.n >= comp.capacity) return res.status(400).json({ error: 'COMPARTMENT_FULL' });
     }
 
@@ -1328,7 +1351,7 @@ router.post('/collection/bulk', async (req, res) => {
       if (!deck) return res.status(404).json({ error: 'Deck not found' });
 
       const rows = await db.all(
-        `SELECT card_id, SUM(quantity) as total_qty FROM collection WHERE id IN (${placeholders}) AND user_id = ? GROUP BY card_id`,
+        `SELECT card_id, SUM(quantity) as total_qty FROM collection WHERE id IN (${placeholders}) AND user_id = ? AND COALESCE(list_type, 'collection') != 'graveyard' GROUP BY card_id`,
         [...ids, req.user.id]
       );
 
@@ -1371,8 +1394,12 @@ router.post('/collection/bulk', async (req, res) => {
     }
 
     if (action === 'list_type') {
-      if (!['collection', 'wishlist', 'arena'].includes(value)) return res.status(400).json({ error: 'Invalid list_type' });
-      const result = await db.run(`UPDATE collection SET list_type = ? WHERE id IN (${placeholders}) AND user_id = ?`, [value, ...ids, req.user.id]);
+      if (!LIST_TYPES.includes(value)) return res.status(400).json({ error: 'Invalid list_type' });
+      const result = await db.withTransaction(async () => {
+        if (value === 'graveyard') await assertArchivable(req.user.id, ids);
+        const placement = value === 'graveyard' ? ', location_id = NULL, compartment_id = NULL, position = 0' : '';
+        return db.run(`UPDATE collection SET list_type = ?${placement} WHERE id IN (${placeholders}) AND user_id = ?`, [value, ...ids, req.user.id]);
+      });
       return res.json({ message: `Moved ${result.changes} card(s) to ${value}`, affected: result.changes });
     }
 
@@ -1418,7 +1445,7 @@ router.post('/collection/bulk', async (req, res) => {
     const touched = new Map();
     for (const id of ids) {
       const entry = await db.get(`SELECT * FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
-      if (!entry) continue;
+      if (!entry || entry.list_type === 'graveyard') continue;
       if (!locationId) {
         await db.run(`UPDATE collection SET location_id = NULL, compartment_id = NULL, position = 0 WHERE id = ? AND user_id = ?`, [id, req.user.id]);
         moved++;
@@ -1438,6 +1465,7 @@ router.post('/collection/bulk', async (req, res) => {
     }
     return res.json({ message: `Moved ${moved} card(s)`, affected: moved });
   } catch (error) {
+    if (error instanceof AddCardError) return res.status(error.status).json({ error: error.message });
     console.error(error);
     res.status(500).json({ error: 'Bulk action failed' });
   }

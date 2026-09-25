@@ -29,12 +29,14 @@ This is [batman-2099/bindarr](https://github.com/batman-2099/bindarr), a fork of
 - Made the active product Magic-only: removed Pokémon and Lorcana from core navigation, setup, controls, APIs, and product documentation. Legacy database records are retained rather than deleted.
 - Added separate **Arena** inventory and **Physical/Arena** deck types, with inventory-scoped ownership and availability checks. Arena decks cannot use physical checkout or storage workflows.
 - **Add to Arena** uses a keyboard-accessible on/off toggle instead of a checkbox, highlighted green when enabled; its existing inventory-destination behavior is unchanged.
+- **Graveyard**, immediately after Arena in Collection, archives cards without deleting their quantities or metadata. Archive individual cards from the inspector or selected cards in bulk, then restore explicitly to Physical Collection or Arena. Archived cards are excluded from owned totals, active storage, and deck/AI availability and remain included in complete backups. Archiving clears physical placement; Physical restores return to Unassigned Pile. Return checked-out decks before archiving reserved copies.
 - Added Arena-aware Dashboard views and statistics, plus inventory-type changes through deck properties when the destination owns sufficient copies.
 - Added **Collection growth**, **Deck performance**, and **Color identity/Mana value** comparisons to the Dashboard, scoped to **All Cards / Physical / Arena**, with English/German labels and accessible chart-data tables.
 - Added an explicit **Add to Wishlist** action and wishlist persistence; wishlist entries are excluded from owned-card statistics.
 - Added an **Unassigned Pile** collection view and filters for unfiled cards.
 - Added checked-out-card collection filters and Missing/Found tracking for individual cards and bulk selections, preserving their last known locations.
 - Added duplication of eligible raw physical collection cards.
+- Removed the Supertype filter from Collection and Search & Add. Collection shows Color before Type, with color options confined to Color and card types/subtypes in Type.
 - Corrected MTG card-type filtering and restored basic-land color classification.
 
 **Collection imports, review, and exports**

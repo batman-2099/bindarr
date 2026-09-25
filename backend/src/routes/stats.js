@@ -210,7 +210,7 @@ router.get('/stats', async (req, res) => {
         cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.price_1st_edition
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
-      WHERE c.user_id = ?${gameFilter}
+      WHERE c.user_id = ?${listFilter}${gameFilter}
       ORDER BY CASE
         -- Mirrors resolveCardPrice, market_value first. A PSA 10 valued at 40x its
         -- raw price has to be able to reach this list, and ranking it by the raw

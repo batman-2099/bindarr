@@ -138,9 +138,9 @@ async function restoreCompleteBackup(backup, userId) {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         card.card_id, card.quantity, card.condition, card.printing, card.language, card.purchase_price,
-        card.location_id == null ? null : locationIds.get(card.location_id),
-        card.compartment_id == null ? null : compartmentIds.get(card.compartment_id),
-        card.position, card.favorite || 0, card.is_trade || 0, card.list_type, card.game, card.added_at,
+        card.list_type === 'graveyard' || card.location_id == null ? null : locationIds.get(card.location_id),
+        card.list_type === 'graveyard' || card.compartment_id == null ? null : compartmentIds.get(card.compartment_id),
+        card.list_type === 'graveyard' ? 0 : card.position, card.favorite || 0, card.is_trade || 0, card.list_type, card.game, card.added_at,
         card.notes || '', card.grader || 'Raw', card.grade, card.cert_number, card.market_value,
         card.market_value_source, card.market_value_at, card.missing || 0, userId
       ]);

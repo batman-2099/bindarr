@@ -153,7 +153,6 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
   // Filter states
   const [filterRarity, setFilterRarity] = useState('');
   const [filterType, setFilterType] = useState('');
-  const [filterSupertype, setFilterSupertype] = useState('');
   const [sortBy, setSortBy] = useState('relevance');
 
   // Drawer states
@@ -226,7 +225,6 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
       setSearching(true);
       setFilterType('');
       setFilterRarity('');
-      setFilterSupertype('');
       setSortBy('relevance');
       clearSelection();
       setTotal(null);
@@ -310,11 +308,6 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
     return Array.from(set).sort();
   }, [cards]);
 
-  const uniqueSupertypes = useMemo(() => {
-    const set = new Set();
-    cards.forEach(c => { if (c.supertype) set.add(c.supertype); });
-    return Array.from(set).sort();
-  }, [cards]);
 
   const uniqueTypes = useMemo(() => {
     const set = new Set();
@@ -333,9 +326,6 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
     // Apply filters
     if (filterRarity) {
       result = result.filter(c => c.rarity === filterRarity);
-    }
-    if (filterSupertype) {
-      result = result.filter(c => c.supertype === filterSupertype);
     }
     if (filterType) {
       result = result.filter(c => c.types && c.types.includes(filterType));
@@ -367,7 +357,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
     }
 
     return result;
-  }, [cards, filterRarity, filterSupertype, filterType, sortBy]);
+  }, [cards, filterRarity, filterType, sortBy]);
 
   // Tap: swallowed if a long-press just armed selection; otherwise toggle (in
   // select mode) or open Quick Add. Mirrors CollectionList.activateCard.
@@ -1021,13 +1011,6 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
               </select>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-              <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{t('search.filterSupertype')}</label>
-              <select className="select-control" value={filterSupertype} onChange={e => setFilterSupertype(e.target.value)}>
-                <option value="">{t('collection.allSupertypes')}</option>
-                {uniqueSupertypes.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
               <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{t('search.sortBy')}</label>

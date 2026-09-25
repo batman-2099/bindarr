@@ -67,7 +67,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('collection_default_view') || 'gallery'); // 'gallery' or 'list'
   const [inspectorCard, setInspectorCard] = useState(null);
   const [inspectorStartEdit, setInspectorStartEdit] = useState(false);
-  const [subTab, setSubTab] = useState('collection'); // 'collection', 'unsorted', 'wishlist', 'arena'
+  const [subTab, setSubTab] = useState('collection'); // 'collection', 'unsorted', 'wishlist', 'arena', 'graveyard'
   const [showFilters, setShowFilters] = useState(false);
 
   // Search & Filter state
@@ -82,7 +82,6 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
   const [printingFilter, setPrintingFilter] = useState([]);
   const [setFilter, setSetFilter] = useState([]);
   const [typeFilter, setTypeFilter] = useState([]);
-  const [supertypeFilter, setSupertypeFilter] = useState([]);
   const [colorFilter, setColorFilter] = useState([]);
   const [cmcFilter, setCmcFilter] = useState([]);
   const [languageFilter, setLanguageFilter] = useState([]);
@@ -105,6 +104,10 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
   } = useMultiSelect({ showToast, onChanged: () => { onUpdate(); fetchCollection(); } });
 
   useEffect(() => {
+    setSelectedIds(new Set());
+  }, [subTab, setSelectedIds]);
+
+  useEffect(() => {
     fetchCollection();
     fetchLocations();
     fetchSets();
@@ -115,7 +118,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
     try {
       setLoading(true);
       let url = '/api/collection?list_type=collection';
-      if (subTab === 'wishlist' || subTab === 'arena') url = `/api/collection?list_type=${subTab}`;
+      if (subTab === 'wishlist' || subTab === 'arena' || subTab === 'graveyard') url = `/api/collection?list_type=${subTab}`;
       if (tradeOnly) {
         url += '&is_trade=1';
       }
@@ -212,15 +215,11 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
     [collection]
   );
   const uniqueTypes = useMemo(
-    () => Array.from(new Set(collection.flatMap(item => [...(item.types || []), ...(item.subtypes || [])]).filter(Boolean))).sort(),
+    () => Array.from(new Set(collection.flatMap(item => item.subtypes || []).filter(Boolean))).sort(),
     [collection]
   );
   const uniqueColors = useMemo(
     () => Array.from(new Set(collection.flatMap(item => item.color_identity || []).filter(Boolean))).sort(),
-    [collection]
-  );
-  const uniqueSupertypes = useMemo(
-    () => Array.from(new Set(collection.map(item => item.supertype).filter(Boolean))).sort(),
     [collection]
   );
   const uniqueLanguages = useMemo(
@@ -234,7 +233,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
 
   const activeFilterCount =
     [locationFilter, rarityFilter, conditionFilter, graderFilter, printingFilter,
-    setFilter, typeFilter, supertypeFilter, cmcFilter, languageFilter]
+    setFilter, typeFilter, cmcFilter, languageFilter]
       .filter(v => v.length > 0).length
     + (gameFilter !== '' ? 1 : 0)
     + (minPriceFilter !== '' ? 1 : 0)
@@ -247,7 +246,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
     setSearchFilter('');
     setGameFilter('');
     setLocationFilter([]); setRarityFilter([]); setConditionFilter([]); setGraderFilter([]);
-    setPrintingFilter([]); setSetFilter([]); setTypeFilter([]); setSupertypeFilter([]); setColorFilter([]);
+    setPrintingFilter([]); setSetFilter([]); setTypeFilter([]); setColorFilter([]);
     setCmcFilter([]); setLanguageFilter([]);
     setMinPriceFilter(''); setMaxPriceFilter('');
     setTradeOnly(false); setFavoriteOnly(false);
@@ -275,9 +274,8 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
       const matchesCondition = conditionFilter.length === 0 ? true : conditionFilter.includes(item.condition);
       const matchesPrinting = printingFilter.length === 0 ? true : printingFilter.includes(item.printing);
       const matchesSet = setFilter.length === 0 ? true : setFilter.includes(item.set_name);
-      const matchesType = typeFilter.length === 0 ? true : typeFilter.some(t => [...(item.types || []), ...(item.subtypes || [])].includes(t));
+      const matchesType = typeFilter.length === 0 ? true : typeFilter.some(t => (item.subtypes || []).includes(t));
       const matchesColor = colorFilter.length === 0 ? true : colorFilter.some(c => (item.color_identity || []).includes(c));
-      const matchesSupertype = supertypeFilter.length === 0 ? true : supertypeFilter.includes(item.supertype);
       const matchesCmc = cmcFilter.length === 0 ? true : cmcFilter.includes(String(item.cmc));
       const matchesLanguage = languageFilter.length === 0 ? true : languageFilter.includes(item.language);
       const matchesFavorite = favoriteOnly ? item.favorite === 1 : true;
@@ -294,7 +292,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
       const matchesUnsorted = subTab !== 'unsorted' || !item.location_id;
 
       return matchesSearch && matchesUnsorted && matchesGame && matchesLocation && matchesRarity && matchesCondition &&
-             matchesPrinting && matchesSet && matchesType && matchesColor && matchesSupertype &&
+             matchesPrinting && matchesSet && matchesType && matchesColor &&
              matchesCmc && matchesLanguage && matchesFavorite && matchesGrader && matchesMinPrice && matchesMaxPrice &&
              matchesNotCheckedOut;
     });
@@ -305,7 +303,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
       sortCardsByOrder(result, SORT_CRITERIA[sortBy] || SORT_CRITERIA['added-newest'], undefined, setsList);
     }
     return result;
-  }, [collection, searchFilter, gameFilter, locationFilter, rarityFilter, conditionFilter, printingFilter, setFilter, typeFilter, colorFilter, supertypeFilter, cmcFilter, languageFilter, favoriteOnly, graderFilter, minPriceFilter, maxPriceFilter, notCheckedOutOnly, subTab, sortBy, setsList]);
+  }, [collection, searchFilter, gameFilter, locationFilter, rarityFilter, conditionFilter, printingFilter, setFilter, typeFilter, colorFilter, cmcFilter, languageFilter, favoriteOnly, graderFilter, minPriceFilter, maxPriceFilter, notCheckedOutOnly, subTab, sortBy, setsList]);
 
   // Group duplicate cards if stack option is active
   const processedCollection = useMemo(() => {
@@ -363,6 +361,13 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
             style={{ fontSize: '0.85rem', padding: '0.45rem 1.25rem', borderRadius: 'var(--radius-sm)' }}
           >
             {t('collection.arena')}
+          </button>
+          <button
+            className={`btn ${subTab === 'graveyard' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setSubTab('graveyard')}
+            style={{ fontSize: '0.85rem', padding: '0.45rem 1.25rem', borderRadius: 'var(--radius-sm)' }}
+          >
+            {t('collection.graveyard')}
           </button>
           <button
             className={`btn ${subTab === 'unsorted' ? 'btn-primary' : 'btn-secondary'}`}
@@ -489,25 +494,6 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
                 />
               </Field>
 
-              <Field label={t('collection.fSupertype')}>
-                <MultiSelectDropdown
-                  label={t('collection.fSupertype')}
-                  allLabel={t('collection.allSupertypes')}
-                  value={supertypeFilter}
-                  onChange={setSupertypeFilter}
-                  options={uniqueSupertypes.map(s => ({ value: s, label: s }))}
-                />
-              </Field>
-
-              <Field label={t('collection.fType')}>
-                <MultiSelectDropdown
-                  label={t('collection.fType')}
-                  allLabel={t('collection.allTypes')}
-                  value={typeFilter}
-                  onChange={setTypeFilter}
-                  options={uniqueTypes.map(t => ({value: t, label: t}))}
-                />
-              </Field>
 
               <Field label={t('collection.fColor')}>
                 <MultiSelectDropdown
@@ -518,6 +504,16 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
                   options={uniqueColors.map(c => ({ value: c, label: c }))}
                 />
               </Field>
+              <Field label={t('collection.fType')}>
+                <MultiSelectDropdown
+                  label={t('collection.fType')}
+                  allLabel={t('collection.allTypes')}
+                  value={typeFilter}
+                  onChange={setTypeFilter}
+                  options={uniqueTypes.map(t => ({value: t, label: t}))}
+                />
+              </Field>
+
 
               <Field label={t('collection.fRarity')}>
                 <MultiSelectDropdown
@@ -679,8 +675,16 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
               <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!selectedIds.size} onClick={() => runBulk('list_type', 'wishlist', null)}>{t('bulk.moveToWishlist')}</button>
               <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!selectedIds.size} onClick={() => runBulk('list_type', 'arena', null)}>{t('bulk.moveToArena')}</button>
             </>
+          ) : subTab === 'graveyard' ? (
+            <>
+              <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!selectedIds.size} onClick={() => runBulk('list_type', 'collection', null)}>{t('bulk.restoreToCollection')}</button>
+              <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!selectedIds.size} onClick={() => runBulk('list_type', 'arena', null)}>{t('bulk.restoreToArena')}</button>
+            </>
           ) : (
             <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!selectedIds.size} onClick={() => runBulk('list_type', 'collection', null)}>{t('bulk.moveToCollection')}</button>
+          )}
+          {subTab !== 'graveyard' && (
+            <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!selectedIds.size} onClick={() => runBulk('list_type', 'graveyard', null)}>{t('bulk.archive')}</button>
           )}
           <div style={{ width: '1px', height: '22px', background: 'var(--border-glass)' }} />
           <select className="select-control" value="" disabled={!selectedIds.size} onChange={(e) => { if (e.target.value) runBulk('condition', e.target.value); e.target.value = ''; }} style={{ fontSize: '0.72rem', maxWidth: '150px', padding: '0.3rem 0.4rem' }}>
@@ -697,18 +701,22 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
             showToast={showToast}
             onApplied={() => { clearSelection(); onUpdate(); fetchCollection(); }}
           />
-          <select className="select-control" value={bulkMoveTarget} onChange={(e) => setBulkMoveTarget(e.target.value)} style={{ fontSize: '0.72rem', maxWidth: '170px', padding: '0.3rem 0.4rem' }}>
-            <option value="">{t('bulk.moveToContainer')}</option>
-            <option value="unassign">{t('bulk.unassignedPile')}</option>
-            {locations.slice().sort((a, b) => a.name.localeCompare(b.name)).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
-          <button className="btn btn-primary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!bulkMoveTarget || !selectedIds.size} onClick={() => runBulk('move', bulkMoveTarget === 'unassign' ? null : bulkMoveTarget)}>{t('bulk.applyMove')}</button>
-          <div style={{ width: '1px', height: '22px', background: 'var(--border-glass)' }} />
-          <AddToDeckSelect
-            onAdd={(id) => runBulk('add_to_deck', id)}
-            disabled={!selectedIds.size}
-            style={{ fontSize: '0.72rem', maxWidth: '160px', padding: '0.3rem 0.4rem' }}
-          />
+          {subTab !== 'graveyard' && (
+            <>
+              <select className="select-control" value={bulkMoveTarget} onChange={(e) => setBulkMoveTarget(e.target.value)} style={{ fontSize: '0.72rem', maxWidth: '170px', padding: '0.3rem 0.4rem' }}>
+                <option value="">{t('bulk.moveToContainer')}</option>
+                <option value="unassign">{t('bulk.unassignedPile')}</option>
+                {locations.slice().sort((a, b) => a.name.localeCompare(b.name)).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+              <button className="btn btn-primary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!bulkMoveTarget || !selectedIds.size} onClick={() => runBulk('move', bulkMoveTarget === 'unassign' ? null : bulkMoveTarget)}>{t('bulk.applyMove')}</button>
+              <div style={{ width: '1px', height: '22px', background: 'var(--border-glass)' }} />
+              <AddToDeckSelect
+                onAdd={(id) => runBulk('add_to_deck', id)}
+                disabled={!selectedIds.size}
+                style={{ fontSize: '0.72rem', maxWidth: '160px', padding: '0.3rem 0.4rem' }}
+              />
+            </>
+          )}
           <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem', marginLeft: 'auto' }} onClick={exitSelectMode}>{t('bulk.done')}</button>
         </div>
       )}

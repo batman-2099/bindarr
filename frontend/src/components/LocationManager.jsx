@@ -117,7 +117,7 @@ function ContainerImportReview({ report, onClose, onMove, movingItem, expanded, 
                         <li key={locationIndex} style={{ overflowWrap: 'anywhere' }}>
                           <strong>{location.quantity}× {location.location_id == null ? t('loc.importUnsorted') : location.location_name}</strong>
                           <div style={{ color: 'var(--text-secondary)' }}>
-                            {location.list_type === 'collection' ? t('dash.physical') : location.list_type === 'arena' ? t('collection.arena') : location.list_type === 'wishlist' ? t('collection.wishlist') : location.list_type}
+                            {location.list_type === 'collection' ? t('dash.physical') : location.list_type === 'arena' ? t('collection.arena') : location.list_type === 'wishlist' ? t('collection.wishlist') : location.list_type === 'graveyard' ? t('collection.graveyard') : location.list_type}
                             {' · '}{finishLabel(location.printing)}
                             {!!location.missing && <> · {t('inspector.missing')}</>}
                             {item.printing !== 'Any' && location.printing !== item.printing && <> · {t('loc.importDifferentFinish')}</>}

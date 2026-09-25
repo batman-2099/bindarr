@@ -28,7 +28,7 @@ async function checkedOutAllocation(userId, excludeDeckId = null) {
     SELECT dc.card_id, SUM(dc.quantity) AS req
     FROM deck_cards dc
     JOIN decks d ON dc.deck_id = d.id
-    WHERE d.user_id = ? AND d.checked_out = 1 AND (? IS NULL OR d.id != ?)
+    WHERE d.user_id = ? AND d.checked_out = 1 AND d.inventory_type = 'collection' AND (? IS NULL OR d.id != ?)
     GROUP BY dc.card_id
   `, [userId, excludeDeckId, excludeDeckId]);
   const alloc = new Map();
@@ -71,7 +71,7 @@ async function resolveCompartmentAndPosition(opts) {
     if (!compartment) return { compartment_id: null, position: position !== undefined ? position : 0 };
 
     // On a stacking container the slot count is what fills up, not the card count.
-    let countQuery = `SELECT ${compartment.allow_stacking ? `COUNT(DISTINCT ${STACK_KEY_SQL})` : 'COUNT(*)'} as cnt FROM collection WHERE compartment_id = ? AND user_id = ?`;
+    let countQuery = `SELECT ${compartment.allow_stacking ? `COUNT(DISTINCT ${STACK_KEY_SQL})` : 'COUNT(*)'} as cnt FROM collection WHERE compartment_id = ? AND user_id = ? AND COALESCE(list_type, 'collection') != 'graveyard'`;
     let countParams = [compartmentId, uId];
     if (excludeEntryId) {
       countQuery += ` AND id != ?`;

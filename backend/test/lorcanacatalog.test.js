@@ -64,7 +64,7 @@ function setupAdapter() {
     }
     if (url.includes('/cards/search')) {
       const q = config.params?.q || '';
-      if (q.includes('set:1') || q.includes('cost>=0')) {
+      if (q.includes('set:1')) {
         return { status: 200, statusText: 'OK', headers: {}, config, data: { results: SAMPLE_CARDS } };
       }
       return { status: 200, statusText: 'OK', headers: {}, config, data: { results: [] } };
@@ -109,14 +109,10 @@ async function main() {
   assert.ok(sc.sets['1'], 'should have counts for bare set code 1');
   assert.strictEqual(sc.sets['1'].cached, 2);
 
-  // 5. Bulk cacheAllCards
-  const allCached = await lorcastApi.cacheAllCards();
-  assert.strictEqual(allCached.length, 2);
-
-  // 6. Catalog GAMES includes Lorcana
+  // 5. Catalog GAMES includes Lorcana
   assert.ok(catalog.GAMES.includes('lorcana'), 'catalog.GAMES should include Lorcana');
 
-  // 7. Cache cards for set 1 in French
+  // 6. Cache cards for set 1 in French
   const cachedFr = await cardSets.cacheSetCards('lorcana', '1', 'French');
   assert.strictEqual(cachedFr.length, 2);
   assert.strictEqual(cachedFr[0].name, 'Elsa - Reine des neiges');

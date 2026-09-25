@@ -8,7 +8,7 @@ import { getCardRarityBorder, getRarityBadgeLabel, getRarityBadgeStyle } from '.
 import { sortCardsByOrder } from '../utils/cardSort';
 import { buildCollectionExport } from '../utils/collectionExport';
 import { useMultiSelect } from '../utils/useMultiSelect';
-import { defaultGameFilter, gameOptions, isGameEnabled, showGamePicker } from '../utils/games';
+import { defaultGameFilter, isGameEnabled } from '../utils/games';
 import { useT } from '../utils/i18n';
 import CardInspectorModal from './CardInspectorModal';
 import AddToDeckSelect from './AddToDeckSelect';
@@ -466,16 +466,6 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-glass)' }}>
             {/* Selector filters grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.75rem' }}>
-              {/* Nothing to filter when only one game is shown. */}
-              {showGamePicker() && (
-                <Field label={t('collection.fGame')}>
-                  <select className="select-control" value={gameFilter} onChange={(e) => setGameFilter(e.target.value)}>
-                    <option value="">{t('collection.allGames')}</option>
-                    {gameOptions().map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
-                  </select>
-                </Field>
-              )}
-
               <Field label={t('collection.fLocation')}>
                 <MultiSelectDropdown
                   label={t('collection.fLocation')}

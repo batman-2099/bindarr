@@ -49,7 +49,3 @@ export function noteArtChanged(cardId, present) {
   if (present) next.add(cardId); else next.delete(cardId);
   emit(next);
 }
-
-// Cache-buster appended after an upload: the art URL for a card never changes, so
-// without it the browser keeps showing the copy it already has.
-export const artVersionParam = () => `?v=${Date.now()}`;

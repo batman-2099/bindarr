@@ -125,27 +125,6 @@ export function getSortCategories(card, sortOrder, setsList = []) {
   })).filter(c => c.label !== null);
 }
 
-// Category the container FILES by — the primary (first) sort field, matching
-// the backend's placement engine. Used by the Category-to-Page map, which must
-// track filing, not the (independent) visual divider choice.
-// eslint-disable-next-line react-refresh/only-export-components
-export function getPrimaryCategory(card, sortOrder, setsList = []) {
-  if (!card || !sortOrder || sortOrder === 'custom') return null;
-  let field = null;
-  if (Array.isArray(sortOrder)) field = sortOrder[0]?.by || null;
-  else if (typeof sortOrder === 'string' && sortOrder.startsWith('[')) {
-    try { field = JSON.parse(sortOrder)[0]?.by || null; } catch (e) { field = null; }
-  } else if (typeof sortOrder === 'string') {
-    if (sortOrder.startsWith('name')) field = 'name';
-    else if (sortOrder.startsWith('set')) field = 'set';
-    else if (sortOrder.startsWith('type')) field = 'type';
-    else if (sortOrder.startsWith('price')) field = 'price';
-    else if (sortOrder.startsWith('language')) field = 'language';
-  }
-  if (!field) return null;
-  return categoryForField(card, field, setsList);
-}
-
 // A binder pocket that accepts a dragged card. Two components, not one with a
 // conditional hook: CompartmentView also renders inside CheckoutWizardModal,
 // which has no DndContext above it, so the hook must not mount there at all.

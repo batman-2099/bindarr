@@ -1,5 +1,5 @@
-import LORCANA_TRANSLATIONS from '../../../shared/lorcanaTranslations.js';
-import POKEMON_TRANSLATIONS from '../../../shared/pokemonTranslations.js';
+import LORCANA_TRANSLATIONS from '../../../shared/lorcanaTranslations.json' with { type: 'json' };
+import POKEMON_TRANSLATIONS from '../../../shared/pokemonTranslations.json' with { type: 'json' };
 import { translatePokemonName } from './pokemonHelper.js';
 import { langCode } from './languages.js';
 

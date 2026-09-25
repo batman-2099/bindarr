@@ -276,35 +276,6 @@ async function getCardsBySet(setCode, lang = 'English') {
   }
 }
 
-async function cacheAllCards() {
-  try {
-    const resp = await lorcastGetRetried('/cards/search', {
-      params: { q: 'cost>=0', unique: 'prints' },
-    });
-    const results = (resp.data && resp.data.results) || [];
-    const normalized = results.map(normalizeCard);
-    if (normalized.length > 0) {
-      await cacheCards(normalized);
-      const bySet = {};
-      for (const c of normalized) {
-        const sid = (c.set_id || '').toLowerCase();
-        bySet[sid] = (bySet[sid] || 0) + 1;
-      }
-      for (const [sid, count] of Object.entries(bySet)) {
-        const rawCode = sid.replace(/^lorcana-/, '');
-        await db.run(
-          `UPDATE sets SET total = ?, printed_total = ? WHERE game = 'lorcana' AND (LOWER(id) = ? OR LOWER(ptcgo_code) = ?)`,
-          [count, count, sid, rawCode]
-        ).catch(() => {});
-      }
-    }
-    return normalized;
-  } catch (err) {
-    console.error('Error caching all Lorcana cards:', err.message);
-    return [];
-  }
-}
-
 async function fetchAndCacheSets(force = false) {
   try {
     const existing = await db.get(`SELECT COUNT(*) as count FROM sets WHERE game = 'lorcana' AND total IS NOT NULL AND total > 0`);
@@ -398,7 +369,6 @@ module.exports = {
   normalizeCard,
   cacheCards,
   getCardsBySet,
-  cacheAllCards,
   fetchAndCacheSets,
   updateCollectionPrices,
   getCardById,

@@ -49,18 +49,8 @@ async function checkedOutAllocation(userId, excludeDeckId = null) {
   return alloc;
 }
 
-// Resolves where a card should actually land. Supports both object destructuring signature
-// and positional (database, locationId, cardId, userId) signature for backwards compatibility.
-async function resolveCompartmentAndPosition(arg1, locationId, cardId, userId) {
-  let dbClient = db;
-  let opts = {};
-  if (typeof arg1 === 'object' && arg1 !== null && !(arg1.all || arg1.get || arg1.run)) {
-    opts = arg1;
-  } else {
-    if (arg1 && (arg1.all || arg1.get || arg1.run)) dbClient = arg1;
-    opts = { locationId, cardId, userId };
-  }
-
+// Resolves where a card should actually land.
+async function resolveCompartmentAndPosition(opts) {
   const {
     locationId: locId,
     compartmentId,
@@ -103,7 +93,7 @@ async function resolveCompartmentAndPosition(arg1, locationId, cardId, userId) {
   const location = await db.get(`SELECT id, name, type, sort_order, foil_sorting, rule_type, rule_config, game, allow_stacking, user_id FROM locations WHERE id = ? AND user_id = ?`, [locId, uId]);
   if (!location) return { compartment_id: null, position: 0 };
 
-  let cardMetadata = await dbClient.get(`SELECT name, set_name, number, types, subtypes, price_trend, price_normal, price_holofoil, price_reverse_holofoil, supertype, rarity, game, cmc, color_identity FROM card_cache WHERE id = ?`, [cId]);
+  let cardMetadata = await db.get(`SELECT name, set_name, number, types, subtypes, price_trend, price_normal, price_holofoil, price_reverse_holofoil, supertype, rarity, game, cmc, color_identity FROM card_cache WHERE id = ?`, [cId]);
   if (!cardMetadata) cardMetadata = { name: cId || '', types: [] };
   // card_cache has no id column selected above, and a stacking container matches
   // a copy against its twin by card id — so carry it on explicitly.
@@ -116,31 +106,20 @@ async function resolveCompartmentAndPosition(arg1, locationId, cardId, userId) {
     return { compartment_id: null, position: 0, rejected: true };
   }
 
-  const recommended = await recommendSlot(dbClient, location, cardMetadata);
+  const recommended = await recommendSlot(db, location, cardMetadata);
   if (!recommended) return null;
   return { compartment_id: recommended.compartment_id, position: recommended.position, location_id: recommended.location_id, label: recommended.label };
 }
 
 async function describePlacement(database, entryId, userId) {
-  let dbClient = db;
-  let eId = entryId;
-  let uId = userId;
-
-  if (typeof database === 'number') {
-    eId = database;
-    uId = entryId;
-  } else if (database && (database.get || database.all)) {
-    dbClient = database;
-  }
-
-  const row = await dbClient.get(`
+  const row = await database.get(`
     SELECT c.compartment_id, c.position, c.location_id,
            cp.idx, cp.label, l.type as loc_type, l.name as loc_name
     FROM collection c
     JOIN compartments cp ON c.compartment_id = cp.id
     JOIN locations l ON cp.location_id = l.id
     WHERE c.id = ? AND c.user_id = ?
-  `, [eId, uId]);
+  `, [entryId, userId]);
   if (!row) return null;
   const seq = Math.max(1, Math.round((row.position || 0) / 1000));
   const label = `${compartmentLabel(row, row.loc_type)}, Pos ${seq} (in ${row.loc_name})`;
@@ -151,15 +130,6 @@ function normalizeRuleConfig(rule_config) {
   if (rule_config === undefined || rule_config === null || rule_config === '') return null;
   if (typeof rule_config === 'string') { JSON.parse(rule_config); return rule_config; }
   return JSON.stringify(rule_config);
-}
-
-async function getCompartmentOccupancy(database, compartmentId) {
-  const dbClient = database || db;
-  const row = await dbClient.get(
-    `SELECT COALESCE(SUM(quantity), 0) AS total_cards FROM collection WHERE compartment_id = ?`,
-    [compartmentId]
-  );
-  return row ? row.total_cards : 0;
 }
 
 // One physical card = one row. Split any legacy stacked entry (quantity > 1)
@@ -257,7 +227,6 @@ async function setStackQuantity(database, userId, entryId, target) {
 }
 
 module.exports = {
-  getCompartmentOccupancy,
   defaultCompartmentPlan,
   checkedOutAllocation,
   resolveCompartmentAndPosition,

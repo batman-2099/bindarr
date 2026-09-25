@@ -96,7 +96,8 @@ function noteRateLimit(error) {
   return true;
 }
 
-function scryGet(url, config, onProgress) {
+// ponytail: GET and POST share one queue and cooldown, including retries.
+function scryRequest(url, request, onProgress) {
   const run = scryfallQueue.then(async () => {
     // Re-check after waiting: a 429 may have armed the cooldown while queued.
     for (let w = waitFor(url); w.ms > 0; w = waitFor(url)) {
@@ -109,7 +110,7 @@ function scryGet(url, config, onProgress) {
     lastScryfallAt = Date.now();
     lastByEndpoint.set(key, lastScryfallAt);
     try {
-      return await client.get(url, config);
+      return await request();
     } catch (error) {
       noteRateLimit(error);
       throw error;
@@ -120,38 +121,15 @@ function scryGet(url, config, onProgress) {
   return run;
 }
 
-// Scryfall's bulk lookup takes at most 75 identifiers per request.
-const COLLECTION_BATCH = 75;
-
-// POST twin of scryGet: same one global queue, same gap, same 429 cooldown, so
-// bulk lookups can never race ahead of (or pile on top of) search traffic.
-function scryPost(url, body, config, onProgress) {
-  const run = scryfallQueue.then(async () => {
-    for (let w = waitFor(url); w.ms > 0; w = waitFor(url)) {
-      if (cooldownUntil > Date.now()) {
-        onProgress?.({ stage: 'retry', seconds: Math.ceil((cooldownUntil - Date.now()) / 1000) });
-      }
-      await new Promise(r => setTimeout(r, w.ms));
-    }
-    const { key } = endpointGap(url);
-    lastScryfallAt = Date.now();
-    lastByEndpoint.set(key, lastScryfallAt);
-    try {
-      return await client.post(url, body, config);
-    } catch (error) {
-      noteRateLimit(error);
-      throw error;
-    }
-  });
-  scryfallQueue = run.then(() => {}, () => {});
-  return run;
+function scryGet(url, config, onProgress) {
+  return scryRequest(url, () => client.get(url, config), onProgress);
 }
 
-async function scryPostRetried(url, body, config, retries = 4, onProgress) {
+async function scryRequestRetried(url, request, retries = 4, onProgress) {
   let lastError;
   for (let i = 0; i < retries; i++) {
     try {
-      return await scryPost(url, body, config, onProgress);
+      return await scryRequest(url, request, onProgress);
     } catch (error) {
       lastError = error;
       if (error.response && error.response.status === 429 && i < retries - 1) continue;
@@ -165,19 +143,16 @@ async function scryPostRetried(url, body, config, retries = 4, onProgress) {
 // has_more/next_page/total_cards can't use fetchFromScryfall, which strips to
 // .data.data). The wait itself is handled by the shared cooldown above, so a
 // retry here just re-queues behind it.
-async function scryGetRetried(url, config, retries = 4, onProgress) {
-  let lastError;
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await scryGet(url, config, onProgress);
-    } catch (error) {
-      lastError = error;
-      if (error.response && error.response.status === 429 && i < retries - 1) continue;
-      throw error;
-    }
-  }
-  throw lastError;
+function scryGetRetried(url, config, retries = 4, onProgress) {
+  return scryRequestRetried(url, () => client.get(url, config), retries, onProgress);
 }
+
+function scryPostRetried(url, body, config, retries = 4, onProgress) {
+  return scryRequestRetried(url, () => client.post(url, body, config), retries, onProgress);
+}
+
+// Scryfall's bulk lookup takes at most 75 identifiers per request.
+const COLLECTION_BATCH = 75;
 
 const COLOR_NAMES = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green' };
 const CACHE_AGE_LIMIT_MS = 1000 * 60 * 60 * 24 * 3; // 3 days
@@ -444,17 +419,9 @@ async function fetchFromScryfall(q, lang, retries = 3) {
   const scoped = langSearch(q, lang);
   const url = `/cards/search?q=${encodeURIComponent(scoped.q)}${scoped.params}`;
 
-  for (let i = 0; i < retries; i++) {
-    try {
-      const resp = await scryGet(url);
-      return (resp.data && resp.data.data) || [];
-    } catch (error) {
-      // The shared cooldown already holds the whole queue for as long as
-      // Scryfall asked, so a retry here just re-queues behind it.
-      if (error.response && error.response.status === 429 && i < retries - 1) continue;
-      throw error;
-    }
-  }
+  if (!(retries > 0)) return;
+  const resp = await scryGetRetried(url, undefined, retries);
+  return (resp.data && resp.data.data) || [];
 }
 
 // Scryfall pages are a fixed 175 cards. Pull the caller's [offset, offset+limit)

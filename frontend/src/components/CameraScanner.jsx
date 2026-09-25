@@ -9,11 +9,11 @@ import CardEntryFields from './CardEntryFields';
 import CardInspectorModal from './CardInspectorModal';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useMultiSelect } from '../utils/useMultiSelect';
-import { langName, langCode, getLanguagesForGame, isLanguageSupported } from '../utils/languages';
+import { langName, langCode, getLanguagesForGame } from '../utils/languages';
 import { requestDetect, stopDetect, smoothQuad, meanCornerDrift, DETECT_W } from '../utils/cardDetector';
 import { getPerspectiveTransform, warpPerspective } from '../../../shared/imgproc.mjs';
 import { shouldCapture, shouldRearm, autoStatusKey } from '../utils/autoCapture';
-import { defaultGame, gameOptions, showGamePicker, isGameEnabled } from '../utils/games';
+import { defaultGame, isGameEnabled } from '../utils/games';
 import { isNative } from '../apiBase';
 import { useT } from '../utils/i18n';
 import SetTree from './SetTree';
@@ -219,23 +219,12 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // exposureCompensation, else null (slider hidden). value = current setting.
   const [exposureCaps, setExposureCaps] = useState(null);
   const [exposure, setExposure] = useState(0);
-  // Which game is being fed in — the user's pick, not an inference. Persisted:
-  // a scanning run is one game at a time, and re-picking it on every camera open
-  // was friction for nothing. Falls back to the Settings default game if the
-  // remembered one has since been hidden.
-  const [scanGame, setScanGameState] = useState(() => {
+  // Keep a supported saved game; ignore legacy non-Magic preferences.
+  const [scanGame] = useState(() => {
     const saved = localStorage.getItem('scanner_game');
     if (saved && isGameEnabled(saved)) return saved;
     return defaultGame() || 'mtg';
   });
-  const setScanGame = (g) => {
-    setScanGameState(g);
-    localStorage.setItem('scanner_game', g);
-    if (!isLanguageSupported(g, scanLang)) {
-      setScanLang('en');
-      setLanguage(langName('en'));
-    }
-  };
   // Which language of card is being fed in. Card art is language-specific, so
   // this selects which set index the scan is matched against — and it becomes the
   // language each added copy is recorded as. Remembered across sessions because
@@ -1861,28 +1850,9 @@ function CameraScanner({ onAddSuccess, showToast }) {
             </label>
 
 
-            {/* Card type and language: what is being fed in. Card art is
-                language-specific, so the language picks which catalog the scan is
-                matched against AND the language each added copy is recorded as.
-                Card type is a dropdown, not tabs — the list grows (sports, Yu-Gi-Oh)
-                and tabs stop fitting. */}
+            {/* Card art is language-specific, so the language picks which catalog
+                the scan is matched against AND how each added copy is recorded. */}
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {showGamePicker() && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', flex: 1, minWidth: 0 }}>
-                  <label htmlFor="scan-card-type" style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-                    {t('scan.cardType')}
-                  </label>
-                  <select
-                    id="scan-card-type"
-                    className="select-control"
-                    value={scanGame}
-                    onChange={(e) => setScanGame(e.target.value)}
-                    style={{ fontSize: '0.8rem' }}
-                  >
-                    {gameOptions().map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
-                  </select>
-                </div>
-              )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', flex: 1, minWidth: 0 }}>
                 <label htmlFor="scan-language" style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                   {t('scan.cardLanguage')}

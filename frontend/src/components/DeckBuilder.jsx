@@ -7,7 +7,7 @@ import { displayName } from '../utils/languages';
 import CheckoutWizardModal from './CheckoutWizardModal';
 import { useBackGuard } from '../utils/useBackGuard';
 import { arenaCardKey, buildDeckExport, parseDeckLine } from '../utils/deckText';
-import { defaultGame, gameOptions, showGamePicker, isGameEnabled } from '../utils/games';
+import { defaultGame, isGameEnabled } from '../utils/games';
 import { MTG_FORMATS } from '../utils/cardOptions';
 import CardImage from './CardImage';
 import { useT } from '../utils/i18n';
@@ -28,9 +28,7 @@ const isBasicEnergyOrLand = (card, game = 'mtg') => {
 const deckCountByName = (deckCards, name) =>
   (deckCards || []).filter(c => c.name === name).reduce((s, c) => s + c.quantity, 0);
 
-// What a new deck starts as for a game. Pulled out because it is now needed in
-// the Game System buttons and the initial state, which has to
-// match the game the picker opens on.
+// Initial and reset values for deck creation.
 const newDeckDefaults = (game) => {
   if (game === 'mtg') return { format: 'Commander / EDH', targetSize: 100 };
   if (game === 'lorcana') return { format: 'Core (Constructed)', targetSize: 60 };
@@ -124,9 +122,7 @@ function DeckBuilder({ showToast }) {
 
   // Deck Selection Menu Controls
   const [deckSearchTerm, setDeckSearchTerm] = useState('');
-  // 'all' | 'pokemon' | 'mtg'. With one game hidden, 'all' would show its decks
-  // anyway, so open scoped to the visible game instead.
-  const [deckGameFilter, setDeckGameFilter] = useState(() => (showGamePicker() ? 'all' : defaultGame()));
+  const deckGameFilter = defaultGame();
   const [deckStatusFilter, setDeckStatusFilter] = useState('all'); // 'all' | 'ready' | 'in_progress' | 'in_play'
   const [deckSortBy, setDeckSortBy] = useState('created_desc'); // 'created_desc' | 'created_asc' | 'name_asc' | 'cards_desc'
   const [deckSelectionViewMode, setDeckSelectionViewMode] = useState('table'); // 'grid' | 'table'
@@ -997,11 +993,6 @@ function DeckBuilder({ showToast }) {
   const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#64748b'];
 
   // --- SELECTION MENU METRICS & FILTERING ---
-  const totalDecksCount = decks.length;
-  const pokemonDecksCount = decks.filter(d => (d.game || 'pokemon') === 'pokemon').length;
-  const mtgDecksCount = decks.filter(d => d.game === 'mtg').length;
-  const lorcanaDecksCount = decks.filter(d => d.game === 'lorcana').length;
-
   const filteredDecks = decks.filter(deck => {
     const q = deckSearchTerm.trim().toLowerCase();
     const matchesSearch = !q ||
@@ -1095,29 +1086,6 @@ function DeckBuilder({ showToast }) {
                 )}
               </div>
 
-              {/* Game Tabs — only the games Settings is showing. */}
-              {showGamePicker() && (
-              <div className="sub-nav-tabs" style={{ margin: 0, background: 'rgba(0,0,0,0.25)', padding: '3px', borderRadius: 'var(--radius-sm)' }}>
-                {[
-                  ['all', 'All Decks', totalDecksCount],
-                  ...gameOptions().map(g => [g.value, g.short, g.value === 'mtg' ? mtgDecksCount : (g.value === 'lorcana' ? lorcanaDecksCount : pokemonDecksCount)]),
-                ].map(([val, label, count]) => (
-                  <button
-                    key={val}
-                    type="button"
-                    className={`sub-nav-tab ${deckGameFilter === val ? 'active' : ''}`}
-                    onClick={() => setDeckGameFilter(val)}
-                    style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
-                  >
-                    <span>{label}</span>
-                    <span style={{ fontSize: '0.65rem', background: deckGameFilter === val ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: '10px' }}>
-                      {count}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              )}
-
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-glass)' }}>
@@ -1189,11 +1157,11 @@ function DeckBuilder({ showToast }) {
               <Layers size={36} style={{ color: 'var(--text-muted)', marginBottom: '0.75rem', opacity: 0.5 }} />
               <h3 style={{ color: 'var(--text-strong)', fontSize: '1.05rem', marginBottom: '0.25rem' }}>{t('deck.noMatches')}</h3>
               <p style={{ fontSize: '0.85rem' }}>{t('deck.noMatchesHint')}</p>
-              {(deckSearchTerm || deckGameFilter !== 'all' || deckStatusFilter !== 'all') && (
+              {(deckSearchTerm || deckStatusFilter !== 'all') && (
                 <button
                   className="btn btn-secondary"
                   style={{ marginTop: '1rem', fontSize: '0.8rem' }}
-                  onClick={() => { setDeckSearchTerm(''); setDeckGameFilter('all'); setDeckStatusFilter('all'); }}
+                  onClick={() => { setDeckSearchTerm(''); setDeckStatusFilter('all'); }}
                 >
                   {t('deck.clearFilters')}
                 </button>
@@ -1928,21 +1896,6 @@ function DeckBuilder({ showToast }) {
                 <div className="glass-panel">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', gap: '0.5rem', flexWrap: 'wrap' }}>
                     <h3 style={{ fontSize: '0.95rem', color: 'var(--text-strong)', margin: 0 }}>{t('deck.addCardsTitle')}</h3>
-                    {showGamePicker() && (
-                      <div className="sub-nav-tabs" style={{ margin: 0 }}>
-                        {gameOptions().map(({ value, short }) => (
-                          <button
-                            key={value}
-                            type="button"
-                            className={`sub-nav-tab ${deckSearchGame === value ? 'active' : ''}`}
-                            style={{ padding: '0.3rem 0.7rem', fontSize: '0.75rem' }}
-                            onClick={() => setDeckSearchGame(value)}
-                          >
-                            {short}
-                          </button>
-                        ))}
-                      </div>
-                    )}
                   </div>
                   <form onSubmit={handleSearchCards} style={{ display: 'flex', gap: '0.5rem' }}>
                     <input
@@ -2233,95 +2186,6 @@ function DeckBuilder({ showToast }) {
 
             <form onSubmit={handleCreateDeck} style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem', maxHeight: '80vh', overflowY: 'auto', paddingRight: '0.25rem' }}>
               
-              {/* Game System Selection — hidden when only one game is shown, in
-                  which case newDeckGame already holds it. */}
-              {showGamePicker() && (
-              <div className="form-group">
-                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-strong)', marginBottom: '0.4rem', display: 'block' }}>{t('deck.gameSystem')}</label>
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gameOptions().length}, 1fr)`, gap: '0.75rem' }}>
-                  {isGameEnabled('pokemon') && (
-                    <div
-                      onClick={() => {
-                        setNewDeckGame('pokemon');
-                        setNewDeckFormat('Standard');
-                        setNewDeckTargetSize(60);
-                        setNewDeckPreconFile('');
-                      }}
-                      style={{
-                        padding: '0.75rem',
-                        borderRadius: 'var(--radius-sm)',
-                        border: newDeckGame === 'pokemon' ? '2px solid var(--accent-yellow)' : '1px solid var(--border-glass)',
-                        background: newDeckGame === 'pokemon' ? 'rgba(234, 179, 8, 0.12)' : 'rgba(0, 0, 0, 0.2)',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: '0.3rem',
-                        transition: 'all 0.15s'
-                      }}
-                    >
-                      <Zap size={22} style={{ color: newDeckGame === 'pokemon' ? 'var(--accent-yellow)' : 'var(--text-muted)' }} />
-                      <span style={{ fontSize: '0.85rem', fontWeight: 700, color: newDeckGame === 'pokemon' ? 'var(--accent-yellow)' : 'var(--text-secondary)' }}>{t('deck.gamePokemonWithSystem')}</span>
-                      <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{t('deck.standard60')}</span>
-                    </div>
-                  )}
-
-                  {isGameEnabled('mtg') && (
-                    <div
-                      onClick={() => {
-                        setNewDeckGame('mtg');
-                        setNewDeckFormat('Commander / EDH');
-                        setNewDeckTargetSize(100);
-                      }}
-                      style={{
-                        padding: '0.75rem',
-                        borderRadius: 'var(--radius-sm)',
-                        border: newDeckGame === 'mtg' ? '2px solid #ef4444' : '1px solid var(--border-glass)',
-                        background: newDeckGame === 'mtg' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(0, 0, 0, 0.2)',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: '0.3rem',
-                        transition: 'all 0.15s'
-                      }}
-                    >
-                      <Swords size={22} style={{ color: newDeckGame === 'mtg' ? '#ef4444' : 'var(--text-muted)' }} />
-                      <span style={{ fontSize: '0.85rem', fontWeight: 700, color: newDeckGame === 'mtg' ? '#ef4444' : 'var(--text-secondary)' }}>{t('deck.gameMtgWithSystem')}</span>
-                      <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{t('deck.constructedCommander')}</span>
-                    </div>
-                  )}
-
-                  {isGameEnabled('lorcana') && (
-                    <div
-                      onClick={() => {
-                        setNewDeckGame('lorcana');
-                        setNewDeckFormat('Core (Constructed)');
-                        setNewDeckTargetSize(60);
-                        setNewDeckPreconFile('');
-                      }}
-                      style={{
-                        padding: '0.75rem',
-                        borderRadius: 'var(--radius-sm)',
-                        border: newDeckGame === 'lorcana' ? '2px solid #a855f7' : '1px solid var(--border-glass)',
-                        background: newDeckGame === 'lorcana' ? 'rgba(168, 85, 247, 0.12)' : 'rgba(0, 0, 0, 0.2)',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: '0.3rem',
-                        transition: 'all 0.15s'
-                      }}
-                    >
-                      <Layers size={22} style={{ color: newDeckGame === 'lorcana' ? '#a855f7' : 'var(--text-muted)' }} />
-                      <span style={{ fontSize: '0.85rem', fontWeight: 700, color: newDeckGame === 'lorcana' ? '#a855f7' : 'var(--text-secondary)' }}>{t('deck.gameLorcanaWithSystem')}</span>
-                      <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{t('deck.standard60')}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-              )}
-
               <div className="form-group">
                 <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-strong)', marginBottom: '0.4rem', display: 'block' }}>{t('deck.inventoryType')}</label>
                 <div className="sub-nav-tabs" style={{ margin: 0 }}>

@@ -4,7 +4,7 @@ import { TrendingUp, Coins, Library, Trophy, Plus, ArrowUpRight } from 'lucide-r
 import { getCardDisplayName } from '../utils/langHelper';
 import { priceText, currencySymbol } from '../utils/formatPrice';
 import { getPrintingBadgeLabel, getPrintingBadgeStyle } from '../utils/cardPrinting';
-import { defaultGameFilter, gameOptions, showGamePicker, gameLabel } from '../utils/games';
+import { defaultGameFilter, gameLabel } from '../utils/games';
 import { useT } from '../utils/i18n';
 import CardInspectorModal from './CardInspectorModal';
 import CardImage from './CardImage';
@@ -51,9 +51,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
   const [error, setError] = useState(null);
   const [statsRefresh, setStatsRefresh] = useState(0);
   const [timePeriod, setTimePeriod] = useState('30d');
-  // '' | 'pokemon' | 'mtg'. Collapses to the only visible game when the other is
-  // hidden in Settings, so the totals never include cards the user cannot see.
-  const [gameFilter, setGameFilter] = useState(() => defaultGameFilter());
+  const gameFilter = defaultGameFilter();
   const [inventoryFilter, setInventoryFilter] = useState('all');
   
   // Timeline Chart State
@@ -114,17 +112,6 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
 
   const renderFilters = () => (
     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-      {showGamePicker() && (
-        <div className="sub-nav-tabs" style={{ margin: 0 }}>
-          {[['', t('dash.allGames')], ...gameOptions().map(g => [g.value, g.short])].map(([val, label]) => (
-            <button key={val || 'all'} type="button" className={`sub-nav-tab ${gameFilter === val ? 'active' : ''}`}
-              aria-pressed={gameFilter === val}
-              style={{ padding: '0.35rem 0.85rem', fontSize: '0.75rem' }} onClick={() => setGameFilter(val)}>
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
       <div className="sub-nav-tabs" style={{ margin: 0 }}>
         {[['all', t('dash.allCards')], ['collection', t('dash.physical')], ['arena', t('dash.arena')]].map(([value, label]) => (
           <button key={value} type="button" className={`sub-nav-tab ${inventoryFilter === value ? 'active' : ''}`}

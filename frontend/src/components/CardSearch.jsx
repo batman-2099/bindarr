@@ -8,8 +8,8 @@ import CardImageZoom from './CardImageZoom';
 import { translateJapaneseName, POKEMON_EN_TO_JP, getCardDisplayName } from '../utils/langHelper';
 import { useMultiSelect } from '../utils/useMultiSelect';
 import { CONDITIONS, PRINTINGS } from '../utils/cardOptions';
-import { langName, isEnglish, displayName, translatedName, setReference, setCode, getLanguagesForGame, isLanguageSupported } from '../utils/languages';
-import { defaultGame, gameOptions, showGamePicker, gameLabel } from '../utils/games';
+import { langName, isEnglish, displayName, translatedName, setReference, setCode, getLanguagesForGame } from '../utils/languages';
+import { defaultGame, gameLabel } from '../utils/games';
 import CardImage from './CardImage';
 import { useT } from '../utils/i18n';
 import { readProgressStream } from '../utils/importStream';
@@ -90,9 +90,7 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
   const [query, setQuery] = useState('');
   const [numberQuery, setNumberQuery] = useState('');
   const [setCodeQuery, setSetCodeQuery] = useState('');
-  // Honour the default game from Settings, like the scanner and collection do —
-  // and never open on a game the user has hidden.
-  const [game, setGame] = useState(() => defaultGame());
+  const game = defaultGame();
   // Which language's printings to search. Magic comes from Scryfall in every
   // language; non-English Pokémon comes from TCGdex (pokemontcg.io is English-only).
   const [searchLang, setSearchLang] = useState('en');
@@ -531,14 +529,6 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
     setSelectedCard(prev => (prev ? { ...prev, language: newLang } : prev));
   };
 
-  const handleGameChange = (newGame) => {
-    setGame(newGame);
-    if (!isLanguageSupported(newGame, searchLang)) {
-      setSearchLang('en');
-      setLanguage(langName('en'));
-    }
-  };
-
   const openQuickAdd = (card) => {
     setSelectedCard(card);
     setPurchasePrice(0); // Default to 0 purchase spend
@@ -764,21 +754,6 @@ function CardSearch({ onAddSuccess, showToast, setActiveTab }) {
       <div className="glass-panel" style={{ marginBottom: '2rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
           <h2 style={{ fontSize: '1.25rem', margin: 0, color: 'var(--text-strong)' }}>{t('search.title', { game: gameLabel(game) })}</h2>
-          {showGamePicker() && (
-            <div className="sub-nav-tabs" style={{ margin: 0 }}>
-              {gameOptions().map(({ value, short }) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={`sub-nav-tab ${game === value ? 'active' : ''}`}
-                  style={{ padding: '0.4rem 0.9rem', fontSize: '0.8rem' }}
-                  onClick={() => handleGameChange(value)}
-                >
-                  {short}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
         <form onSubmit={handleSearch} style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.75rem' }}>

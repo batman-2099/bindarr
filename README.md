@@ -83,6 +83,7 @@ This is [batman-2099/bindarr](https://github.com/batman-2099/bindarr), a fork of
 - Added the **Jenny** theme: purple backgrounds, lavender highlights, and orange buttons and accents.
 - Added complete collection-data backup and restore, including the fork's inventory, storage, deck, and related metadata.
 - Reworked the README into a Magic-focused product and workflow guide; added repository development guidance, import fixtures, and regression checks for the new workflows.
+- Removed unreachable game pickers and unused helpers/cache paths, consolidated Scryfall queue/retry handling, and replaced duplicate JavaScript language/translation tables with shared JSON imports. Legacy records and live catalog behavior remain intact.
 
 ### AI Deck Builder and related improvements
 
@@ -429,7 +430,7 @@ API keys only authorize `GET` requests and cannot access admin endpoints. Useful
 
 ## Development
 
-Node 18+ and npm 9+ are required; Node 20 matches the server/container environment.
+Node 18.20+ and npm 9+ are required; use a current Node 20 LTS release for server/container parity. Shared JSON imports use native import attributes; ESLint uses an explicitly selected Espree parser that understands that syntax.
 
 ```bash
 npm run install:all

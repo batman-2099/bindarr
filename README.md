@@ -53,6 +53,7 @@ This is [batman-2099/bindarr](https://github.com/batman-2099/bindarr), a fork of
 **Deck building and play**
 
 - Added ManaBox deck imports and corrected ManaBox detection, Arena inventory lookup, exact-printing identity, import/export icons, and skipped-card summaries.
+- Made **Add a precon deck** and **Quick import decklist** full-width, bordered buttons in Create a New Deck, with larger text and icons. Quick import includes a larger format dropdown and a full-width decklist text area.
 - Added MTGJSON precon imports with independent **Create Storage Container** and **Create Deck** checkboxes, both enabled by default; deck creation imports every card and checks out the new Physical deck atomically.
 - Added editable deck properties, a Deck Type column, deck duplication, and inventory-aware Physical/Arena switching.
 - Added card storage locations and sorting by container, compartment, and slot.

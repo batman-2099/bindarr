@@ -2452,20 +2452,11 @@ function DeckBuilder({ showToast }) {
                 <button
                   type="button"
                   onClick={() => setShowPreconPicker(!showPreconPicker)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--accent-yellow)',
-                    fontSize: '0.8rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    padding: 0
-                  }}
+                  className="btn btn-secondary"
+                  aria-expanded={showPreconPicker}
+                  style={{ width: '100%', minHeight: '48px', justifyContent: 'flex-start', fontSize: '1rem', borderColor: 'var(--accent-yellow)', color: 'var(--accent-yellow)' }}
                 >
-                  <FileText size={14} />
+                  <FileText size={20} style={{ flexShrink: 0 }} />
                   {t('mtgDeck.title')}
                 </button>
                 {showPreconPicker && (
@@ -2492,26 +2483,17 @@ function DeckBuilder({ showToast }) {
                 <button
                   type="button"
                   onClick={() => setShowImportDecklistArea(!showImportDecklistArea)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--accent-yellow)',
-                    fontSize: '0.8rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    padding: 0
-                  }}
+                  className="btn btn-secondary"
+                  aria-expanded={showImportDecklistArea}
+                  style={{ width: '100%', minHeight: '48px', justifyContent: 'flex-start', fontSize: '1rem', borderColor: 'var(--accent-yellow)', color: 'var(--accent-yellow)' }}
                 >
-                  <FileText size={14} />
+                  <FileText size={20} style={{ flexShrink: 0 }} />
                   {showImportDecklistArea ? t('deck.hideQuickImport') : t('deck.showQuickImport')}
                 </button>
 
                 {showImportDecklistArea && (
                   <div style={{ marginTop: '0.5rem' }}>
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
                       <select
                         className="select-control"
                         value={newDeckImportFormat}
@@ -2525,7 +2507,7 @@ function DeckBuilder({ showToast }) {
                             setNewDeckTargetSize(100);
                           }
                         }}
-                        style={{ flex: 1, fontSize: '0.75rem', padding: '0.3rem 0.5rem' }}
+                        style={{ flex: '1 1 220px', minWidth: 0, minHeight: '48px', fontSize: '1rem', padding: '0.75rem' }}
                       >
                         <option value="plain">{t('deck.importFormatPlain')}</option>
                         <option value="manabox">{t('deck.importFormatManaBox')}</option>
@@ -2539,7 +2521,7 @@ function DeckBuilder({ showToast }) {
                     </div>
                     <textarea
                       className="input-control"
-                      style={{ minHeight: '90px', fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre' }}
+                      style={{ width: '100%', boxSizing: 'border-box', minHeight: '90px', resize: 'vertical', fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre' }}
                       placeholder={t('deck.pasteDecklistPlaceholder')}
                       value={newDeckImportText}
                       onChange={(e) => {

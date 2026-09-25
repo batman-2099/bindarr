@@ -62,7 +62,8 @@ This is [batman-2099/bindarr](https://github.com/batman-2099/bindarr), a fork of
 - Added editable deck properties, a Deck Type column, deck duplication, and inventory-aware Physical/Arena switching.
 - Added card storage locations and sorting by container, compartment, and slot.
 - Added unavailable-copy warnings and the names of checked-out decks reserving those copies. Ownership and reservations are scoped to the deck's inventory type: checked-out Physical decks never make Arena cards unavailable.
-- Added persistent pulled-card checkboxes and resizable deck grid cards.
+- Added persistent pulled-card checkboxes and resizable deck grid cards. Choose **Pulled status** in the deck-card sort menu to group **Not pulled** first, then **Pulled**, alphabetically within each group in both list and grid views.
+- **Add Cards to Deck** search and **Browse Collection** results use a responsive artwork grid with printing details, owned/in-deck counts, preview, and add controls.
 - Added mana/color identity and category information to deck lists.
 - Added single-commander selection for Commander decks using card checkboxes and banners, with persistence in deck copies and complete backups.
 - Added per-deck wins/losses and reorganized the detail view: description, overview panels, then full-width card list/grid. Record controls live in **Deck Health & Rules**.
@@ -361,6 +362,8 @@ Scanning first matches artwork with local ONNX models, then uses footer OCR to c
 3. Source installations need `tesseract` on the server's PATH with `eng` trained data (`tesseract --list-langs` should list `eng`). On Debian/Ubuntu, install `tesseract-ocr tesseract-ocr-eng`. Source-built Docker images include both; rebuild the image to pick up this change.
 
 **Hold the card still until verification finishes.** Auto-add, including Turbo, requires two fresh photos to agree on the same printing and pass all safety checks. Changing scan settings, pausing, or leaving the scanner cancels pending verification. A failed request is not automatically retried.
+
+Open **Scan settings → Zoom** to adjust the camera's native zoom when the camera and browser expose it. The slider uses the camera's supported range; **Reset zoom** restores its starting setting (or 1×, limited to that range, if no starting value is available). Changing zoom cancels pending verification and pauses capture until the camera finishes adjusting. If native zoom is unavailable, the settings explain this instead of showing a non-working slider: move the camera closer or farther away. Bindarr does not simulate zoom with an additional digital crop.
 
 The scanner asks for manual review when printings look alike, the image appears blurry or affected by glare, the card may be missing from the catalog, OCR conflicts with the image match, or the selected set/language cannot be honored. These warnings appear inside the candidate picker, with suggestions for correcting the photo or selecting a printing. Set/language choices narrow the search but never prove a match; a fallback language is shown as its actual printing rather than silently relabeled.
 

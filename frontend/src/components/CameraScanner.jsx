@@ -209,6 +209,11 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // exposureCompensation, else null (slider hidden). value = current setting.
   const [exposureCaps, setExposureCaps] = useState(null);
   const [exposure, setExposure] = useState(0);
+  const [zoomCaps, setZoomCaps] = useState(null);
+  const [zoom, setZoom] = useState(1);
+  const [zoomAdjusting, setZoomAdjusting] = useState(false);
+  const zoomTrackRef = useRef(null);
+  const zoomPendingRef = useRef(false);
   // Keep a supported saved game; ignore legacy non-Magic preferences.
   const [scanGame] = useState(() => {
     const saved = localStorage.getItem('scanner_game');
@@ -503,6 +508,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
       currentScanId.current += 1;
       scanAbortRef.current?.abort();
       streamRef.current?.getTracks().forEach(track => track.stop());
+      zoomTrackRef.current = null;
     };
   }, []);
 
@@ -532,7 +538,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
     steadyFrames.current = 0;
     smoothed.current = null;
   }, [scanGame, scanLang, scanSetParam, scanDetail, autoAdd, autoScan,
-    guideOffset.x, guideOffset.y, guideAngle, guideScale, exposure, isTorchOn, minFill, minSteady]);
+    guideOffset.x, guideOffset.y, guideAngle, guideScale, exposure, isTorchOn, zoom, zoomAdjusting, minFill, minSteady]);
 
   // On game switch: restore that game's remembered set filter and load its set
   // tree (families + subsets).
@@ -598,6 +604,33 @@ function CameraScanner({ onAddSuccess, showToast }) {
     }
   }, [stream]);
 
+  useLayoutEffect(() => {
+    const track = stream?.getVideoTracks?.()[0];
+    zoomTrackRef.current = track;
+    zoomPendingRef.current = false;
+    setZoomAdjusting(false);
+    setZoomCaps(null);
+    setZoom(1);
+    try {
+      const caps = track?.getCapabilities?.().zoom;
+      if (typeof track?.applyConstraints === 'function' && caps
+        && Number.isFinite(caps.min) && Number.isFinite(caps.max)
+        && caps.min > 0 && caps.max > caps.min) {
+        const current = track.getSettings?.().zoom;
+        const initial = Math.min(caps.max, Math.max(caps.min, Number.isFinite(current) ? current : 1));
+        setZoomCaps({
+          min: caps.min, max: caps.max,
+          step: Number.isFinite(caps.step) && caps.step > 0 ? caps.step : 'any',
+          initial,
+        });
+        setZoom(initial);
+      }
+    } catch {
+      // Some browsers expose the methods but cannot report camera capabilities.
+    }
+    return () => { zoomTrackRef.current = null; };
+  }, [stream]);
+
   // Bind the camera stream to the video element when both are ready
   useEffect(() => {
     if (cameraActive && stream && videoRef.current) {
@@ -646,7 +679,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const autoArgs = () => ({
     armed: autoArmed.current,
     busy: loadingRef.current,
-    blocked: captureBlockedRef.current,
+    blocked: captureBlockedRef.current || zoomPendingRef.current,
     reading: bestFrame.current,
     now: Date.now(),
     lastCaptureAt: lastCaptureAt.current,
@@ -731,7 +764,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
     // Scanning off means the detector stops too. It exists to decide when to take
     // the picture; the outline is a readout of that same work, so drawing it while
     // nothing can fire would be paying ~1.5 inferences a second to animate a box.
-    if (!cameraActive || !autoScan) { setDetectQuad(null); setAutoState(null); return; }
+    if (!cameraActive || !autoScan || zoomAdjusting) { setDetectQuad(null); setAutoState(null); return; }
     refreshAutoState();
     let stopped = false;
     let timer;
@@ -838,31 +871,57 @@ function CameraScanner({ onAddSuccess, showToast }) {
     timer = setTimeout(tick, 400);   // let the camera settle before the first look
     return () => { stopped = true; clearTimeout(timer); stopDetect(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraActive, autoScan, guideAngle, guideScale]);
+  }, [cameraActive, autoScan, guideAngle, guideScale, zoomAdjusting]);
 
-  const updateAdvancedConstraints = (track, newAdvancedProps) => {
-    try {
-      const currentConstraints = track.getConstraints();
-      let advanced = currentConstraints.advanced ? [...currentConstraints.advanced] : [];
-      let advObj = advanced.length > 0 ? { ...advanced[0] } : {};
-      
-      for (const [key, value] of Object.entries(newAdvancedProps)) {
-        if (value === null || value === undefined) {
-          delete advObj[key];
-        } else {
-          advObj[key] = value;
-        }
+  const updateAdvancedConstraints = async (track, newAdvancedProps) => {
+    const currentConstraints = track.getConstraints();
+    const advObj = { ...currentConstraints.advanced?.[0] };
+    for (const [key, value] of Object.entries(newAdvancedProps)) {
+      if (value === null || value === undefined) {
+        delete advObj[key];
+      } else {
+        advObj[key] = value;
       }
-      
-      // Apply ONLY the advanced set. Re-sending the top-level resolution
-      // constraints (facingMode/width/height) makes many Android Chrome builds
-      // reset the track and silently drop torch/focus. applyConstraints leaves
-      // any field we don't name untouched, so the resolution stays put.
-      track.applyConstraints({
-        advanced: [advObj]
-      }).catch(err => console.warn('applyConstraints error:', err));
-    } catch (e) {
-      console.warn('updateAdvancedConstraints error:', e);
+    }
+    // Re-sending resolution/facingMode can reset torch/focus on Android.
+    await track.applyConstraints({ advanced: [advObj] });
+  };
+
+  const changeZoom = async (value) => {
+    const track = stream?.getVideoTracks?.()[0];
+    if (!zoomCaps || !track || track !== zoomTrackRef.current || zoomPendingRef.current
+      || track.readyState === 'ended' || !Number.isFinite(value)) return;
+    const next = Math.min(zoomCaps.max, Math.max(zoomCaps.min, value));
+    if (next === zoom) return;
+    // Block and invalidate synchronously, before the camera's async adjustment.
+    zoomPendingRef.current = true;
+    currentScanId.current += 1;
+    scanAbortRef.current?.abort();
+    setZoomAdjusting(true);
+    try {
+      const settings = track.getSettings?.() || {};
+      await updateAdvancedConstraints(track, {
+        zoom: next,
+        ...(settings.torch !== undefined && { torch: settings.torch }),
+        ...(settings.exposureMode !== undefined && { exposureMode: settings.exposureMode }),
+        ...(settings.exposureCompensation !== undefined && { exposureCompensation: settings.exposureCompensation }),
+      });
+      if (track !== zoomTrackRef.current || track.readyState === 'ended') return;
+      const actual = track.getSettings?.().zoom;
+      if (!Number.isFinite(actual) || actual < zoomCaps.min || actual > zoomCaps.max) {
+        throw new Error(t('scan.zoomNotApplied'));
+      }
+      setZoom(actual);
+      if (Math.abs(actual - next) > 0.000001) throw new Error(t('scan.zoomNotApplied'));
+    } catch (err) {
+      if (track === zoomTrackRef.current && track.readyState !== 'ended') {
+        showToast(t('scan.errZoom', { error: err.message || err.name || t('scan.unknownError') }));
+      }
+    } finally {
+      if (track === zoomTrackRef.current) {
+        zoomPendingRef.current = false;
+        setZoomAdjusting(false);
+      }
     }
   };
 
@@ -893,7 +952,8 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const changeExposure = (val) => {
     setExposure(val);
     const track = stream?.getVideoTracks?.()[0];
-    if (track) updateAdvancedConstraints(track, { exposureMode: 'continuous', exposureCompensation: val });
+    if (track) updateAdvancedConstraints(track, { exposureMode: 'continuous', exposureCompensation: val })
+      .catch(err => console.warn('applyConstraints error:', err));
   };
 
   const startCamera = async () => {
@@ -1254,7 +1314,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
   };
 
   const handleCapture = async () => {
-    if (loadingRef.current || !videoRef.current || !cameraActive) return;
+    if (loadingRef.current || zoomPendingRef.current || !videoRef.current || !cameraActive) return;
     autoArmed.current = false;
     lastCaptureAt.current = Date.now();
     capturedQuad.current = lastRawQuad.current;
@@ -2000,6 +2060,33 @@ function CameraScanner({ onAddSuccess, showToast }) {
               </div>
             </div>
 
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: 'rgba(0,0,0,0.2)', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label htmlFor="scan-zoom" style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{t('scan.zoom')}</label>
+                {zoomCaps && <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={zoomAdjusting || zoom === zoomCaps.initial}
+                  onClick={() => changeZoom(zoomCaps.initial)}
+                  style={{ fontSize: '0.6rem', padding: '0.15rem 0.4rem' }}
+                >{t('scan.resetZoom')}</button>}
+              </div>
+              {zoomCaps ? <>
+                <input
+                  id="scan-zoom"
+                  type="range"
+                  min={zoomCaps.min}
+                  max={zoomCaps.max}
+                  step={zoomCaps.step}
+                  value={zoom}
+                  disabled={zoomAdjusting}
+                  onChange={(e) => changeZoom(Number(e.target.value))}
+                  style={{ width: '100%', accentColor: 'var(--accent-red)' }}
+                />
+                <output htmlFor="scan-zoom" style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{zoom}×</output>
+              </> : <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t('scan.zoomUnsupported')}</span>}
+            </div>
+
             {/* Manual exposure: only rendered when the camera track supports it
                 (Android Chrome back cams). Auto-exposure stays default until you
                 move this. */}
@@ -2013,7 +2100,8 @@ function CameraScanner({ onAddSuccess, showToast }) {
                     style={{ fontSize: '0.6rem', padding: '0.15rem 0.4rem' }}
                     onClick={() => {
                       const track = stream?.getVideoTracks?.()[0];
-                      if (track) updateAdvancedConstraints(track, { exposureMode: 'continuous', exposureCompensation: null });
+                      if (track) updateAdvancedConstraints(track, { exposureMode: 'continuous', exposureCompensation: null })
+                        .catch(err => console.warn('applyConstraints error:', err));
                       const cur = track?.getSettings?.().exposureCompensation;
                       setExposure(typeof cur === 'number' ? cur : 0);
                     }}

@@ -890,7 +890,13 @@ function DeckBuilder({ showToast }) {
       ? ['Character', 'Action', 'Item', 'Location', 'Other']
       : ['Pokémon', 'Trainer', 'Energy', 'Other']);
 
-  const deckCardGroups = activeDeck && deckCardSortBy === 'location'
+  const deckCardGroups = activeDeck && deckCardSortBy === 'pulled'
+    ? [false, true].map(pulled => ({
+        name: t(pulled ? 'deck.pulled' : 'deck.notPulled'),
+        cards: activeDeck.cards.filter(card => !!card.checked_out === pulled)
+          .sort((a, b) => displayName(a).localeCompare(displayName(b)))
+      }))
+    : activeDeck && deckCardSortBy === 'location'
     ? [{
         name: t('collection.fLocation'),
         cards: [...activeDeck.cards].sort((a, b) => {
@@ -1915,11 +1921,11 @@ function DeckBuilder({ showToast }) {
                     </button>
                   </form>
 
-                  {/* Search Results list */}
+                  {/* Search results grid */}
                   {searching ? (
                     <div className="spinner" style={{ margin: '1rem auto' }}></div>
                   ) : searchResults.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '1rem', maxHeight: '240px', overflowY: 'auto', background: 'rgba(0,0,0,0.15)', padding: '0.5rem', borderRadius: 'var(--radius-sm)' }}>
+                    <div className="card-grid" style={{ marginTop: '1rem', maxHeight: '65vh', overflowY: 'auto', background: 'var(--surface-1)', padding: '0.5rem', borderRadius: 'var(--radius-sm)' }}>
                       {searchResults.map(card => {
                           const existingInDeck = activeDeck?.cards.find(c => c.id === card.id);
                           const qtyInDeck = existingInDeck ? existingInDeck.quantity : 0;
@@ -1929,15 +1935,15 @@ function DeckBuilder({ showToast }) {
                           const disabledAdd = savingCard || isAtMaxOwned || isAtRuleMax;
 
                           return (
-                            <div key={card.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.35rem 0.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '4px', border: '1px solid var(--border-glass)', gap: '0.5rem' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', minWidth: 0, flex: 1 }} onClick={() => setPreviewCard(card)}>
-                                <CardImage card={card} style={{ width: '24px', height: '33px', objectFit: 'cover', borderRadius: '2px', flexShrink: 0 }} />
-                                <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1, overflow: 'hidden' }}>
-                                  <span style={{ fontSize: '0.8rem', color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName(card)} ({card.set_name} • #{card.number})</span>
+                            <div key={card.id} style={{ display: 'flex', flexDirection: 'column', minWidth: 0, padding: '0.5rem', background: 'var(--surface-1)', borderRadius: '4px', border: '1px solid var(--border-glass)', gap: '0.5rem' }}>
+                              <button type="button" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', cursor: 'pointer', minWidth: 0, padding: 0, border: 0, background: 'transparent', textAlign: 'left' }} onClick={() => setPreviewCard(card)} aria-label={`${t('deck.previewArt')}: ${displayName(card)}`}>
+                                <CardImage card={card} style={{ width: '100%', aspectRatio: '5 / 7', objectFit: 'contain', borderRadius: '4px' }} />
+                                <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, width: '100%' }}>
+                                  <span style={{ fontSize: '0.8rem', color: 'var(--text-strong)', overflowWrap: 'anywhere' }}>{displayName(card)} ({card.set_name} • #{card.number})</span>
                                   <span style={{ fontSize: '0.65rem', color: isAtMaxOwned ? 'var(--accent-red)' : 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Owned: {ownedQty} | In Deck: {qtyInDeck}</span>
                                 </div>
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexShrink: 0 }}>
+                              </button>
+                              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.35rem', marginTop: 'auto' }}>
                                 <button className="btn btn-secondary btn-icon-only" style={{ padding: '0.2rem' }} onClick={() => setPreviewCard(card)} title={t('deck.previewArt')}>
                                   <Eye size={12} />
                                 </button>
@@ -1985,6 +1991,7 @@ function DeckBuilder({ showToast }) {
                     >
                       <option value="type">{t('deck.sortByType')}</option>
                       <option value="location">{t('collection.fLocation')}</option>
+                      <option value="pulled">{t('deck.pulledStatus')}</option>
                     </select>
                     {cardDisplayMode === 'grid' && (
                       <div style={{ display: 'flex', background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
@@ -2024,7 +2031,7 @@ function DeckBuilder({ showToast }) {
                       return (
                         <div key={supertype} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                           <h4 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.25rem', display: 'flex', justifyContent: 'space-between' }}>
-                            <span>{supertype}s</span>
+                            <span>{deckCardSortBy === 'type' ? `${supertype}s` : supertype}</span>
                             <span style={{ color: 'var(--text-strong)', fontWeight: 600 }}>{sum}</span>
                           </h4>
 

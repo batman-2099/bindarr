@@ -66,8 +66,7 @@ This is [batman-2099/bindarr](https://github.com/batman-2099/bindarr), a fork of
 - Added mana/color identity and category information to deck lists.
 - Added single-commander selection for Commander decks using card checkboxes and banners, with persistence in deck copies and complete backups.
 - Added per-deck wins/losses and reorganized the detail view: description, overview panels, then full-width card list/grid. Record controls live in **Deck Health & Rules**.
-- Added **Related tokens** in the card inspector and a **Tokens** section after deck cards in both list/grid views and AI drafts. Compact rows show token name, whether its exact Scryfall printing is in the selected inventory, and physical storage locations (container, row/page, slot, or Unassigned Pile). Physical and Arena ownership stay separate; wishlist and Graveyard entries do not count. Repeated token IDs appear once, and references never change deck size, ownership, checkout, or exports. Lookups use the local Scryfall catalog when available, with API fallback and retryable errors. An empty result means no linked token objects, not proof that the card cannot create copies or variable tokens.
-  Tokens use a responsive card grid with artwork above the name, ownership status, and location; missing artwork uses the standard card-back fallback. **Created by** lists the inspected card or all linked cards from the current deck/draft, using Scryfall relationships and showing repeated names once.
+- Added **Related tokens** in the card inspector and a **Tokens** grid after deck cards in both list/grid views and AI drafts. Each token shows artwork, name, inventory-scoped ownership, physical storage locations, and **Created by:** with each linked card name on its own line below. Locations appear above creator names. See [Find tokens for a card or deck](#find-tokens-for-a-card-or-deck) for matching rules and limitations.
 
 **Storage and containers**
 
@@ -293,6 +292,21 @@ The ChatGPT integration uses the [official Codex app-server](https://developers.
 Ollama recommendations use its structured-output chat API, keeping system instructions, user input, and the final answer separate from model thinking. If Ollama reaches its context or output limit, Bindarr rejects the unfinished draft: narrow the inventory with color/set filters or raise the model's limits on the Ollama server. The request byte count is not a token count.
 
 **Docker networking:** `127.0.0.1` inside the Bindarr container is the container, not the host. For a host Ollama service, set `OLLAMA_BASE_URL=http://host.docker.internal:11434` and, on Linux, add `extra_hosts: ["host.docker.internal:host-gateway"]` to the `bindarr` Compose service. Ollama must listen on an interface reachable from that container (configure `OLLAMA_HOST` on the Ollama service and restrict access with your firewall). Alternatively use the Ollama container's service name on a shared Docker network. Do not expose an unauthenticated Ollama port publicly.
+
+### Find tokens for a card or deck
+
+Open a card's inspector and scroll to **Related tokens**, or open a deck and find **Tokens** immediately after its deck cards. AI drafts show the same token grid. Each token appears once per Scryfall printing, even when several cards in the deck reference it.
+
+Each tile shows:
+
+- Token card artwork and name, with the standard card-back fallback if artwork is unavailable.
+- **In collection / Not in collection**, or Arena-specific ownership for an Arena deck.
+- For owned physical tokens, every storage location: container, row/page, and slot. Unfiled copies show **Unassigned Pile**.
+- **Created by:** below the location, followed by each linked card name on a separate line. In deck views, these are the linked cards in that deck or draft, not every possible creator.
+
+Ownership matches the exact Scryfall token printing in the signed-in user's selected Physical or Arena inventory. A same-named token from another printing does not count; wishlist and Graveyard entries are excluded. Arena tokens do not show physical storage locations.
+
+Tokens are reference information only: displaying them does not add cards, change deck size, reserve copies, or include them in deck exports. Relations come from Scryfall, using the local bulk catalog where available and the API otherwise. Failed lookups show a retry action. **No related tokens found** means no linked token objects were returned, not that the card cannot create copies or variable tokens.
 
 ### Check out a physical deck
 

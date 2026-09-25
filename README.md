@@ -29,9 +29,10 @@ This is [batman-2099/bindarr](https://github.com/batman-2099/bindarr), a fork of
 - Made the active product Magic-only: removed Pokémon and Lorcana from core navigation, setup, controls, APIs, and product documentation. Legacy database records are retained rather than deleted.
 - Added separate **Arena** inventory and **Physical/Arena** deck types, with inventory-scoped ownership and availability checks. Arena decks cannot use physical checkout or storage workflows.
 - **Add to Arena** uses a keyboard-accessible on/off toggle instead of a checkbox, highlighted green when enabled; its existing inventory-destination behavior is unchanged.
-- **Graveyard**, immediately after Arena in Collection, archives cards without deleting their quantities or metadata. Archive individual cards from the inspector or selected cards in bulk, then restore explicitly to Physical Collection or Arena. Archived cards are excluded from owned totals, active storage, and deck/AI availability and remain included in complete backups. Archiving clears physical placement; Physical restores return to Unassigned Pile. Return checked-out decks before archiving reserved copies.
+- **Graveyard**, immediately after Arena in Collection, archives cards without deleting their quantities or metadata. Archive individual cards from the inspector or selected cards in bulk, then restore explicitly to Physical Collection or Arena. Archived cards are excluded from owned totals, physical storage, and deck/AI availability and remain included in complete backups. Individual-card archiving clears physical placement; individual Physical restores return to Unassigned Pile. Whole-container transfers preserve placement instead. Return checked-out decks before archiving reserved copies.
 - Added Arena-aware Dashboard views and statistics, plus inventory-type changes through deck properties when the destination owns sufficient copies.
 - Added **Collection growth**, **Deck performance**, and **Color identity/Mana value** comparisons to the Dashboard, scoped to **All Cards / Physical / Arena**, with English/German labels and accessible chart-data tables.
+- Added a **Graveyard** Dashboard view for archived quantities, value, purchase cost, and collection history, separate from owned inventory. It uses cards' original addition dates, not archive dates, and does not show deck-performance comparisons.
 - Added an explicit **Add to Wishlist** action and wishlist persistence; wishlist entries are excluded from owned-card statistics.
 - Added an **Unassigned Pile** collection view and filters for unfiled cards.
 - Added checked-out-card collection filters and Missing/Found tracking for individual cards and bulk selections, preserving their last known locations.
@@ -67,6 +68,11 @@ This is [batman-2099/bindarr](https://github.com/batman-2099/bindarr), a fork of
 - Added per-deck wins/losses and reorganized the detail view: description, overview panels, then full-width card list/grid. Record controls live in **Deck Health & Rules**.
 
 **Storage and containers**
+
+- Added separate **Graveyard containers**, accessible from Collection's Graveyard tab or Storage's **Physical / Graveyard** selector, with inventory-scoped filing, unassigned cards, layouts, locks, capacity, and cover images.
+- Added **Archive to Graveyard** for selected cards inside physical containers.
+- Added reversible whole-container **Move to Graveyard / Restore to Collection** actions. Transfers move all contained cards atomically while preserving quantities, metadata, positions, layout, settings, and cover. Locked containers/compartments and checked-out copies prevent the transfer.
+- Complete backups retain Graveyard containers and archived card placements; archived containers are excluded from physical imports, deck creation, AI deck inventory, and public container shares.
 
 - Added ManaBox container imports that create a named box and file cards already owned in Unsorted instead of creating missing collection cards.
 - Corrected container imports to split and place stacked copies while retaining unfiled remainders.
@@ -316,7 +322,7 @@ Open **Collection → Graveyard → Graveyard containers**, or choose **Graveyar
 
 To move an entire container between inventories, open its **⋮** menu and choose **Move to Graveyard** or **Restore to Collection**, then confirm. All contained cards move with it; quantities, metadata, layout, positions, settings, and cover are preserved. Unlock the container and its compartments first; return checked-out copies before archiving. The transfer is atomic—if any card cannot move, nothing is changed.
 
-Restoring a card to Physical Collection or Arena clears its Graveyard placement. Deleting a Graveyard container leaves its cards archived and unassigned. Complete backups preserve Graveyard containers and their card placements. These containers cannot supply decks, AI deck builds, physical-container imports, or public container shares.
+Restoring an individual card to Physical Collection or Arena clears its Graveyard placement; restoring a whole container to Collection preserves all placements. Deleting a Graveyard container leaves its cards archived and unassigned. Complete backups preserve Graveyard containers and their card placements. These containers cannot supply decks, AI deck builds, physical-container imports, or public container shares.
 
 ### Back up or move an account
 

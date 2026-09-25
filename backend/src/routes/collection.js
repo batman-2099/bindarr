@@ -18,17 +18,17 @@ const { searchLimiter } = require('../middleware/auth');
 const { resolveCardPrice, parseCardRow, recordPrice } = require('../utils/priceHelpers');
 const { parseSetList } = require('../utils/setQuery');
 const { compartmentLabel, isBinderType, rebalanceCompartmentByScheme, stackKey, STACK_KEY_SQL } = require('../utils/compartmentSort');
-const { checkedOutAllocation, reserveDeck, resolveCompartmentAndPosition, assertStorageInventory, describePlacement, setStackQuantity, defaultCompartmentPlan } = require('../utils/collectionHelpers');
+const { checkedOutAllocation, resolveCompartmentAndPosition, assertStorageInventory, describePlacement, setStackQuantity, defaultCompartmentPlan } = require('../utils/collectionHelpers');
 const { validateDeckAddition } = require('../utils/deckRules');
 const { splitPrice } = require('../utils/splitPrice');
 
 const router = express.Router();
 const LIST_TYPES = ['collection', 'wishlist', 'arena', 'graveyard'];
 
-async function assertUnreserved(userId, entryIds) {
+async function assertArchivable(userId, entryIds) {
   const allocated = await checkedOutAllocation(userId);
   if (entryIds.some(id => allocated.get(Number(id)) > 0)) {
-    throw new AddCardError(409, 'Return the deck before removing or changing its reserved copies.');
+    throw new AddCardError(409, 'Check in the deck before archiving its checked-out cards.');
   }
 }
 
@@ -705,9 +705,9 @@ router.get('/collection', async (req, res) => {
         cp.label as compartment_label,
         cp.capacity as compartment_capacity,
         (SELECT GROUP_CONCAT(d.name, ', ')
-         FROM deck_allocations a
-         JOIN decks d ON d.id = a.deck_id
-         WHERE a.entry_id = c.id AND d.user_id = c.user_id AND d.checked_out = 1) AS deck_names
+         FROM deck_cards dc
+         JOIN decks d ON d.id = dc.deck_id
+         WHERE dc.card_id = c.card_id AND d.user_id = c.user_id AND d.checked_out = 1) AS deck_names
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
       LEFT JOIN locations l ON c.location_id = l.id
@@ -1168,7 +1168,7 @@ router.post('/mtg-decks/:fileName/import', searchLimiter, async (req, res) => {
     }
 
     if (deckId) {
-      await reserveDeck(req.user.id, deckId);
+      await db.run('UPDATE decks SET checked_out = 1, checked_out_at = CURRENT_TIMESTAMP WHERE id = ?', [deckId]);
     }
     return { locationId, deckId, added, failed };
     });
@@ -1303,16 +1303,13 @@ router.put('/collection/:id', async (req, res) => {
       }
     }
 
-    await db.withTransaction(async () => {
-      if (listChanged || updates.includes('card_id = ?') || (game !== undefined && game !== entry.game)) {
-        await assertUnreserved(req.user.id, [id]);
-      }
-      if (updates.length > 0) {
-        params.push(id, req.user.id);
+    if (updates.length > 0) {
+      params.push(id, req.user.id);
+      await db.withTransaction(async () => {
+        if (list_type === 'graveyard') await assertArchivable(req.user.id, [id]);
         await db.run(`UPDATE collection SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`, params);
-      }
-      if (requestedQty !== null) await setStackQuantity(db, req.user.id, id, requestedQty);
-    });
+      });
+    }
 
     if (isMoving && finalCompartmentId && finalLocationId) {
       const loc = await db.get(`SELECT sort_order, foil_sorting FROM locations WHERE id = ? AND user_id = ?`, [finalLocationId, req.user.id]);
@@ -1323,12 +1320,20 @@ router.put('/collection/:id', async (req, res) => {
       if (oldLoc) await rebalanceCompartmentByScheme(db, entry.compartment_id, oldLoc.sort_order, oldLoc.foil_sorting);
     }
 
-    // Rebalance after the transactional stack reconciliation above.
+    // Quantity is absolute — it is how many copies the user says they own, and
+    // in the stacked collection view the number in the form is the total across
+    // the identical rows, not this row alone. So reconcile the whole stack to
+    // it, up or down. It used to only ever insert (quantity - 1) extra rows,
+    // which made lowering the number a no-op and made every save duplicate the
+    // entry instead of editing it.
     if (requestedQty !== null) {
-      const row = await db.get(`SELECT compartment_id, location_id FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
-      if (row && row.compartment_id && row.location_id) {
-        const loc = await db.get(`SELECT sort_order, foil_sorting FROM locations WHERE id = ? AND user_id = ?`, [row.location_id, req.user.id]);
-        if (loc) await rebalanceCompartmentByScheme(db, row.compartment_id, loc.sort_order, loc.foil_sorting);
+      const changed = await setStackQuantity(db, req.user.id, id, requestedQty);
+      if (changed !== 0) {
+        const row = await db.get(`SELECT compartment_id, location_id FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+        if (row && row.compartment_id && row.location_id) {
+          const loc = await db.get(`SELECT sort_order, foil_sorting FROM locations WHERE id = ? AND user_id = ?`, [row.location_id, req.user.id]);
+          if (loc) await rebalanceCompartmentByScheme(db, row.compartment_id, loc.sort_order, loc.foil_sorting);
+        }
       }
     }
 
@@ -1468,16 +1473,12 @@ router.post('/collection/:id/place', async (req, res) => {
 router.delete('/collection/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const result = await db.withTransaction(async () => {
-      await assertUnreserved(req.user.id, [id]);
-      return db.run(`DELETE FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
-    });
+    const result = await db.run(`DELETE FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Collection entry not found' });
     }
     res.json({ message: 'Card removed from collection' });
   } catch (error) {
-    if (error.status) return res.status(error.status).json({ error: error.message });
     console.error(error);
     res.status(500).json({ error: 'Failed to remove card' });
   }
@@ -1504,9 +1505,8 @@ router.post('/collection/bulk', async (req, res) => {
     if (action === 'add_to_deck') {
       const deckId = parseInt(value, 10);
       if (!deckId) return res.status(400).json({ error: 'Invalid deck_id' });
-      const deck = await db.get(`SELECT id, checked_out FROM decks WHERE id = ? AND user_id = ?`, [deckId, req.user.id]);
+      const deck = await db.get(`SELECT id FROM decks WHERE id = ? AND user_id = ?`, [deckId, req.user.id]);
       if (!deck) return res.status(404).json({ error: 'Deck not found' });
-      if (deck.checked_out) return res.status(409).json({ error: 'Return this deck before changing its cards' });
 
       const rows = await db.all(
         `SELECT card_id, SUM(quantity) as total_qty FROM collection WHERE id IN (${placeholders}) AND user_id = ? AND COALESCE(list_type, 'collection') != 'graveyard' GROUP BY card_id`,
@@ -1515,9 +1515,6 @@ router.post('/collection/bulk', async (req, res) => {
 
       let added = 0;
       const rejected = [];
-      await db.withTransaction(async () => {
-      const currentDeck = await db.get('SELECT checked_out FROM decks WHERE id = ? AND user_id = ?', [deckId, req.user.id]);
-      if (currentDeck.checked_out) throw new AddCardError(409, 'Return this deck before changing its cards');
       for (const row of rows) {
         const existing = await db.get(`SELECT quantity FROM deck_cards WHERE deck_id = ? AND card_id = ?`, [deckId, row.card_id]);
         const current = existing ? existing.quantity : 0;
@@ -1533,7 +1530,6 @@ router.post('/collection/bulk', async (req, res) => {
         );
         added += row.total_qty;
       }
-      });
       const msg = rejected.length
         ? (added ? `Added ${added} card(s). ${rejected[0]}` : rejected[0])
         : `Added ${added} card(s) to deck`;
@@ -1541,10 +1537,7 @@ router.post('/collection/bulk', async (req, res) => {
     }
 
     if (action === 'delete') {
-      const result = await db.withTransaction(async () => {
-        await assertUnreserved(req.user.id, ids);
-        return db.run(`DELETE FROM collection WHERE id IN (${placeholders}) AND user_id = ?`, [...ids, req.user.id]);
-      });
+      const result = await db.run(`DELETE FROM collection WHERE id IN (${placeholders}) AND user_id = ?`, [...ids, req.user.id]);
       return res.json({ message: `Deleted ${result.changes} card(s)`, affected: result.changes });
     }
 
@@ -1561,7 +1554,7 @@ router.post('/collection/bulk', async (req, res) => {
     if (action === 'list_type') {
       if (!LIST_TYPES.includes(value)) return res.status(400).json({ error: 'Invalid list_type' });
       const result = await db.withTransaction(async () => {
-        if (value !== 'collection') await assertUnreserved(req.user.id, ids);
+        if (value === 'graveyard') await assertArchivable(req.user.id, ids);
         return db.run(`UPDATE collection SET
           location_id = CASE WHEN COALESCE(list_type, 'collection') = ? THEN location_id ELSE NULL END,
           compartment_id = CASE WHEN COALESCE(list_type, 'collection') = ? THEN compartment_id ELSE NULL END,

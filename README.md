@@ -311,9 +311,7 @@ Tokens are reference information only: displaying them does not add cards, chang
 
 ### Check out a physical deck
 
-Open a Physical deck and choose **Check Out for Play**. When copies are available in multiple storage entries, choose how many to take from each container, compartment, or Unassigned Pile before confirming. You can take all copies from one location or split them across locations; the selected total must match the deck's required quantity. Cancel leaves the deck unchecked out, and confirmation rechecks availability.
-
-Bindarr saves the selected copies, creates a pull list grouped by container and compartment, and keeps their stored locations intact. Selections survive reloads and complete backup restores; other decks cannot reserve those copies. Mark each card pulled while gathering it, then return the deck to release the reservation. Return a checked-out deck before changing its card composition or deleting/reducing reserved copies. Storage reassignment remains available and updates the selected copies' locations. Arena decks are digital and therefore have no checkout flow.
+Open a Physical deck and choose **Check Out for Play**. Bindarr creates a pull list grouped by container and compartment, reserves the copies used by that deck, and keeps their stored locations intact. Mark each card pulled while gathering it, then return the deck to release the reservation. Arena decks are digital and therefore have no checkout flow.
 
 ### Import a Magic preconstructed deck
 

@@ -6,7 +6,7 @@ const scryfallApi = require('../scryfallApi');
 const { generateExportCSV } = require('../utils/csvExporters');
 const { resolveCardPrice, rebalanceCompartmentPositions } = require('../utils/priceHelpers');
 const { isBinderType } = require('../utils/compartmentSort');
-const { assertStorageInventory, materializeCheckedOutAllocations, moveEntryAllocations } = require('../utils/collectionHelpers');
+const { assertStorageInventory } = require('../utils/collectionHelpers');
 
 function parseCsvRows(data) {
   const lines = typeof data === 'string' ? data.split(/\r?\n/).map(line => line.trim()).filter(Boolean) : [];
@@ -44,8 +44,7 @@ function csvFormat(headers, format) {
 function parseCompleteBackup(data) {
   const backup = typeof data === 'string' ? JSON.parse(data) : data;
   const arrays = ['collection', 'card_cache', 'locations', 'compartments', 'compartment_assignments', 'decks', 'deck_cards'];
-  if (!backup || backup.format !== 'bindarr-backup' || ![1, 2].includes(backup.version) || !arrays.every(key => Array.isArray(backup[key]))
-      || (backup.version === 2 && !Array.isArray(backup.deck_allocations))) {
+  if (!backup || backup.format !== 'bindarr-backup' || backup.version !== 1 || !arrays.every(key => Array.isArray(backup[key]))) {
     throw new Error('Invalid backup file');
   }
   if (backup.decks.some(deck => ['wins', 'losses'].some(key => Object.hasOwn(deck, key)
@@ -82,33 +81,6 @@ function parseCompleteBackup(data) {
       throw new Error('Invalid backup compartment placement');
     }
   }
-  if (backup.version === 2) {
-    const entries = new Map(backup.collection.map(entry => [entry.id, entry]));
-    const decks = new Map(backup.decks.map(deck => [deck.id, deck]));
-    if (entries.size !== backup.collection.length || decks.size !== backup.decks.length) throw new Error('Invalid backup: duplicate IDs');
-    const byEntry = new Map();
-    const byCard = new Map();
-    const seen = new Set();
-    for (const allocation of backup.deck_allocations) {
-      if (!allocation || typeof allocation !== 'object') throw new Error('Invalid backup checkout allocation');
-      const entry = entries.get(allocation.entry_id);
-      const deck = decks.get(allocation.deck_id);
-      const card = backup.deck_cards.find(card => card.deck_id === allocation.deck_id && card.card_id === allocation.card_id);
-      const key = `${allocation.deck_id}:${allocation.entry_id}`;
-      const cardKey = JSON.stringify([allocation.deck_id, allocation.card_id]);
-      if (!entry || !deck || !card || seen.has(key) || !Number.isSafeInteger(allocation.quantity) || allocation.quantity <= 0
-          || !deck.checked_out || deck.game !== 'mtg' || (deck.inventory_type ?? 'collection') !== 'collection'
-          || !Number.isSafeInteger(entry.quantity) || !Number.isSafeInteger(card.quantity)
-          || entry.card_id !== allocation.card_id || entry.list_type !== 'collection' || entry.game !== 'mtg'
-          || !backup.card_cache.some(cached => cached.id === allocation.card_id && cached.game === 'mtg')) {
-        throw new Error('Invalid backup checkout allocation');
-      }
-      seen.add(key);
-      byEntry.set(entry.id, (byEntry.get(entry.id) || 0) + allocation.quantity);
-      byCard.set(cardKey, (byCard.get(cardKey) || 0) + allocation.quantity);
-      if (byEntry.get(entry.id) > entry.quantity || byCard.get(cardKey) > card.quantity) throw new Error('Invalid backup: overbooked checkout allocation');
-    }
-  }
   return backup;
 }
 
@@ -116,7 +88,6 @@ async function restoreCompleteBackup(backup, userId) {
   const locationIds = new Map();
   const compartmentIds = new Map();
   const deckIds = new Map();
-  const entryIds = new Map();
 
   await db.withTransaction(async () => {
     await db.run('DELETE FROM deck_cards WHERE deck_id IN (SELECT id FROM decks WHERE user_id = ?)', [userId]);
@@ -169,7 +140,7 @@ async function restoreCompleteBackup(backup, userId) {
     }
 
     for (const card of backup.collection) {
-      const result = await db.run(`
+      await db.run(`
         INSERT INTO collection (
           card_id, quantity, condition, printing, language, purchase_price, location_id, compartment_id,
           position, favorite, is_trade, list_type, game, added_at, notes, grader, grade, cert_number,
@@ -183,7 +154,6 @@ async function restoreCompleteBackup(backup, userId) {
         card.notes || '', card.grader || 'Raw', card.grade, card.cert_number, card.market_value,
         card.market_value_source, card.market_value_at, card.missing || 0, userId
       ]);
-      entryIds.set(card.id, result.lastID);
     }
 
     for (const deck of backup.decks) {
@@ -205,14 +175,6 @@ async function restoreCompleteBackup(backup, userId) {
         deckIds.get(card.deck_id), card.card_id, card.quantity, card.checked_out || 0
       ]);
     }
-    if (backup.version === 2) {
-      for (const allocation of backup.deck_allocations) {
-        await db.run('INSERT INTO deck_allocations (deck_id, card_id, entry_id, quantity) VALUES (?, ?, ?, ?)',
-          [deckIds.get(allocation.deck_id), allocation.card_id, entryIds.get(allocation.entry_id), allocation.quantity]);
-      }
-    } else {
-      await materializeCheckedOutAllocations(userId);
-    }
   });
 
   return { cards: backup.collection.length, locations: backup.locations.length, decks: backup.decks.length };
@@ -225,7 +187,7 @@ router.get('/export', async (req, res) => {
 
   try {
     if (format.toLowerCase() === 'backup') {
-      const [collection, locations, compartments, compartmentAssignments, decks, deckCards, cardCache, allocations] = await db.withTransaction(() => Promise.all([
+      const [collection, locations, compartments, compartmentAssignments, decks, deckCards, cardCache] = await Promise.all([
         db.all('SELECT * FROM collection WHERE user_id = ? ORDER BY id', [req.user.id]),
         db.all('SELECT * FROM locations WHERE user_id = ? ORDER BY id', [req.user.id]),
         db.all('SELECT cp.* FROM compartments cp JOIN locations l ON l.id = cp.location_id WHERE l.user_id = ? ORDER BY cp.location_id, cp.idx', [req.user.id]),
@@ -238,14 +200,13 @@ router.get('/export', async (req, res) => {
             UNION
             SELECT dc.card_id FROM deck_cards dc JOIN decks d ON d.id = dc.deck_id WHERE d.user_id = ?
           ) ORDER BY id
-        `, [req.user.id, req.user.id]),
-        db.all('SELECT a.* FROM deck_allocations a JOIN decks d ON d.id = a.deck_id WHERE d.user_id = ? ORDER BY a.deck_id, a.entry_id', [req.user.id])
-      ]));
+        `, [req.user.id, req.user.id])
+      ]);
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Content-Disposition', `attachment; filename=bindarr_backup_${new Date().toISOString().slice(0, 10)}.json`);
       return res.json({
         format: 'bindarr-backup',
-        version: 2,
+        version: 1,
         exported_at: new Date().toISOString(),
         collection,
         card_cache: cardCache,
@@ -253,8 +214,7 @@ router.get('/export', async (req, res) => {
         compartments,
         compartment_assignments: compartmentAssignments,
         decks,
-        deck_cards: deckCards,
-        deck_allocations: allocations
+        deck_cards: deckCards
       });
     }
 
@@ -660,7 +620,7 @@ async function moveContainerCopies(userId, locationId, compartmentId, entries, q
       await db.run(`UPDATE collection SET quantity = quantity - ? WHERE id = ? AND user_id = ?`, [copies, entry.id, userId]);
     }
     for (let copy = originalUsed ? 1 : 0; copy < copies; copy++) {
-      const result = await db.run(`
+      await db.run(`
         INSERT INTO collection (
           card_id, user_id, quantity, condition, printing, language, purchase_price,
           favorite, is_trade, list_type, game, added_at, notes, grader, grade,
@@ -673,7 +633,6 @@ async function moveContainerCopies(userId, locationId, compartmentId, entries, q
         entry.grade, entry.cert_number, entry.market_value, entry.market_value_source, entry.market_value_at, entry.missing,
         locationId, compartmentId, ++slot * 1000
       ]);
-      await moveEntryAllocations(entry.id, result.lastID, 1);
     }
     if (entry.compartment_id) sources.add(entry.compartment_id);
   }

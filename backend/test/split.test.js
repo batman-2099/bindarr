@@ -1,35 +1,50 @@
+// Runnable smoke test for splitStackedEntries (one physical card = one row).
+// No framework — plain node + assert. Run: `node test/split.test.js`.
+// Uses an in-memory fake db client so it never touches a real database.
 const assert = require('assert');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bindarr-split-'));
-process.env.DB_PATH = path.join(dir, 'test.db');
-process.env.DEFAULT_ADMIN_PASSWORD = 'test-admin-password';
-const db = require('../src/db');
 const { splitStackedEntries } = require('../src/utils/collectionHelpers');
 
-async function main() {
-  try {
-    await db.initDb();
-    await db.run("INSERT INTO card_cache (id, name) VALUES ('a', 'A'), ('b', 'B')");
-    const location = await db.get('SELECT id FROM locations LIMIT 1');
-    const compartment = await db.get('SELECT id FROM compartments WHERE location_id = ? LIMIT 1', [location.id]);
-    await db.run(`INSERT INTO collection (card_id, user_id, quantity, location_id, compartment_id, position, notes, missing)
-      VALUES ('a', 1, 3, ?, ?, 4000, 'Preserved', 1)`, [location.id, compartment.id]);
-    await db.run("INSERT INTO collection (card_id, user_id) VALUES ('b', 1)");
-    const other = await db.get("SELECT * FROM collection WHERE card_id = 'b'");
-    assert.strictEqual(await splitStackedEntries(db), 2);
-    const copies = await db.all("SELECT * FROM collection WHERE card_id = 'a'");
-    assert.deepStrictEqual(copies.map(row => [row.quantity, row.compartment_id, row.notes, row.missing]),
-      Array(3).fill([1, compartment.id, 'Preserved', 1]));
-    assert.strictEqual(new Set(copies.map(row => row.position)).size, 3);
-    assert.deepStrictEqual(await db.get("SELECT * FROM collection WHERE card_id = 'b'"), other);
-    assert.strictEqual(await splitStackedEntries(db), 0);
-    assert.deepStrictEqual(await db.all("SELECT * FROM collection WHERE card_id = 'a'"), copies);
-    console.log('split.test.js passed');
-  } finally {
-    await new Promise(resolve => db.dbConnection.close(resolve));
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+// Minimal fake matching the two queries splitStackedEntries issues:
+//   all(`... WHERE quantity > 1`)  and  run(UPDATE ... quantity=1) / run(INSERT ...)
+function makeFakeDb() {
+  let nextId = 100;
+  const rows = [
+    { id: 1, card_id: 'c-A', user_id: 7, quantity: 3, condition: 'Near Mint', printing: 'Normal', language: 'English', purchase_price: 2, location_id: 5, compartment_id: 9, position: 4000, is_trade: 0, favorite: 0, list_type: 'collection', game: 'pokemon' },
+    { id: 2, card_id: 'c-B', user_id: 7, quantity: 1, condition: 'Near Mint', printing: 'Normal', language: 'English', purchase_price: 0, location_id: null, compartment_id: null, position: 0, is_trade: 0, favorite: 0, list_type: 'collection', game: 'pokemon' },
+  ];
+  return {
+    rows,
+    async all() { return rows.filter(r => r.quantity > 1); },
+    async run(sql, params) {
+      if (/UPDATE collection SET quantity = 1/.test(sql)) {
+        rows.find(r => r.id === params[0]).quantity = 1;
+      } else if (/INSERT INTO collection/.test(sql)) {
+        const [card_id, user_id, condition, printing, language, purchase_price,
+          location_id, compartment_id, position, is_trade, favorite, list_type, game] = params;
+        rows.push({ id: ++nextId, card_id, user_id, quantity: 1, condition, printing, language, purchase_price, location_id, compartment_id, position, is_trade, favorite, list_type, game });
+      }
+    },
+  };
 }
-main().catch(error => { console.error(error); process.exitCode = 1; });
+
+async function main() {
+  const dbFake = makeFakeDb();
+  const created = await splitStackedEntries(dbFake);
+
+  assert.strictEqual(created, 2, 'a quantity-3 row yields 2 extra rows');
+  const copiesOfA = dbFake.rows.filter(r => r.card_id === 'c-A');
+  assert.strictEqual(copiesOfA.length, 3, 'c-A now has 3 single-card rows');
+  assert.ok(copiesOfA.every(r => r.quantity === 1), 'every copy is quantity 1');
+  // Placement/metadata preserved, positions distinct so each takes its own slot.
+  assert.ok(copiesOfA.every(r => r.compartment_id === 9 && r.condition === 'Near Mint'), 'metadata carried to copies');
+  assert.strictEqual(new Set(copiesOfA.map(r => r.position)).size, 3, 'copies have distinct positions');
+  assert.strictEqual(dbFake.rows.filter(r => r.card_id === 'c-B').length, 1, 'quantity-1 rows untouched');
+
+  // Idempotent: nothing left to split.
+  const secondRun = await splitStackedEntries(dbFake);
+  assert.strictEqual(secondRun, 0, 're-running splits nothing');
+
+  console.log('split.test.js passed');
+}
+
+main().catch(err => { console.error(err); process.exit(1); });

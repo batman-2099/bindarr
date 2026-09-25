@@ -101,11 +101,6 @@ async function testMtgDeckImport() {
       await db.all('SELECT card_id, quantity FROM deck_cards WHERE deck_id = ? ORDER BY card_id', [importRes.body.deck_id]),
       [{ card_id: 'mtg-1', quantity: 3 }, { card_id: 'mtg-2', quantity: 1 }, { card_id: 'mtg-3', quantity: 1 }]
     );
-    assert.deepStrictEqual(await db.all(`SELECT a.card_id, SUM(a.quantity) AS quantity FROM deck_allocations a
-      JOIN collection c ON c.id = a.entry_id WHERE a.deck_id = ? AND c.location_id = ? GROUP BY a.card_id ORDER BY a.card_id`,
-    [importRes.body.deck_id, importRes.body.location_id]),
-    [{ card_id: 'mtg-1', quantity: 3 }, { card_id: 'mtg-2', quantity: 1 }, { card_id: 'mtg-3', quantity: 1 }],
-    'automatic checkout reserves the imported physical copies');
     const unpackedRes = response();
     await importDeck({ params: { fileName: 'ExampleDeck_TST' }, body: { create_container: false }, user: { id: 1 } }, unpackedRes);
     assert.strictEqual(unpackedRes.statusCode, 200);
@@ -117,7 +112,6 @@ async function testMtgDeckImport() {
     assert.strictEqual(deckOnly.statusCode, 200);
     assert.strictEqual(deckOnly.body.location_id, null);
     assert.strictEqual((await db.get('SELECT checked_out FROM decks WHERE id = ?', [deckOnly.body.deck_id])).checked_out, 1);
-    assert.strictEqual((await db.get('SELECT SUM(quantity) AS count FROM deck_allocations WHERE deck_id = ?', [deckOnly.body.deck_id])).count, 5);
 
     const counts = () => db.get(`SELECT (SELECT COUNT(*) FROM collection) AS cards, (SELECT COUNT(*) FROM decks) AS decks`);
     const beforeFailure = await counts();

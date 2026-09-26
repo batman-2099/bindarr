@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useLayoutEffect } from 'react';
 import { Plus, Minus, Trash2, Copy, X, ChevronLeft, Play, BarChart2, Search, LogOut, PackageCheck, LayoutGrid, List, Download, Upload, Eye, Filter, CheckCircle, AlertTriangle, Layers, Zap, Swords, Gamepad2, SlidersHorizontal, ArrowRight, FolderPlus, FileText, MapPin } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { shuffleArray } from '../utils/shuffle';
@@ -36,6 +36,19 @@ const newDeckDefaults = (game) => {
   return { format: 'Standard', targetSize: 60 };
 };
 
+const deckEditorState = (deck) => ({
+  name: deck.name.trim(),
+  description: deck.description || '',
+  format: deck.format || newDeckDefaults(deck.game).format,
+  category: deck.category || 'Competitive',
+  accent_color: deck.accent_color || '#eab308',
+  target_size: Number(deck.target_size || newDeckDefaults(deck.game).targetSize),
+  inventory_type: deck.inventory_type === 'arena' ? 'arena' : 'collection',
+  cards: deck.cards.map(card => ({ card_id: card.id, quantity: card.quantity, pulled: !!card.checked_out }))
+    .sort((a, b) => a.card_id.localeCompare(b.card_id)),
+  commander_card_id: deck.commander_card_id || null
+});
+
 const formatCardLocations = (locations) => locations.map(({ take, location_name, compartment_display }) =>
   `${take > 1 ? `×${take} ` : ''}${location_name}${compartment_display ? ` · ${compartment_display}` : ''}`
 ).join(', ');
@@ -65,10 +78,11 @@ function ManaCounts({ deck }) {
   );
 }
 
-function DeckBuilder({ showToast }) {
+function DeckBuilder({ showToast, navigationGuardRef }) {
   const { t } = useT();
   const [decks, setDecks] = useState([]);
   const [activeDeck, setActiveDeck] = useState(null);
+  const [savedEditorState, setSavedEditorState] = useState(null);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('list'); // 'list' or 'detail'
   
@@ -114,6 +128,8 @@ function DeckBuilder({ showToast }) {
   const [newDeckPreconFile, setNewDeckPreconFile] = useState('');
   const [showPreconPicker, setShowPreconPicker] = useState(false);
   const [deckDraft, setDeckDraft] = useState(null);
+  const [savingDeck, setSavingDeck] = useState(false);
+  const [refreshingInventory, setRefreshingInventory] = useState(false);
   
   // Card Search States inside editor
   const [searchQuery, setSearchQuery] = useState('');
@@ -152,17 +168,57 @@ function DeckBuilder({ showToast }) {
   const [checkoutDeckId, setCheckoutDeckId] = useState(null); // deck the open modal acts on
   const [deckCardLocations, setDeckCardLocations] = useState({});
 
-  // True while an add/qty write is in flight. Blocks overlapping clicks that
-  // would otherwise each compute a new quantity from the same stale render and
-  // clobber one another (last-writer-wins on the server upsert).
-  const [savingCard, setSavingCard] = useState(false);
+  const editorBusy = savingDeck || loading || refreshingInventory || comparingImport || checkingOut || showCheckoutModal;
+  const hasUnsavedChanges = !!activeDeck && (
+    JSON.stringify(deckEditorState(activeDeck)) !== savedEditorState
+    || (!!deckDraft && JSON.stringify(deckEditorState({ ...activeDeck, ...deckDraft })) !== JSON.stringify(deckEditorState(activeDeck)))
+  );
   const [savingRecord, setSavingRecord] = useState(false);
 
+  const confirmLeaveEditor = () => {
+    if (activeDeck && (editorBusy || savingRecord)) {
+      showToast(t('deck.waitForOperation'));
+      return false;
+    }
+    return !hasUnsavedChanges || window.confirm(t('deck.confirmDiscard'));
+  };
+
+  const leaveDeck = () => {
+    if (!confirmLeaveEditor()) return false;
+    setActiveDeck(null);
+    setSavedEditorState(null);
+    setDeckDraft(null);
+    setSearchResults([]);
+    setImportComparison(null);
+    setViewMode('list');
+    fetchDecks();
+  };
+
+  useLayoutEffect(() => {
+    if (!navigationGuardRef) return;
+    navigationGuardRef.current = confirmLeaveEditor;
+    return () => { navigationGuardRef.current = null; };
+  });
+
+  useEffect(() => {
+    if (!hasUnsavedChanges && !savingDeck) return;
+    const warnBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [hasUnsavedChanges, savingDeck]);
+
+  useBackGuard(viewMode === 'detail' && !!activeDeck, leaveDeck);
   useBackGuard(showCreateModal, () => setShowCreateModal(false));
   useBackGuard(showSimulator, () => setShowSimulator(false));
-  useBackGuard(!!activeDeck, () => setActiveDeck(null));
-  useBackGuard(!!deckDraft, () => setDeckDraft(null));
+  useBackGuard(!!deckDraft, () => refreshingInventory ? false : setDeckDraft(null));
+  useBackGuard(showImportModal, () => setShowImportModal(false));
+  useBackGuard(showExportModal, () => setShowExportModal(false));
+  useBackGuard(!!importSummary, () => setImportSummary(null));
   useBackGuard(showAiBuilder, closeAiBuilder);
+  useBackGuard(!!previewCard, () => setPreviewCard(null));
 
   useEffect(() => {
     fetchDecks();
@@ -248,23 +304,54 @@ function DeckBuilder({ showToast }) {
     event.target.value = '';
   };
 
-  const handleSaveDeckProperties = async () => {
-    if (!activeDeck || !deckDraft?.name.trim()) return;
+  const handleApplyDeckProperties = async () => {
+    if (!activeDeck || !deckDraft?.name.trim() || editorBusy) return;
+    if (activeDeck.checked_out && deckDraft.inventory_type !== activeDeck.inventory_type) {
+      showToast(t('deck.returnBeforeEditing'));
+      return;
+    }
+    let cards = activeDeck.cards;
+    if (deckDraft.inventory_type !== activeDeck.inventory_type) {
+      setRefreshingInventory(true);
+      try {
+        const inventory = await loadInventoryCards(activeDeck.game, deckDraft.inventory_type);
+        const owned = new Map(inventory.map(card => [card.id, card.owned_qty]));
+        cards = cards.map(card => ({ ...card, owned_qty: owned.get(card.id) || 0, locked_qty: 0, locked_decks: null }));
+        setSearchResults([]);
+        setImportComparison(null);
+        setDeckCardLocations({});
+      } catch (error) {
+        showToast(error.message);
+        return;
+      } finally {
+        setRefreshingInventory(false);
+      }
+    }
+    setActiveDeck(deck => ({
+      ...deck, ...deckDraft, name: deckDraft.name.trim(), target_size: Number(deckDraft.target_size), cards,
+      commander_card_id: /commander|edh|brawl/i.test(deckDraft.format) ? deck.commander_card_id : null
+    }));
+    setDeckDraft(null);
+  };
+
+  const handleSaveDeck = async () => {
+    if (!activeDeck || !hasUnsavedChanges || editorBusy || savingRecord || searching) return;
+    setSavingDeck(true);
     try {
-      const response = await fetch(`/api/decks/${activeDeck.id}`, {
+      const response = await fetch(`/api/decks/${activeDeck.id}/editor`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...deckDraft, target_size: parseInt(deckDraft.target_size, 10) || 60 })
+        body: JSON.stringify(deckEditorState(activeDeck))
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || t('deck.errCreateGeneric'));
-      setDeckDraft(null);
+      if (!response.ok) throw new Error(data.error || t('deck.errSave'));
+      if (await loadDeckDetails(activeDeck.id)) showToast(data.message);
       await fetchDecks();
-      await loadDeckDetails(activeDeck.id);
-      showToast(data.message);
     } catch (error) {
       console.error(error);
       showToast(error.message);
+    } finally {
+      setSavingDeck(false);
     }
   };
 
@@ -275,28 +362,29 @@ function DeckBuilder({ showToast }) {
         fetch(`/api/decks/${deckId}`),
         fetch(`/api/decks/${deckId}/locations`)
       ]);
-      if (response.ok) {
-        const data = await response.json();
-        const locations = locationsResponse.ok ? await locationsResponse.json() : [];
-        setDeckCardLocations(Object.fromEntries(locations.map(({ card_id, locations: cardLocations }) => [card_id, cardLocations])));
-        // Pulled status comes from deck_cards so it persists across reloads.
-        // Also get checkout status from deck list
-        const deckMeta = decks.find(d => d.id === deckId);
-        setActiveDeck({ ...data, checked_out: deckMeta?.checked_out || 0, checked_out_at: deckMeta?.checked_out_at || null });
-        // Default the card search to this deck's game.
-        setDeckSearchGame(data.game || 'mtg');
-        setViewMode('detail');
-      }
+      if (!response.ok) throw new Error(t('deck.errLoadDetails'));
+      const data = await response.json();
+      const locations = locationsResponse.ok ? await locationsResponse.json() : [];
+      setDeckCardLocations(Object.fromEntries(locations.map(({ card_id, locations: cardLocations }) => [card_id, cardLocations])));
+      setActiveDeck(data);
+      setSavedEditorState(JSON.stringify(deckEditorState(data)));
+      setDeckDraft(null);
+      setSearchResults([]);
+      setImportComparison(null);
+      setDeckSearchGame(data.game || 'mtg');
+      setViewMode('detail');
+      return true;
     } catch (err) {
       console.error(err);
       showToast(t('deck.errLoadDetails'));
+      return false;
     } finally {
       setLoading(false);
     }
   };
 
   const handleRecordChange = async (result, delta) => {
-    if (!activeDeck || savingRecord) return;
+    if (!activeDeck || savingRecord || savingDeck) return;
     const count = activeDeck[result === 'win' ? 'wins' : 'losses'] ?? 0;
     if ((delta === -1 && count === 0) || (delta === 1 && count === 2147483647)) return;
     const deckId = activeDeck.id;
@@ -320,143 +408,58 @@ function DeckBuilder({ showToast }) {
     }
   };
 
-  const handleCommanderChange = async (cardId) => {
-    if (!activeDeck || savingCard) return;
-    setSavingCard(true);
-    try {
-      const response = await fetch(`/api/decks/${activeDeck.id}/commander`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ card_id: cardId || null }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || t('deck.errCommander'));
-      await loadDeckDetails(activeDeck.id);
-    } catch (error) {
-      showToast(error.message);
-    } finally {
-      setSavingCard(false);
-    }
+  const handleCommanderChange = (cardId) => {
+    if (!activeDeck || editorBusy) return;
+    setActiveDeck(deck => ({ ...deck, commander_card_id: cardId || null }));
   };
 
-  const handlePulledChange = async (cardId, pulled) => {
-    if (!activeDeck || savingCard) return;
-    setSavingCard(true);
-    try {
-      const response = await fetch(`/api/decks/${activeDeck.id}/cards/${cardId}/pulled`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pulled })
-      });
-      if (!response.ok) throw new Error();
-      setActiveDeck(deck => ({
-        ...deck,
-        cards: deck.cards.map(card => card.id === cardId ? { ...card, checked_out: pulled ? 1 : 0 } : card)
-      }));
-    } catch (error) {
-      console.error(error);
-      showToast(t('deck.errPulled'));
-    } finally {
-      setSavingCard(false);
-    }
+  const handlePulledChange = (cardId, pulled) => {
+    if (!activeDeck || editorBusy) return;
+    setActiveDeck(deck => ({
+      ...deck,
+      cards: deck.cards.map(card => card.id === cardId ? { ...card, checked_out: pulled ? 1 : 0 } : card)
+    }));
   };
 
-  const handleAddCardToDeck = async (card) => {
-    if (!activeDeck || savingCard) return;
-
-    // Find if card already exists in deck
+  const handleAddCardToDeck = (card) => {
+    if (!activeDeck || editorBusy) return;
     const existing = activeDeck.cards.find(c => c.id === card.id);
-    const newQty = existing ? existing.quantity + 1 : 1;
-
-    setSavingCard(true);
-    try {
-      const response = await fetch(`/api/decks/${activeDeck.id}/cards`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ card_id: card.id, quantity: newQty })
-      });
-
-      if (response.ok) {
-        showToast(t('deck.addedCard', { name: displayName(card) }));
-        // Refresh details locally
-        await loadDeckDetails(activeDeck.id);
-      } else {
-        const data = await response.json().catch(() => ({}));
-        showToast(data.error || 'Failed to add card.');
-      }
-    } catch (err) {
-      console.error(err);
-      showToast(t('search.errAddCard'));
-    } finally {
-      setSavingCard(false);
-    }
+    handleUpdateCardQty(card.id, (existing?.quantity || 0) + 1, card);
   };
 
-  const handleUpdateCardQty = async (cardId, newQty) => {
-    if (!activeDeck || savingCard) return;
-
-    // Guard against NaN/garbage from a manual quantity input before it reaches
-    // the server as an invalid quantity.
-    if (!Number.isFinite(newQty)) return;
-
-    if (newQty <= 0) {
-      handleRemoveCard(cardId);
+  const handleUpdateCardQty = (cardId, newQty, newCard = null) => {
+    if (!activeDeck || editorBusy || !Number.isSafeInteger(newQty)) return;
+    if (activeDeck.checked_out) {
+      showToast(t('deck.returnBeforeEditing'));
       return;
     }
-
-    // Check limits on increment
-    const card = activeDeck.cards.find(c => c.id === cardId);
-    if (card && newQty > card.quantity) {
+    if (newQty <= 0) {
+      setActiveDeck(deck => ({
+        ...deck,
+        cards: deck.cards.filter(card => card.id !== cardId),
+        commander_card_id: deck.commander_card_id === cardId ? null : deck.commander_card_id
+      }));
+      return;
+    }
+    const existing = activeDeck.cards.find(card => card.id === cardId);
+    const card = existing || newCard;
+    if (!card) return;
+    if (newQty > (existing?.quantity || 0)) {
       if (newQty > (card.owned_qty || 0)) {
-        showToast(t('deck.errOwnedLimit', { count: card.owned_qty, name: displayName(card) }));
+        showToast(t('deck.errOwnedLimit', { count: card.owned_qty || 0, name: displayName(card) }));
         return;
       }
-      
-      if (!isBasicEnergyOrLand(card, activeDeck.game) && deckCountByName(activeDeck.cards, card.name) >= 4) {
+      if (!isBasicEnergyOrLand(card, activeDeck.game) && deckCountByName(activeDeck.cards, card.name) - (existing?.quantity || 0) + newQty > 4) {
         showToast(t('deck.errCopyLimit', { count: 4, name: displayName(card) }));
         return;
       }
     }
-
-    setSavingCard(true);
-    try {
-      const response = await fetch(`/api/decks/${activeDeck.id}/cards`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ card_id: cardId, quantity: newQty })
-      });
-
-      if (response.ok) {
-        await loadDeckDetails(activeDeck.id);
-      } else {
-        showToast(t('deck.errQuantity'));
-      }
-    } catch (err) {
-      console.error(err);
-      showToast(t('deck.errQuantity'));
-    } finally {
-      setSavingCard(false);
-    }
-  };
-
-  const handleRemoveCard = async (cardId) => {
-    if (!activeDeck) return;
-
-    try {
-      const response = await fetch(`/api/decks/${activeDeck.id}/cards/${cardId}`, {
-        method: 'DELETE'
-      });
-
-      if (response.ok) {
-        showToast(t('deck.cardRemoved'));
-        loadDeckDetails(activeDeck.id);
-      } else {
-        showToast(t('loc.errRemoveCard'));
-      }
-    } catch (err) {
-      console.error(err);
-      showToast(t('loc.errRemoveCard'));
-    }
+    setActiveDeck(deck => ({
+      ...deck,
+      cards: existing
+        ? deck.cards.map(current => current.id === cardId ? { ...current, quantity: newQty } : current)
+        : [...deck.cards, { ...card, quantity: newQty, checked_out: 0 }]
+    }));
   };
 
   const handleDeleteDeck = async (deckId, name) => {
@@ -491,50 +494,30 @@ function DeckBuilder({ showToast }) {
     }
   };
 
+  const loadInventoryCards = async (game, inventoryType) => {
+    const response = await fetch(`/api/collection?game=${game || 'mtg'}&list_type=${inventoryType}`);
+    if (!response.ok) throw new Error(t('deck.errSearch'));
+    const byId = new Map();
+    // Collection rows are physical entries; the editor needs totals per printing.
+    for (const item of await response.json()) {
+      const card = byId.get(item.card_id) || {
+        ...item, id: item.card_id, number: item.number || item.collector_number || item.card_number || '', owned_qty: 0
+      };
+      card.owned_qty += item.quantity || 1;
+      byId.set(item.card_id, card);
+    }
+    return Array.from(byId.values());
+  };
+
   const handleSearchCards = async (e, forceBrowse = false) => {
     if (e) e.preventDefault();
     try {
       setSearching(true);
       const inventoryType = activeDeck?.inventory_type === 'arena' ? 'arena' : 'collection';
       if (forceBrowse || !searchQuery.trim() || inventoryType === 'arena') {
-        const res = await fetch(`/api/collection?game=${deckSearchGame}&list_type=${inventoryType}`);
-        if (res.ok) {
-          const data = await res.json();
-          // /api/collection returns one row per physical entry (so N copies of
-          // a card = N rows sharing the same card_id). Unlike /api/search
-          // (which GROUPs BY card_id server-side), this endpoint doesn't
-          // aggregate — grouping here mirrors that so browse-mode results have
-          // the same one-row-per-card shape search results already have.
-          // Without this, every row for a given card_id gets marked "added"
-          // together once any one copy is added, and a second owned copy
-          // can't be added at all.
-          const byCardId = new Map();
-          for (const item of data) {
-            const existing = byCardId.get(item.card_id);
-            if (existing) {
-              existing.owned_qty += item.quantity || 1;
-            } else {
-              byCardId.set(item.card_id, {
-                id: item.card_id,
-                name: item.name,
-                // Carried through so the picker shows the localized name; `name` stays
-                // English because the 4-copy rule counts by it.
-                printed_name: item.printed_name,
-                set_name: item.set_name,
-                number: item.number || item.collector_number || item.card_number || '',
-                image_url: item.image_url,
-                owned_qty: item.quantity || 1,
-                supertype: item.supertype,
-                subtypes: item.subtypes,
-                types: item.types,
-                colors: item.colors,
-                cmc: item.cmc
-              });
-            }
-          }
-          const query = searchQuery.trim().toLowerCase();
-          setSearchResults(Array.from(byCardId.values()).filter(card => !query || card.name.toLowerCase().includes(query) || card.printed_name?.toLowerCase().includes(query)));
-        }
+        const cards = await loadInventoryCards(deckSearchGame, inventoryType);
+        const query = searchQuery.trim().toLowerCase();
+        setSearchResults(cards.filter(card => !query || card.name.toLowerCase().includes(query) || card.printed_name?.toLowerCase().includes(query)));
       } else {
         const finalQuery = deckSearchGame === 'mtg' ? searchQuery : (translateJapaneseName(searchQuery) || searchQuery);
         const response = await fetch(`/api/search?name=${encodeURIComponent(finalQuery)}&scope=collection&game=${deckSearchGame}`);
@@ -557,6 +540,8 @@ function DeckBuilder({ showToast }) {
   const handleCheckout = async (deck = null) => {
     const targetDeck = deck || activeDeck;
     if (!targetDeck) return;
+    if (editorBusy) return;
+    if (targetDeck.id === activeDeck?.id && hasUnsavedChanges) return showToast(t('deck.saveFirst'));
     try {
       setCheckingOut(true);
       const res = await fetch(`/api/decks/${targetDeck.id}/checkout`, { method: 'PUT' });
@@ -594,6 +579,8 @@ function DeckBuilder({ showToast }) {
   const handleReturn = async (deck = null) => {
     const targetDeck = deck || activeDeck;
     if (!targetDeck) return;
+    if (editorBusy) return;
+    if (targetDeck.id === activeDeck?.id && hasUnsavedChanges) return showToast(t('deck.saveFirst'));
     try {
       setCheckingOut(true);
       // Capture where each card lives before flipping the flag, so the check-in
@@ -724,24 +711,10 @@ function DeckBuilder({ showToast }) {
   };
 
   const loadArenaImportCards = async () => {
-    const response = await fetch(`/api/collection?game=${activeDeck.game || 'mtg'}&list_type=arena`);
-    if (!response.ok) throw new Error(t('deck.errSearch'));
-    const byId = new Map();
-    for (const item of await response.json()) {
-      const card = byId.get(item.card_id) || {
-        id: item.card_id,
-        name: item.name,
-        printed_name: item.printed_name,
-        set_id: item.set_id,
-        number: item.number,
-        owned_qty: 0
-      };
-      card.owned_qty += item.quantity || 1;
-      byId.set(item.card_id, card);
-    }
+    const cards = await loadInventoryCards(activeDeck.game, 'arena');
     const byName = new Map();
     const byPrinting = new Map();
-    for (const card of byId.values()) {
+    for (const card of cards) {
       const names = [card.name, card.printed_name].filter(Boolean);
       for (const name of names) {
         const existing = byName.get(name.toLowerCase());
@@ -765,7 +738,7 @@ function DeckBuilder({ showToast }) {
   };
 
   const handleCompareImport = async () => {
-    if (!importText.trim() || !activeDeck) return;
+    if (!importText.trim() || !activeDeck || editorBusy) return;
     setComparingImport(true);
     const lines = importText.split('\n').map(l => l.trim()).filter(Boolean);
     const results = [];
@@ -816,8 +789,13 @@ function DeckBuilder({ showToast }) {
     setComparingImport(false);
   };
 
-  const handleImportDeck = async () => {
-    if (!activeDeck || !importComparison) return;
+  const handleImportDeck = () => {
+    if (!activeDeck || !importComparison || editorBusy) return;
+    if (activeDeck.checked_out) {
+      showToast(t('deck.returnBeforeEditing'));
+      return;
+    }
+    let cards = [...activeDeck.cards];
     let addedCount = 0;
     const skipped = [];
 
@@ -826,30 +804,24 @@ function DeckBuilder({ showToast }) {
         skipped.push({ name: item.rawName, quantity: item.requestedQty, reason: 'deck.notOwned' });
         continue;
       }
-
-      const addQty = Math.min(item.requestedQty, item.ownedQty);
-      try {
-        const response = await fetch(`/api/decks/${activeDeck.id}/cards`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ card_id: item.card.id, quantity: addQty })
-        });
-        if (response.ok) {
-          addedCount++;
-          if (item.requestedQty > addQty) {
-            skipped.push({ name: item.rawName, quantity: item.requestedQty - addQty, reason: 'deck.notOwned' });
-          }
-        } else {
-          skipped.push({ name: item.rawName, quantity: addQty, reason: 'deck.importFailed' });
-        }
-      } catch (err) {
-        console.error(err);
-        skipped.push({ name: item.rawName, quantity: addQty, reason: 'deck.importFailed' });
+      const quantity = Math.min(item.requestedQty, item.ownedQty);
+      const existing = cards.find(card => card.id === item.card.id);
+      if (!isBasicEnergyOrLand(item.card, activeDeck.game)
+        && deckCountByName(cards, item.card.name) - (existing?.quantity || 0) + quantity > 4) {
+        skipped.push({ name: item.rawName, quantity, reason: 'deck.importCopyLimit' });
+        continue;
+      }
+      cards = existing
+        ? cards.map(card => card.id === existing.id ? { ...card, quantity } : card)
+        : [...cards, { ...item.card, quantity, checked_out: 0 }];
+      addedCount++;
+      if (item.requestedQty > quantity) {
+        skipped.push({ name: item.rawName, quantity: item.requestedQty - quantity, reason: 'deck.notOwned' });
       }
     }
 
     if (addedCount > 0) {
-      await loadDeckDetails(activeDeck.id);
+      setActiveDeck(deck => ({ ...deck, cards }));
       setImportText('');
       setImportComparison(null);
     }
@@ -1550,8 +1522,9 @@ function DeckBuilder({ showToast }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           {/* Header */}
           {deckDraft && (
-            <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', background: 'rgba(0,0,0,0.7)' }} onClick={() => setDeckDraft(null)}>
+            <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', background: 'rgba(0,0,0,0.7)' }} onClick={() => { if (!refreshingInventory) setDeckDraft(null); }}>
               <div className="glass-panel" style={{ width: '480px', maxWidth: '100%', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }} onClick={(event) => event.stopPropagation()}>
+                <fieldset disabled={refreshingInventory} style={{ display: 'contents' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <h3 style={{ margin: 0 }}>{t('deck.editProperties')}</h3>
                   <button className="btn btn-secondary btn-icon-only" onClick={() => setDeckDraft(null)}><X size={15} /></button>
@@ -1597,8 +1570,10 @@ function DeckBuilder({ showToast }) {
                 </label>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
                   <button className="btn btn-secondary" onClick={() => setDeckDraft(null)}>{t('common.cancel')}</button>
-                  <button className="btn btn-primary" disabled={!deckDraft.name.trim()} onClick={handleSaveDeckProperties}>{t('deck.saveProperties')}</button>
+                  <button className="btn btn-primary" disabled={!deckDraft.name.trim() || !Number.isInteger(Number(deckDraft.target_size)) || Number(deckDraft.target_size) < 1 || Number(deckDraft.target_size) > 300 || editorBusy} onClick={handleApplyDeckProperties}>{t('deck.applyProperties')}</button>
                 </div>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>{t('deck.saveDraftHint')}</p>
+                </fieldset>
               </div>
             </div>
           )}
@@ -1618,7 +1593,7 @@ function DeckBuilder({ showToast }) {
             ) : null}
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <button className="btn btn-secondary btn-icon-only" onClick={() => { setViewMode('list'); fetchDecks(); }} style={{ borderRadius: '50%' }}>
+              <button className="btn btn-secondary btn-icon-only" onClick={leaveDeck} aria-label={t('deck.backToDecks')} style={{ borderRadius: '50%' }}>
                 <ChevronLeft size={16} />
               </button>
               <div>
@@ -1627,6 +1602,7 @@ function DeckBuilder({ showToast }) {
                   <span style={{ fontSize: '0.8rem', color: totalDeckCardsCount === targetDeckCardsCount ? 'var(--type-grass)' : 'var(--accent-yellow)', fontWeight: 600 }}>
                     ({totalDeckCardsCount}/{targetDeckCardsCount} cards)
                   </span>
+                  {hasUnsavedChanges && <span role="status" style={{ fontSize: '0.75rem', color: 'var(--accent-yellow)' }}>{t('deck.unsavedChanges')}</span>}
                   {activeDeck.checked_out ? (
                     <span style={{
                       fontSize: '0.65rem',
@@ -1658,8 +1634,12 @@ function DeckBuilder({ showToast }) {
               {activeDeck.game === 'mtg' && (
                 <button
                   className="btn btn-secondary"
-                  onClick={() => { setAiSourceDeck(activeDeck); setShowAiBuilder(true); }}
-                  disabled={savingCard}
+                  onClick={() => {
+                    if (hasUnsavedChanges) return showToast(t('deck.saveFirst'));
+                    setAiSourceDeck(activeDeck);
+                    setShowAiBuilder(true);
+                  }}
+                  disabled={editorBusy || savingRecord}
                   style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}
                 >
                   <Zap size={14} /> {t('aiDeck.improve')}
@@ -1667,6 +1647,7 @@ function DeckBuilder({ showToast }) {
               )}
               <button
                 className="btn btn-secondary"
+                disabled={editorBusy || searching}
                 onClick={() => setDeckDraft({
                   name: activeDeck.name,
                   description: activeDeck.description || '',
@@ -1690,6 +1671,7 @@ function DeckBuilder({ showToast }) {
               </button>
               <button
                 className="btn btn-secondary"
+                disabled={editorBusy}
                 onClick={() => setShowImportModal(true)}
                 style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}
                 title={t('deck.importHint')}
@@ -1701,7 +1683,7 @@ function DeckBuilder({ showToast }) {
                 <button
                   className="btn btn-secondary"
                   onClick={() => handleReturn(activeDeck)}
-                  disabled={checkingOut}
+                  disabled={editorBusy}
                   style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', border: '1px solid rgba(234,179,8,0.4)', color: '#eab308' }}
                 >
                   <PackageCheck size={14} /> Return to Storage
@@ -1710,12 +1692,13 @@ function DeckBuilder({ showToast }) {
                 <button
                   className="btn btn-secondary"
                   onClick={() => handleCheckout(activeDeck)}
-                  disabled={checkingOut}
+                  disabled={editorBusy}
                   style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}
                 >
                   <LogOut size={14} /> Check Out for Play
                 </button>
               )}
+              <button className="btn btn-secondary" disabled={!hasUnsavedChanges || editorBusy || savingRecord || searching || !!deckDraft} onClick={handleSaveDeck}>{t(savingDeck ? 'deck.saving' : 'common.save')}</button>
                 <button className="btn btn-primary" onClick={startSimulator} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                   <Play size={14} /> Draw Simulator
                 </button>
@@ -1836,7 +1819,7 @@ function DeckBuilder({ showToast }) {
                             type="button"
                             className="btn btn-secondary btn-icon-only"
                             aria-label={t(result === 'win' ? 'deck.removeWin' : 'deck.removeLoss')}
-                            disabled={savingRecord || count === 0}
+                            disabled={savingRecord || savingDeck || count === 0}
                             onClick={() => handleRecordChange(result, -1)}
                           >
                             <Minus size={14} aria-hidden="true" />
@@ -1845,7 +1828,7 @@ function DeckBuilder({ showToast }) {
                             type="button"
                             className="btn btn-secondary btn-icon-only"
                             aria-label={t(result === 'win' ? 'deck.addWin' : 'deck.addLoss')}
-                            disabled={savingRecord || count === 2147483647}
+                            disabled={savingRecord || savingDeck || count === 2147483647}
                             onClick={() => handleRecordChange(result, 1)}
                           >
                             <Plus size={14} aria-hidden="true" />
@@ -1932,7 +1915,7 @@ function DeckBuilder({ showToast }) {
                           const ownedQty = card.owned_qty || 0;
                           const isAtMaxOwned = qtyInDeck >= ownedQty;
                           const isAtRuleMax = !isBasicEnergyOrLand(card, deckGame) && deckCountByName(activeDeck?.cards, card.name) >= 4;
-                          const disabledAdd = savingCard || isAtMaxOwned || isAtRuleMax;
+                          const disabledAdd = editorBusy || isAtMaxOwned || isAtRuleMax;
 
                           return (
                             <div key={card.id} style={{ display: 'flex', flexDirection: 'column', minWidth: 0, padding: '0.5rem', background: 'var(--surface-1)', borderRadius: '4px', border: '1px solid var(--border-glass)', gap: '0.5rem' }}>
@@ -2061,18 +2044,18 @@ function DeckBuilder({ showToast }) {
                                       </span>
                                     )}
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer', color: card.checked_out ? 'var(--type-grass)' : 'var(--text-secondary)', fontSize: '0.7rem', fontWeight: 600 }}>
-                                      <input type="checkbox" role="switch" className="deck-card-toggle" checked={!!card.checked_out} disabled={savingCard} onChange={(e) => handlePulledChange(card.id, e.target.checked)} />
+                                      <input type="checkbox" role="switch" className="deck-card-toggle" checked={!!card.checked_out} disabled={editorBusy} onChange={(e) => handlePulledChange(card.id, e.target.checked)} />
                                       {t('deck.pulled')}
                                     </label>
                                     {/commander|edh|brawl/i.test(activeDeck.format || '') && <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.7rem', cursor: 'pointer' }}>
-                                      <input type="checkbox" role="switch" className="deck-card-toggle" checked={activeDeck.commander_card_id === card.id} disabled={savingCard} onChange={e => handleCommanderChange(e.target.checked ? card.id : null)} />
+                                      <input type="checkbox" role="switch" className="deck-card-toggle" checked={activeDeck.commander_card_id === card.id} disabled={editorBusy} onChange={e => handleCommanderChange(e.target.checked ? card.id : null)} />
                                       {t('deck.commander')}
                                     </label>}
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: '4px', border: '1px solid var(--border-glass)' }}>
                                       <button
                                         className={`btn ${card.quantity === 1 ? 'btn-danger' : 'btn-secondary'} btn-icon-only`}
                                         style={{ width: '22px', height: '22px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                        disabled={savingCard}
+                                        disabled={editorBusy}
                                         onClick={() => handleUpdateCardQty(card.id, card.quantity - 1)}
                                         title={t(card.quantity === 1 ? 'deck.removeFromDeck' : 'deck.decreaseQty')}
                                       >
@@ -2082,7 +2065,7 @@ function DeckBuilder({ showToast }) {
                                       <button
                                         className="btn btn-secondary btn-icon-only"
                                         style={{ width: '22px', height: '22px', padding: 0 }}
-                                        disabled={savingCard || card.quantity >= (card.owned_qty || 0) || (!isBasicEnergyOrLand(card, deckGame) && deckCountByName(activeDeck.cards, card.name) >= 4)}
+                                        disabled={editorBusy || card.quantity >= (card.owned_qty || 0) || (!isBasicEnergyOrLand(card, deckGame) && deckCountByName(activeDeck.cards, card.name) >= 4)}
                                         onClick={() => handleUpdateCardQty(card.id, card.quantity + 1)}
                                       >
                                         +
@@ -2118,18 +2101,18 @@ function DeckBuilder({ showToast }) {
                                   )}
                                   <div style={{ padding: '4px', display: 'flex', flexWrap: 'wrap', gap: '0.35rem', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', color: card.checked_out ? 'var(--type-grass)' : 'var(--text-secondary)', fontSize: '0.65rem', fontWeight: 600 }}>
-                                      <input type="checkbox" role="switch" className="deck-card-toggle" checked={!!card.checked_out} disabled={savingCard} onChange={(e) => handlePulledChange(card.id, e.target.checked)} />
+                                      <input type="checkbox" role="switch" className="deck-card-toggle" checked={!!card.checked_out} disabled={editorBusy} onChange={(e) => handlePulledChange(card.id, e.target.checked)} />
                                       {t('deck.pulled')}
                                     </label>
                                     {/commander|edh|brawl/i.test(activeDeck.format || '') && <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.65rem', cursor: 'pointer' }}>
-                                      <input type="checkbox" role="switch" className="deck-card-toggle" checked={activeDeck.commander_card_id === card.id} disabled={savingCard} onChange={e => handleCommanderChange(e.target.checked ? card.id : null)} />
+                                      <input type="checkbox" role="switch" className="deck-card-toggle" checked={activeDeck.commander_card_id === card.id} disabled={editorBusy} onChange={e => handleCommanderChange(e.target.checked ? card.id : null)} />
                                       {t('deck.commander')}
                                     </label>}
                                     <div style={{ display: 'flex', gap: '2px' }}>
-                                      <button className={`btn ${card.quantity === 1 ? 'btn-danger' : 'btn-secondary'} btn-icon-only`} style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} disabled={savingCard} onClick={() => handleUpdateCardQty(card.id, card.quantity - 1)} title={t(card.quantity === 1 ? 'deck.removeFromDeck' : 'deck.decreaseQty')}>
+                                      <button className={`btn ${card.quantity === 1 ? 'btn-danger' : 'btn-secondary'} btn-icon-only`} style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} disabled={editorBusy} onClick={() => handleUpdateCardQty(card.id, card.quantity - 1)} title={t(card.quantity === 1 ? 'deck.removeFromDeck' : 'deck.decreaseQty')}>
                                         {card.quantity === 1 ? <Trash2 size={10} /> : '-'}
                                       </button>
-                                      <button className="btn btn-secondary btn-icon-only" style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0 }} disabled={savingCard || card.quantity >= (card.owned_qty || 0) || (!isBasicEnergyOrLand(card, deckGame) && deckCountByName(activeDeck.cards, card.name) >= 4)} onClick={() => handleUpdateCardQty(card.id, card.quantity + 1)}>+</button>
+                                      <button className="btn btn-secondary btn-icon-only" style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0 }} disabled={editorBusy || card.quantity >= (card.owned_qty || 0) || (!isBasicEnergyOrLand(card, deckGame) && deckCountByName(activeDeck.cards, card.name) >= 4)} onClick={() => handleUpdateCardQty(card.id, card.quantity + 1)}>+</button>
                                     </div>
                                   </div>
                                 </div>
@@ -2619,9 +2602,9 @@ function DeckBuilder({ showToast }) {
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
               <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowImportModal(false); setImportComparison(null); }}>{t('common.cancel')}</button>
               {!importComparison ? (
-                <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleCompareImport} disabled={!importText.trim()}>{t('deck.compare')}</button>
+                <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleCompareImport} disabled={!importText.trim() || editorBusy}>{t('deck.compare')}</button>
               ) : (
-                <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleImportDeck}>{t('deck.importMatched')}</button>
+                <button className="btn btn-primary" style={{ flex: 1 }} disabled={editorBusy} onClick={handleImportDeck}>{t('deck.importMatched')}</button>
               )}
             </div>
           </div>
@@ -2633,6 +2616,7 @@ function DeckBuilder({ showToast }) {
           <div className="glass-panel" style={{ maxWidth: '600px', width: '100%', padding: '1.75rem' }}>
             <h3 style={{ fontSize: '1.2rem', color: 'var(--text-strong)', marginBottom: '0.5rem' }}>{t('deck.importSummary')}</h3>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>{t('deck.imported', { count: importSummary.addedCount })}</p>
+            <p style={{ fontSize: '0.8rem', color: 'var(--accent-yellow)' }}>{t('deck.saveDraftHint')}</p>
             {importSummary.skipped.length > 0 && (
               <>
                 <h4 style={{ fontSize: '0.9rem', color: 'var(--accent-yellow)', margin: '0 0 0.5rem' }}>{t('deck.notImported')}</h4>

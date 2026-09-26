@@ -110,6 +110,7 @@ function App() {
   const [statsTrigger, setStatsTrigger] = useState(0);
 
   const tabGuardRef = useRef(null);
+  const navigationGuardRef = useRef(null);
 
   // Navigate tabs through here so each change pushes a history entry: a back
   // gesture then returns to the PREVIOUS tab (not always dashboard), and modals
@@ -118,16 +119,19 @@ function App() {
   // Disposing with history.back() would race during rapid switches and navigate
   // the browser past the app origin into about:blank.
   const goTab = (tab, inventoryType = 'collection') => {
+    if (tab !== activeTab && navigationGuardRef.current?.() === false) return false;
     if (tab === 'storage') setStorageInventoryType(inventoryType);
-    if (tab === activeTab) return;
+    if (tab === activeTab) return true;
     const prev = activeTab;
     const prevStorageInventoryType = storageInventoryType;
     tabGuardRef.current = pushBackGuard(() => {
+      if (navigationGuardRef.current?.() === false) return false;
       tabGuardRef.current = null;
       setActiveTab(prev);
       setStorageInventoryType(prevStorageInventoryType);
     });
     setActiveTab(tab);
+    return true;
   };
 
   // Detect public share route on load
@@ -230,6 +234,7 @@ function App() {
   // Handle automatic logout on 401
   useEffect(() => {
     const handleAutoLogout = () => {
+      if (navigationGuardRef.current?.() === false) return;
       sessionRevision.current += 1;
       setToken(null);
       setUser(null);
@@ -276,6 +281,7 @@ function App() {
   };
 
   const handleLogout = () => {
+    if (navigationGuardRef.current?.() === false) return;
     // Revoke token on server asynchronously
     fetch('/api/auth/logout', { method: 'POST' }).catch(err => console.error(err));
 
@@ -372,7 +378,7 @@ function App() {
           />
         );
       case 'deckbuilder':
-        return <DeckBuilder key={deckViewKey} showToast={showToast} />;
+        return <DeckBuilder key={deckViewKey} showToast={showToast} navigationGuardRef={navigationGuardRef} />;
       case 'notes':
         return <Notes showToast={showToast} />;
       case 'settings':
@@ -438,8 +444,8 @@ function App() {
           <button
             className={`nav-tab ${activeTab === 'deckbuilder' ? 'active' : ''}`}
             onClick={() => {
-              setDeckViewKey(key => key + 1);
-              goTab('deckbuilder');
+              if (activeTab === 'deckbuilder' && navigationGuardRef.current?.() === false) return;
+              if (goTab('deckbuilder')) setDeckViewKey(key => key + 1);
             }}
           >
             <Swords size={18} />

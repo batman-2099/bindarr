@@ -413,6 +413,93 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+// Replace the editor draft as one unit; failed validation rolls every change back.
+router.put('/:id/editor', async (req, res) => {
+  const body = req.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return res.status(400).json({ error: 'A complete deck editor draft is required' });
+  }
+  const { name, description, format, category, accent_color, target_size, inventory_type, cards, commander_card_id } = body;
+  if (typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'Deck name is required' });
+  }
+  if ([description, format, category, accent_color].some(value => typeof value !== 'string')) {
+    return res.status(400).json({ error: 'Deck description, format, category and accent_color must be strings' });
+  }
+  if (!Number.isInteger(target_size) || target_size < 1 || target_size > 300) {
+    return res.status(400).json({ error: 'target_size must be between 1 and 300' });
+  }
+  if (!['collection', 'arena'].includes(inventory_type)) {
+    return res.status(400).json({ error: 'Invalid deck inventory type' });
+  }
+  if (!Array.isArray(cards)) {
+    return res.status(400).json({ error: 'cards must be an array' });
+  }
+  const cardIds = new Set();
+  for (const card of cards) {
+    if (!card || typeof card.card_id !== 'string' || !card.card_id.trim()
+        || !Number.isSafeInteger(card.quantity) || card.quantity < 1 || typeof card.pulled !== 'boolean') {
+      return res.status(400).json({ error: 'Each card requires a card_id, positive integer quantity and boolean pulled flag' });
+    }
+    if (cardIds.has(card.card_id)) return res.status(400).json({ error: 'Duplicate card_id in deck draft' });
+    cardIds.add(card.card_id);
+  }
+  if (commander_card_id !== null && (typeof commander_card_id !== 'string' || !commander_card_id.trim())) {
+    return res.status(400).json({ error: 'commander_card_id must be a non-empty string or null' });
+  }
+  if (commander_card_id !== null) {
+    if (!/commander|edh|brawl/i.test(format)) {
+      return res.status(400).json({ error: 'Only Commander / EDH or Brawl decks can designate a commander' });
+    }
+    if (!cardIds.has(commander_card_id)) {
+      return res.status(400).json({ error: 'Commander must be a card in this deck' });
+    }
+  }
+
+  const { id } = req.params;
+  try {
+    await db.withTransaction(async () => {
+      const deck = await db.get(`SELECT inventory_type, checked_out FROM decks WHERE id = ? AND user_id = ? AND game = 'mtg'`, [id, req.user.id]);
+      if (!deck) throw Object.assign(new Error('Deck not found or unauthorized'), { status: 404 });
+      if (deck.checked_out) {
+        if (inventory_type !== deck.inventory_type) {
+          throw Object.assign(new Error('Return this deck before changing its inventory type'), { status: 400 });
+        }
+        const savedCards = await db.all(`SELECT card_id, quantity FROM deck_cards WHERE deck_id = ? AND quantity > 0`, [id]);
+        const quantities = new Map(savedCards.map(card => [card.card_id, card.quantity]));
+        if (savedCards.length !== cards.length || cards.some(card => quantities.get(card.card_id) !== card.quantity)) {
+          throw Object.assign(new Error('Return this deck before changing its cards'), { status: 400 });
+        }
+      }
+      await db.run(
+        `UPDATE decks SET name = ?, description = ?, format = ?, category = ?, accent_color = ?,
+          target_size = ?, inventory_type = ?, commander_card_id = ? WHERE id = ? AND user_id = ?`,
+        [name.trim(), description, format, category, accent_color, target_size, inventory_type, commander_card_id, id, req.user.id]
+      );
+      if (deck.checked_out) {
+        // Preserve the checked-out composition and its reservations, even if inventory has since changed.
+        for (const card of cards) {
+          await db.run(`UPDATE deck_cards SET checked_out = ? WHERE deck_id = ? AND card_id = ?`, [card.pulled ? 1 : 0, id, card.card_id]);
+        }
+      } else {
+        await db.run(`DELETE FROM deck_cards WHERE deck_id = ?`, [id]);
+        for (const card of cards) {
+          const check = await validateDeckAddition({ deckId: id, userId: req.user.id, cardId: card.card_id, newQty: card.quantity });
+          if (!check.ok) throw Object.assign(new Error(check.error), { status: 400 });
+          await db.run(
+            `INSERT INTO deck_cards (deck_id, card_id, quantity, checked_out) VALUES (?, ?, ?, ?)`,
+            [id, card.card_id, card.quantity, card.pulled ? 1 : 0]
+          );
+        }
+      }
+    });
+    res.json({ message: 'Deck updated successfully' });
+  } catch (error) {
+    if (!error.status) console.error(error);
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Failed to update deck' });
+  }
+});
+
 router.patch('/:id/record', async (req, res) => {
   const body = req.body;
   if (!body || typeof body !== 'object' || Array.isArray(body)

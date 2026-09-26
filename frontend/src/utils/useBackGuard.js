@@ -27,7 +27,11 @@ function onPopState() {
     return;
   }
   const entry = stack.pop();
-  if (entry) entry.close(); // its guard state was just consumed by this back
+  if (entry && entry.close() === false) {
+    // A canceled leave must still intercept the next browser/native back.
+    stack.push(entry);
+    window.history.pushState({ backGuard: true }, '');
+  }
 }
 
 // Capacitor Android: drive the hardware back button through the guard stack.

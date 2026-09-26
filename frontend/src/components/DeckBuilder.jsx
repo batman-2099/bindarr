@@ -2061,11 +2061,11 @@ function DeckBuilder({ showToast }) {
                                       </span>
                                     )}
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer', color: card.checked_out ? 'var(--type-grass)' : 'var(--text-secondary)', fontSize: '0.7rem', fontWeight: 600 }}>
-                                      <input type="checkbox" checked={!!card.checked_out} disabled={savingCard} onChange={(e) => handlePulledChange(card.id, e.target.checked)} />
+                                      <input type="checkbox" role="switch" className="deck-card-toggle" checked={!!card.checked_out} disabled={savingCard} onChange={(e) => handlePulledChange(card.id, e.target.checked)} />
                                       {t('deck.pulled')}
                                     </label>
                                     {/commander|edh|brawl/i.test(activeDeck.format || '') && <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.7rem', cursor: 'pointer' }}>
-                                      <input type="checkbox" checked={activeDeck.commander_card_id === card.id} disabled={savingCard} onChange={e => handleCommanderChange(e.target.checked ? card.id : null)} />
+                                      <input type="checkbox" role="switch" className="deck-card-toggle" checked={activeDeck.commander_card_id === card.id} disabled={savingCard} onChange={e => handleCommanderChange(e.target.checked ? card.id : null)} />
                                       {t('deck.commander')}
                                     </label>}
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: '4px', border: '1px solid var(--border-glass)' }}>
@@ -2118,11 +2118,11 @@ function DeckBuilder({ showToast }) {
                                   )}
                                   <div style={{ padding: '4px', display: 'flex', flexWrap: 'wrap', gap: '0.35rem', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', color: card.checked_out ? 'var(--type-grass)' : 'var(--text-secondary)', fontSize: '0.65rem', fontWeight: 600 }}>
-                                      <input type="checkbox" checked={!!card.checked_out} disabled={savingCard} onChange={(e) => handlePulledChange(card.id, e.target.checked)} />
+                                      <input type="checkbox" role="switch" className="deck-card-toggle" checked={!!card.checked_out} disabled={savingCard} onChange={(e) => handlePulledChange(card.id, e.target.checked)} />
                                       {t('deck.pulled')}
                                     </label>
                                     {/commander|edh|brawl/i.test(activeDeck.format || '') && <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.65rem', cursor: 'pointer' }}>
-                                      <input type="checkbox" checked={activeDeck.commander_card_id === card.id} disabled={savingCard} onChange={e => handleCommanderChange(e.target.checked ? card.id : null)} />
+                                      <input type="checkbox" role="switch" className="deck-card-toggle" checked={activeDeck.commander_card_id === card.id} disabled={savingCard} onChange={e => handleCommanderChange(e.target.checked ? card.id : null)} />
                                       {t('deck.commander')}
                                     </label>}
                                     <div style={{ display: 'flex', gap: '2px' }}>

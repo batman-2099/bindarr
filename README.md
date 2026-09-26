@@ -62,10 +62,10 @@ This is [batman-2099/bindarr](https://github.com/batman-2099/bindarr), a fork of
 - Added editable deck properties, a Deck Type column, deck duplication, and inventory-aware Physical/Arena switching.
 - Added card storage locations and sorting by container, compartment, and slot.
 - Added unavailable-copy warnings and the names of checked-out decks reserving those copies. Ownership and reservations are scoped to the deck's inventory type: checked-out Physical decks never make Arena cards unavailable.
-- Added persistent pulled-card checkboxes and resizable deck grid cards. Choose **Pulled status** in the deck-card sort menu to group **Not pulled** first, then **Pulled**, alphabetically within each group in both list and grid views.
+- Added persistent **Pulled** toggles and resizable deck grid cards. Pulled and Commander controls are green when on and neutral when off in both list and grid views. Choose **Pulled status** in the deck-card sort menu to group **Not pulled** first, then **Pulled**, alphabetically within each group in both list and grid views.
 - **Add Cards to Deck** search and **Browse Collection** results use a responsive artwork grid with printing details, owned/in-deck counts, preview, and add controls.
 - Added mana/color identity and category information to deck lists.
-- Added single-commander selection for Commander decks using card checkboxes and banners, with persistence in deck copies and complete backups.
+- Added single-commander selection for Commander decks using card toggles and banners, with persistence in deck copies and complete backups.
 - Added per-deck wins/losses and reorganized the detail view: description, overview panels, then full-width card list/grid. Record controls live in **Deck Health & Rules**.
 - Added **Related tokens** in the card inspector and a **Tokens** grid after deck cards in both list/grid views and AI drafts. Each token shows artwork, name, inventory-scoped ownership, physical storage locations, and **Created by:** with each linked card name on its own line below. Locations appear above creator names. See [Find tokens for a card or deck](#find-tokens-for-a-card-or-deck) for matching rules and limitations.
 

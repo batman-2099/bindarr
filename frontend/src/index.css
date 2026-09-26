@@ -1104,6 +1104,43 @@ button, input, select, textarea {
   color: var(--text-primary);
 }
 
+.deck-card-toggle {
+  appearance: none;
+  width: 30px;
+  height: 18px;
+  margin: 0;
+  flex-shrink: 0;
+  border: 1px solid var(--text-muted);
+  border-radius: 999px;
+  background: var(--surface-1);
+  cursor: pointer;
+}
+.deck-card-toggle::before {
+  content: '';
+  display: block;
+  width: 12px;
+  height: 12px;
+  margin: 2px;
+  border-radius: 50%;
+  background: var(--text-primary);
+}
+.deck-card-toggle:checked {
+  background: var(--type-grass);
+  border-color: var(--type-grass);
+}
+.deck-card-toggle:checked::before {
+  transform: translateX(12px);
+  background: var(--bg-primary);
+}
+.deck-card-toggle:focus-visible {
+  outline: 2px solid var(--type-grass);
+  outline-offset: 2px;
+}
+.deck-card-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Custom Navigation Tabs (Responsive Bottom Bar on mobile, Top Tab Bar on Desktop) */
 .nav-tabs {
   display: flex;

@@ -1,3 +1,9 @@
+> [!IMPORTANT]
+> **This fork continues as [Manafolio](https://github.com/batman-2099/manafolio).**
+> Find ongoing development, current installation instructions, and updates in the Manafolio repository. Please report Manafolio issues there.
+>
+> Manafolio is based on [Bindarr](https://github.com/thenotoriousJeremy/bindarr) 1.8.5 by **thenotoriousJeremy and contributors**. This announcement applies to the `batman-2099/bindarr` fork, not the original Bindarr project.
+
 <div align="center">
 
 <img src="frontend/public/logo.svg" width="120" height="120" alt="Bindarr" />

@@ -6,7 +6,7 @@ import SlabLookup from './SlabLookup';
 import MtgDeckImport from './MtgDeckImport';
 import { useT } from '../utils/i18n';
 
-function AddCards({ onAddSuccess, showToast, setActiveTab, initialMode = 'scan' }) {
+function AddCards({ onAddSuccess, showToast, setActiveTab, initialMode = 'search' }) {
   const { t } = useT();
   const [mode, setMode] = useState(initialMode);
 

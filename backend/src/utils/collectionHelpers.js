@@ -24,27 +24,32 @@ function defaultCompartmentPlan(type) {
 // same ordering the checkout locator uses (located copies first, newest first),
 // so storage greys out the same copies the wizard told them to grab.
 async function checkedOutAllocation(userId, excludeDeckId = null) {
-  const required = await db.all(`
-    SELECT dc.card_id, SUM(dc.quantity) AS req
-    FROM deck_cards dc
-    JOIN decks d ON dc.deck_id = d.id
-    WHERE d.user_id = ? AND d.checked_out = 1 AND d.inventory_type = 'collection' AND (? IS NULL OR d.id != ?)
-    GROUP BY dc.card_id
-  `, [userId, excludeDeckId, excludeDeckId]);
+  const entries = await db.all(`
+    WITH required AS (
+      SELECT dc.card_id, SUM(dc.quantity) AS req
+      FROM deck_cards dc
+      JOIN decks d ON dc.deck_id = d.id
+      WHERE d.user_id = ? AND d.checked_out = 1 AND d.inventory_type = 'collection' AND (? IS NULL OR d.id != ?)
+      GROUP BY dc.card_id
+    )
+    SELECT c.id AS entry_id, c.card_id, c.quantity, r.req
+    FROM collection c
+    JOIN required r ON r.card_id = c.card_id
+    WHERE c.user_id = ? AND c.list_type = 'collection'
+    ORDER BY c.card_id, (c.location_id IS NOT NULL) DESC, c.added_at DESC
+  `, [userId, excludeDeckId, excludeDeckId, userId]);
   const alloc = new Map();
-  for (const { card_id, req } of required) {
-    let need = req;
-    const entries = await db.all(`
-      SELECT id AS entry_id, quantity FROM collection
-      WHERE user_id = ? AND list_type = 'collection' AND card_id = ?
-      ORDER BY (location_id IS NOT NULL) DESC, added_at DESC
-    `, [userId, card_id]);
-    for (const e of entries) {
-      if (need <= 0) break;
-      const take = Math.min(e.quantity, need);
-      need -= take;
-      alloc.set(e.entry_id, take);
+  let cardId;
+  let need = 0;
+  for (const entry of entries) {
+    if (entry.card_id !== cardId) {
+      cardId = entry.card_id;
+      need = entry.req;
     }
+    if (need <= 0) continue;
+    const take = Math.min(entry.quantity, need);
+    need -= take;
+    alloc.set(entry.entry_id, take);
   }
   return alloc;
 }

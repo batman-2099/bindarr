@@ -17,6 +17,7 @@ import CardImage from './CardImage';
 import MultiSelectDropdown from './MultiSelectDropdown';
 
 const labelStyle = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' };
+const PAGE_SIZE = 60;
 
 // Maps each Sort By option to sortCardsByOrder criteria so ordering matches the
 // storage engine (set = chronological via setsList, type = POKEMON_TYPE_ORDER).
@@ -70,6 +71,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
   const [subTab, setSubTab] = useState('collection'); // 'collection', 'unsorted', 'wishlist', 'arena', 'graveyard'
   const inventoryType = subTab === 'graveyard' ? 'graveyard' : 'collection';
   const [showFilters, setShowFilters] = useState(false);
+  const [page, setPage] = useState(1);
 
   // Search & Filter state
   const [searchFilter, setSearchFilter] = useState('');
@@ -327,6 +329,14 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
   // In select mode, render the unstacked list so every entry is individually
   // selectable and bulk actions hit real entry_ids (stacking merges rows).
   const displayCards = selectMode ? filteredCollection : processedCollection;
+  const pageCount = Math.max(1, Math.ceil(displayCards.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  // ponytail: paginate only rendering; filters, exports and bulk selection keep all matches.
+  const pageCards = displayCards.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(1);
+  }, [displayCards, subTab, tradeOnly]);
 
   const exportView = (format) => {
     const link = document.createElement('a');
@@ -341,6 +351,22 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
   const totalValue = useMemo(
     () => displayCards.reduce((sum, item) => sum + (item.price_trend || 0) * (item.quantity || 1), 0),
     [displayCards]
+  );
+
+  const paginationControls = !loading && displayCards.length > 0 && (
+    <nav aria-label={t('collection.pagination')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: '0.75rem', margin: '1rem 0' }}>
+      <button type="button" className="btn btn-secondary" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)} style={{ minHeight: '44px' }}>
+        {t('collection.previousPage')}
+      </button>
+      <span style={{ fontSize: '0.8rem', textAlign: 'center' }}>
+        {t('collection.pageCount', { page: currentPage, count: pageCount })}
+        <br />
+        {t('collection.pageRange', { start: (currentPage - 1) * PAGE_SIZE + 1, end: Math.min(currentPage * PAGE_SIZE, displayCards.length), count: displayCards.length })}
+      </span>
+      <button type="button" className="btn btn-secondary" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)} style={{ minHeight: '44px' }}>
+        {t('collection.nextPage')}
+      </button>
+    </nav>
   );
 
   return (
@@ -673,7 +699,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
       {selectMode && (
         <div className="glass-panel bulk-action-bar" style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', position: 'sticky', top: '0.5rem', zIndex: 30 }}>
           <span style={{ fontWeight: 800, color: 'var(--text-strong)', fontSize: '0.85rem' }}>{t('bulk.selected', { count: selectedIds.size })}</span>
-          <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} onClick={() => setSelectedIds(new Set(filteredCollection.map(i => i.entry_id)))}>{t('bulk.selectAll', { count: filteredCollection.length })}</button>
+          <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} onClick={() => setSelectedIds(new Set(filteredCollection.map(i => i.entry_id)))}>{t('collection.selectAllMatches', { count: filteredCollection.length })}</button>
           <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} onClick={clearSelection}>{t('bulk.clear')}</button>
           <div style={{ width: '1px', height: '22px', background: 'var(--border-glass)' }} />
           <button className="btn btn-danger" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} disabled={!selectedIds.size} onClick={() => runBulk('delete', null, t('bulk.confirmDelete', { count: selectedIds.size }))}>{t('bulk.delete')}</button>
@@ -730,6 +756,8 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
         </div>
       )}
 
+      {paginationControls}
+
       {loading ? (
         <div className="spinner"></div>
       ) : displayCards.length === 0 ? (
@@ -739,7 +767,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
       ) : viewMode === 'gallery' ? (
         /* Visual Cards Grid Gallery View */
         <div className="card-grid">
-          {displayCards.map((item) => {
+          {pageCards.map((item) => {
             const rarityStyle = getCardRarityBorder(item.rarity);
             const selected = selectedIds.has(item.entry_id);
 
@@ -864,7 +892,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
                 </tr>
               </thead>
               <tbody>
-                {displayCards.map((item) => {
+                {pageCards.map((item) => {
                   const selected = selectedIds.has(item.entry_id);
                   return (
                   <tr key={item.entry_id} style={selected ? { background: 'rgba(255,71,71,0.12)' } : undefined}>
@@ -926,6 +954,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
           </div>
         </div>
       )}
+      {paginationControls}
 
       {/* Card Detail Inspector Modal (Private Authorized View) */}
       <CardInspectorModal

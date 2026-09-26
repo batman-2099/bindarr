@@ -1920,7 +1920,7 @@ function DeckBuilder({ showToast, navigationGuardRef }) {
                           return (
                             <div key={card.id} style={{ display: 'flex', flexDirection: 'column', minWidth: 0, padding: '0.5rem', background: 'var(--surface-1)', borderRadius: '4px', border: '1px solid var(--border-glass)', gap: '0.5rem' }}>
                               <button type="button" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', cursor: 'pointer', minWidth: 0, padding: 0, border: 0, background: 'transparent', textAlign: 'left' }} onClick={() => setPreviewCard(card)} aria-label={`${t('deck.previewArt')}: ${displayName(card)}`}>
-                                <CardImage card={card} style={{ width: '100%', aspectRatio: '5 / 7', objectFit: 'contain', borderRadius: '4px' }} />
+                                <CardImage card={card} loading="lazy" style={{ width: '100%', aspectRatio: '5 / 7', objectFit: 'contain', borderRadius: '4px' }} />
                                 <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, width: '100%' }}>
                                   <span style={{ fontSize: '0.8rem', color: 'var(--text-strong)', overflowWrap: 'anywhere' }}>{displayName(card)} ({card.set_name} • #{card.number})</span>
                                   <span style={{ fontSize: '0.65rem', color: isAtMaxOwned ? 'var(--accent-red)' : 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Owned: {ownedQty} | In Deck: {qtyInDeck}</span>
@@ -2024,7 +2024,7 @@ function DeckBuilder({ showToast, navigationGuardRef }) {
                               {list.map(card => (
                                 <div key={card.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0.75rem', background: card.quantity > (card.owned_qty || 0) - (card.locked_qty || 0) ? 'rgba(127,29,29,0.16)' : 'rgba(255,255,255,0.01)', borderRadius: 'var(--radius-sm)', border: card.quantity > (card.owned_qty || 0) - (card.locked_qty || 0) ? '1px solid var(--accent-red)' : '1px solid var(--border-glass)', gap: '0.6rem' }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', minWidth: 0, flex: 1 }} onClick={() => setPreviewCard(card)}>
-                                    <CardImage card={card} style={{ width: '32px', height: '44px', objectFit: 'cover', borderRadius: '2px', flexShrink: 0 }} />
+                                    <CardImage card={card} src={card.image_url?.replace(/^(https:\/\/cards\.scryfall\.io)\/normal\//, '$1/small/')} loading="lazy" style={{ width: '32px', height: '44px', objectFit: 'cover', borderRadius: '2px', flexShrink: 0 }} />
                                     <div style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
                                       {activeDeck.commander_card_id === card.id && <div style={{ background: 'var(--accent-yellow)', color: 'var(--bg-primary)', padding: '2px 6px', fontSize: '0.7rem', fontWeight: 800 }}>{t('deck.commander')}</div>}
                                       <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName(card)}</div>
@@ -2083,7 +2083,7 @@ function DeckBuilder({ showToast, navigationGuardRef }) {
                               {list.map(card => (
                                 <div key={card.id} style={{ position: 'relative', borderRadius: '6px', overflow: 'hidden', border: card.quantity > (card.owned_qty || 0) - (card.locked_qty || 0) ? '2px solid var(--accent-red)' : '1px solid var(--border-glass)', background: card.quantity > (card.owned_qty || 0) - (card.locked_qty || 0) ? 'rgba(127,29,29,0.16)' : 'rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', transition: 'transform 0.15s' }}>
                                   <div style={{ position: 'relative', width: '100%', aspectRatio: 0.718, cursor: 'pointer' }} onClick={() => setPreviewCard(card)}>
-                                    <CardImage card={card} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    <CardImage card={card} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                     {activeDeck.commander_card_id === card.id && <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, textAlign: 'center', background: 'var(--accent-yellow)', color: 'var(--bg-primary)', padding: '4px', fontSize: '0.75rem', fontWeight: 800 }}>{t('deck.commander')}</div>}
                                     <span style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(0,0,0,0.85)', color: 'var(--accent-yellow)', fontSize: '0.75rem', fontWeight: 800, padding: '1px 6px', borderRadius: '10px', border: '1px solid var(--accent-yellow)' }}>
                                       x{card.quantity}

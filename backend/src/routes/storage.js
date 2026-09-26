@@ -51,7 +51,21 @@ router.get('/locations', async (req, res) => {
     // compartment row out once per card, which inflated total_capacity by the
     // card count. Correlated aggregates keep each sum independent.
     const locations = await db.all(`
-      SELECT l.*,
+      WITH ranked_covers AS (
+        SELECT c.location_id, c.card_id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY c.location_id
+                 ORDER BY CASE WHEN c.card_id = l.cover_card_id THEN 0 ELSE 1 END,
+                          c.added_at DESC, c.id ASC
+               ) AS cover_rank
+        FROM collection c
+        JOIN locations l ON l.id = c.location_id AND l.user_id = c.user_id AND l.inventory_type = c.list_type
+        JOIN card_cache cc ON cc.id = c.card_id
+        WHERE c.user_id = ? AND c.list_type = ? AND cc.game = 'mtg'
+          AND cc.image_url IS NOT NULL AND cc.image_url != ''
+      )
+      SELECT l.*, cover.id AS resolved_cover_card_id, cover.name AS cover_name,
+             cover.game AS cover_game, cover.image_url AS cover_image_url,
              (SELECT COUNT(*) FROM compartments WHERE location_id = l.id) as compartment_count,
              (SELECT COALESCE(SUM(capacity), 0) FROM compartments WHERE location_id = l.id) as total_capacity,
              -- Measured against total_capacity, which counts slots: on a stacking
@@ -64,9 +78,16 @@ router.get('/locations', async (req, res) => {
                 WHERE user_id = l.user_id AND COALESCE(list_type, 'collection') = l.inventory_type
                   AND compartment_id IN (SELECT id FROM compartments WHERE location_id = l.id)) as total_cards
       FROM locations l
+      LEFT JOIN ranked_covers rc ON rc.location_id = l.id AND rc.cover_rank = 1
+      LEFT JOIN card_cache cover ON cover.id = rc.card_id
       WHERE l.user_id = ? AND l.inventory_type = ?
-    `, [req.user.id, inventoryType]);
-    res.json(locations);
+    `, [req.user.id, inventoryType, req.user.id, inventoryType]);
+    res.json(locations.map(({ resolved_cover_card_id, cover_name, cover_game, cover_image_url, ...location }) => ({
+      ...location,
+      cover: resolved_cover_card_id ? {
+        card_id: resolved_cover_card_id, name: cover_name, game: cover_game, image_url: cover_image_url,
+      } : null,
+    })));
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to retrieve locations' });

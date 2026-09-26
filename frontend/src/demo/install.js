@@ -37,6 +37,16 @@ window.fetch = (input, opts = {}) => {
       const field = path === '/api/locations' ? 'inventory_type' : 'list_type';
       const inventory = new URL(url, window.location.origin).searchParams.get(field) || 'collection';
       data = data.filter(item => (item[field] || 'collection') === inventory);
+      if (path === '/api/locations') {
+        data = data.map(location => {
+          const choices = routes['/api/collection'].filter(card => card.location_id === location.id
+            && (card.list_type || 'collection') === inventory && card.image_url);
+          const card = choices.find(card => card.card_id === location.cover_card_id) || choices[0];
+          return { ...location, cover: card ? {
+            card_id: card.card_id, name: card.name, game: card.game, image_url: card.image_url,
+          } : null };
+        });
+      }
     }
     return Promise.resolve(json(data));
   }

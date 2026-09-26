@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { DndContext, DragOverlay, MouseSensor, useSensor, useSensors, useDraggable, useDroppable, pointerWithin } from '@dnd-kit/core';
 import { Plus, Minus, Trash2, X, MoreVertical, Settings, RefreshCw, Lock, LayoutGrid, List, MousePointerClick, ChevronDown, ChevronUp, Edit3, Download, Search, SlidersHorizontal, Layers } from 'lucide-react';
 import { sortCardsByOrder } from '../utils/cardSort';
@@ -164,6 +164,11 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   const [activeLocationId, setActiveLocationId] = useState(null);
   const [compartments, setCompartments] = useState([]);
   const [allCards, setAllCards] = useState([]);
+  const [loadedCardsKey, setLoadedCardsKey] = useState(null);
+  const [cardsError, setCardsError] = useState(false);
+  const cardsRequest = useRef(0);
+  const cardsKey = `${inventoryType}:${statsTrigger}`;
+  const cardsReady = loadedCardsKey === cardsKey;
   const [loading, setLoading] = useState(true);
   const [setsList, setSetsList] = useState([]);
   const [showGallery, setShowGallery] = useState(true);
@@ -174,14 +179,6 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   const coverChoices = useMemo(() => [...new Map(allCards
     .filter(card => card.location_id === coverLocation?.id && card.image_url)
     .map(card => [card.card_id, card])).values()], [allCards, coverLocation]);
-  const galleryCovers = useMemo(() => {
-    const covers = new Map();
-    const preferred = new Map(locations.map(location => [location.id, location.cover_card_id]));
-    for (const card of allCards) {
-      if (card.location_id && card.image_url && (!covers.has(card.location_id) || preferred.get(card.location_id) === card.card_id)) covers.set(card.location_id, card);
-    }
-    return covers;
-  }, [allCards, locations]);
   const galleryLocations = useMemo(() => locations
     .filter(location => `${location.name} ${location.type}`.toLowerCase().includes(gallerySearch.toLowerCase()))
     .sort((a, b) => gallerySort === 'qty-desc'
@@ -451,12 +448,22 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
     } catch (err) { console.error(err); }
   };
 
-  const fetchAllCards = async () => {
+  const fetchAllCards = useCallback(async () => {
+    const request = ++cardsRequest.current;
+    setCardsError(false);
     try {
       const res = await fetch(`/api/collection?list_type=${inventoryType}`);
-      if (res.ok) setAllCards(await res.json());
-    } catch (err) { console.error(err); }
-  };
+      if (!res.ok) throw new Error('Failed to load collection cards');
+      const cards = await res.json();
+      if (request === cardsRequest.current) {
+        setAllCards(cards);
+        setLoadedCardsKey(cardsKey);
+      }
+    } catch (err) {
+      console.error(err);
+      if (request === cardsRequest.current) setCardsError(true);
+    }
+  }, [inventoryType, cardsKey]);
 
   const fetchCompartments = async (locId) => {
     if (!locId) { setCompartments([]); return; }
@@ -466,21 +473,31 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
     } catch (err) { console.error(err); }
   };
 
+  // The gallery uses summary covers; workspace rules and filing need the full
+  // inventory, including the unassigned queue (the API only scopes compartments).
+  const needsCards = !showGallery || showCreate || !!coverLocation
+    || (!!focusEntryId && focusNavRef.current !== focusEntryId);
+
   const refreshAll = async () => {
-    await Promise.all([fetchLocations(), fetchAllCards()]);
+    if (!needsCards) {
+      cardsRequest.current++;
+      setLoadedCardsKey(null);
+    }
+    await Promise.all([fetchLocations(), needsCards ? fetchAllCards() : null]);
     if (activeLocationId) await fetchCompartments(activeLocationId);
   };
 
   useEffect(() => {
     (async () => {
-      if (locations.length === 0 && allCards.length === 0) {
-        setLoading(true);
-      }
-      await Promise.all([fetchLocations(), fetchAllCards()]);
+      await fetchLocations();
       setLoading(false);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- length reads only gate the first-load spinner; adding them would loop on refetch
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statsTrigger, inventoryType]);
+
+  useEffect(() => {
+    if (needsCards && !cardsReady) fetchAllCards();
+  }, [needsCards, cardsReady, fetchAllCards]);
 
   useEffect(() => {
     fetchCompartments(activeLocationId);
@@ -496,7 +513,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   }, [selectedLocationId]);
 
   useEffect(() => {
-    if (!focusEntryId || allCards.length === 0) return;
+    if (!focusEntryId || !cardsReady || allCards.length === 0) return;
     const targetCard = allCards.find(c => (c.entry_id || c.id) === focusEntryId);
     if (!targetCard) return;
 
@@ -538,7 +555,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
       };
       tryScroll();
     }
-  }, [focusEntryId, allCards, compartments]);
+  }, [focusEntryId, cardsReady, allCards, compartments]);
 
   useEffect(() => {
     if (activeLocationId) setShowGallery(false);
@@ -1368,7 +1385,21 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
     onExpandedChange={setContainerImportExpanded}
   />;
 
-  if (loading) return <><div className="spinner" />{importReview}</>;
+  if (loading || (needsCards && !cardsReady && !cardsError)) return <><div className="spinner" role="status" aria-label={t('common.loading')} />{importReview}</>;
+  if (needsCards && !cardsReady && cardsError) return (
+    <section>
+      <p role="alert">{t('loc.errLoadCards')}</p>
+      <button type="button" className="btn btn-secondary" onClick={fetchAllCards}>{t('loc.retry')}</button>
+      <button type="button" className="btn btn-secondary" onClick={() => {
+        setShowGallery(true);
+        setShowCreate(false);
+        setCoverLocation(null);
+        setActiveLocationId(null);
+        focusNavRef.current = focusEntryId;
+      }}>{t('common.back')}</button>
+      {importReview}
+    </section>
+  );
 
   const inventorySelector = (
     <div className="sub-nav-tabs" role="group" aria-label={t('loc.inventory')} style={{ margin: 0 }}>
@@ -1404,8 +1435,8 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
           <div key={location.id} className="glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
           <button onClick={() => setActiveLocationId(location.id)} style={{ width: '100%', padding: 0, border: 0, background: 'transparent', textAlign: 'left', color: 'var(--text-strong)', cursor: 'pointer' }}>
             <div style={{ aspectRatio: '1.4', overflow: 'hidden', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {galleryCovers.has(location.id)
-                ? <CardImage card={galleryCovers.get(location.id)} src={galleryCovers.get(location.id).image_url.replace(/^(https:\/\/cards\.scryfall\.io\/)(?:small|normal|large|png)\/([^?]+)(.*)$/, (_, host, path, query) => `${host}art_crop/${path.replace(/\.png$/, '.jpg')}${query}`)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              {location.cover
+                ? <CardImage card={location.cover} src={location.cover.image_url.replace(/^(https:\/\/cards\.scryfall\.io\/)(?:small|normal|large|png)\/([^?]+)(.*)$/, (_, host, path, query) => `${host}art_crop/${path.replace(/\.png$/, '.jpg')}${query}`)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 : <Layers size={56} style={{ color: 'var(--text-muted)' }} />}
             </div>
             <div style={{ padding: '0.75rem 1rem' }}>

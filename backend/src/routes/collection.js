@@ -704,20 +704,24 @@ router.get('/collection', async (req, res) => {
         cp.idx as compartment_idx,
         cp.label as compartment_label,
         cp.capacity as compartment_capacity,
-        (SELECT GROUP_CONCAT(d.name, ', ')
-         FROM deck_cards dc
-         JOIN decks d ON d.id = dc.deck_id
-         WHERE dc.card_id = c.card_id AND d.user_id = c.user_id AND d.checked_out = 1) AS deck_names
+        checked_out_decks.deck_names
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
       LEFT JOIN locations l ON c.location_id = l.id
       LEFT JOIN compartments cp ON c.compartment_id = cp.id
+      LEFT JOIN (
+        SELECT dc.card_id, d.user_id, GROUP_CONCAT(d.name, ', ') AS deck_names
+        FROM deck_cards dc
+        JOIN decks d ON d.id = dc.deck_id
+        WHERE d.user_id = ? AND d.checked_out = 1
+        GROUP BY dc.card_id, d.user_id
+      ) checked_out_decks ON checked_out_decks.card_id = c.card_id AND checked_out_decks.user_id = c.user_id
       ${filterSql}
       ORDER BY c.added_at DESC
     `;
-    const rows = await db.all(query, filterParams);
+    const rows = await db.all(query, [req.user.id, ...filterParams]);
 
-    const alloc = await checkedOutAllocation(req.user.id);
+    const alloc = listType === 'collection' ? await checkedOutAllocation(req.user.id) : new Map();
 
     const formatted = rows.map(row => ({
       ...parseCardRow(row),
